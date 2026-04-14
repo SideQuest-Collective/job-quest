@@ -45,10 +45,18 @@ Run `/job-quest` to check in, review intel, practice interviews, or work through
 ### Web Dashboard
 Start the dashboard with:
 ```bash
-cd ~/job-quest/app
-DATA_DIR=~/.claude/job-quest node server.js
+~/.claude/job-quest/bin/start.sh
 ```
 Open `http://localhost:3847` for a visual overview of your job search.
+
+### CLI Scripts
+The installer puts helper scripts in `~/.claude/job-quest/bin/`:
+
+| Script | What it does |
+|--------|-------------|
+| `start.sh` | Launch the web dashboard with correct data directory |
+| `generate-plan.sh` | Generate interview prep plans via Claude CLI |
+| `code-review.sh` | Get AI code review on your solutions via Claude CLI |
 
 ## Dashboard Features
 

@@ -61,8 +61,16 @@ echo ""
 echo "Installing Claude Code skill..."
 mkdir -p "$SKILL_DIR"
 mkdir -p "$DATA_DIR/references"
+mkdir -p "$DATA_DIR/bin"
 cp "$APP_DIR/skill/SKILL.md" "$SKILL_DIR/SKILL.md"
 cp "$APP_DIR/skill/references/intel-agent-template.md" "$DATA_DIR/references/intel-agent-template.md"
+
+# Install CLI scripts
+cp "$APP_DIR/skill/bin/generate-plan.sh" "$DATA_DIR/bin/generate-plan.sh"
+cp "$APP_DIR/skill/bin/code-review.sh" "$DATA_DIR/bin/code-review.sh"
+cp "$APP_DIR/skill/bin/start.sh" "$DATA_DIR/bin/start.sh"
+chmod +x "$DATA_DIR/bin/"*.sh
+echo "  Scripts installed to $DATA_DIR/bin/"
 
 # Initialize data directory
 echo "Initializing data directory at $DATA_DIR..."
@@ -87,6 +95,6 @@ echo "    2. Type /job-quest to start the onboarding"
 echo "    3. Claude will interview you and set up your personalized daily intel agent"
 echo ""
 echo "  To start the web dashboard manually:"
-echo "    cd ~/job-quest/app && node server.js"
+echo "    ~/.claude/job-quest/bin/start.sh"
 echo "    Then open http://localhost:3847"
 echo ""
