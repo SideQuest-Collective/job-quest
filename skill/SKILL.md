@@ -199,6 +199,38 @@ Use AskUserQuestion to let them pick. Then help them with whatever they chose â€
 
 **Update Profile:** Re-run the interview for any fields they want to change. Update profile.json and the scheduled task prompt.
 
+## Available Scripts
+
+The skill installs helper scripts at `~/.claude/job-quest/bin/` that wrap the Claude CLI for common tasks. Use these from within Claude Code or from the terminal:
+
+### generate-plan.sh
+Generates a role-specific interview prep plan using Claude CLI. Takes a prompt file as input and returns structured JSON with technical questions, behavioral questions, quiz, system design prompts, and a readiness checklist.
+
+```bash
+# From Claude Code â€” use when the user wants interview prep for a specific role
+~/.claude/job-quest/bin/generate-plan.sh /tmp/prep-prompt.txt
+```
+
+The prompt file should contain the role details (company, title, level, fit analysis, tips). The script outputs JSON that can be saved to the role tracker.
+
+### code-review.sh
+Multi-turn code review using Claude CLI. Takes a prompt (via argument or stdin) and returns feedback. Used by the Code Lab for reviewing the user's solutions to coding problems.
+
+```bash
+# Pipe code for review
+echo "Review this solution for the two-sum problem: ..." | ~/.claude/job-quest/bin/code-review.sh
+```
+
+### start.sh
+Starts the web dashboard server. Automatically sets the data directory.
+
+```bash
+~/.claude/job-quest/bin/start.sh
+# Dashboard available at http://localhost:3847
+```
+
+When the user asks to practice coding, prep for an interview, or start the dashboard, use these scripts rather than reimplementing the functionality. They handle Claude CLI detection, nvm loading, and error logging.
+
 ## Troubleshooting
 
 - **Dashboard won't start**: Check `node --version` (need 18+), check port 3847 isn't in use
