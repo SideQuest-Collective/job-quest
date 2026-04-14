@@ -10,21 +10,18 @@ Job Quest is a Claude Code skill that sets up a complete job search system on yo
 
 ## Installation
 
+**One-liner:**
 ```bash
-# Clone and install
-git clone https://github.com/SideQuest-Collective/job-quest.git ~/job-quest
-cd ~/job-quest
-
-# Install the Claude Code skill
-cp -r skill/SKILL.md ~/.claude/skills/job-quest/SKILL.md
-mkdir -p ~/.claude/job-quest/references
-cp skill/references/intel-agent-template.md ~/.claude/job-quest/references/
-
-# Install the web dashboard
-cd app && npm install
+curl -sL https://raw.githubusercontent.com/SideQuest-Collective/job-quest/main/install.sh | bash
 ```
 
-Then open Claude Code and run `/job-quest` to start the conversational onboarding.
+**Or manually:**
+```bash
+git clone https://github.com/SideQuest-Collective/job-quest.git ~/job-quest
+cd ~/job-quest && bash install.sh
+```
+
+Then open Claude Code and type `/job-quest` to start your quest.
 
 ## How It Works
 
