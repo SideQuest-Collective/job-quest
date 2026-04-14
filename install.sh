@@ -73,7 +73,7 @@ mkdir -p "$DATA_DIR"/{intel,quizzes,tasks,problems,behavioral,conversations,sd-c
 [ -f "$DATA_DIR/problems/progress.json" ] || echo '{}' > "$DATA_DIR/problems/progress.json"
 [ -f "$DATA_DIR/behavioral/answers.json" ] || echo '[]' > "$DATA_DIR/behavioral/answers.json"
 [ -f "$DATA_DIR/role-tracker.json" ] || echo '{}' > "$DATA_DIR/role-tracker.json"
-[ -f "$DATA_DIR/role-actions.json" ] || echo '[]' > "$DATA_DIR/role-actions.json"
+[ -f "$DATA_DIR/role-actions.json" ] || echo '{"saved":[],"skipped":[],"applied":[]}' > "$DATA_DIR/role-actions.json"
 [ -f "$DATA_DIR/activity.json" ] || echo '[]' > "$DATA_DIR/activity.json"
 [ -f "$DATA_DIR/progress.json" ] || echo '{}' > "$DATA_DIR/progress.json"
 [ -f "$DATA_DIR/resume.json" ] || echo '{}' > "$DATA_DIR/resume.json"
