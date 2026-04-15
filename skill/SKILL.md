@@ -85,7 +85,7 @@ echo '[]' > ~/.claude/job-quest/problems/problems.json
 echo '{}' > ~/.claude/job-quest/problems/progress.json
 echo '[]' > ~/.claude/job-quest/behavioral/answers.json
 echo '{}' > ~/.claude/job-quest/role-tracker.json
-echo '[]' > ~/.claude/job-quest/role-actions.json
+echo '{"saved":[],"skipped":[],"applied":[]}' > ~/.claude/job-quest/role-actions.json
 echo '[]' > ~/.claude/job-quest/activity.json
 echo '{}' > ~/.claude/job-quest/progress.json
 echo '{}' > ~/.claude/job-quest/resume.json
@@ -124,11 +124,23 @@ Read `references/intel-agent-template.md` and personalize it by replacing all `{
 - `{{WEAK_SPOTS_QUIZ_SECTION}}` → bias quiz questions toward weak areas
 - `{{DATA_DIR}}` → `~/.claude/job-quest`
 
-Create the scheduled task using `mcp__scheduled-tasks__create_scheduled_task` with:
-- `taskId`: `"job-quest-daily-intel"`
-- `cronExpression`: based on user's schedule choice
-- `description`: `"Daily job hunt intelligence — discovers roles, generates quizzes, tasks, and coding problems for [NAME]'s Job Quest"`
-- `prompt`: the personalized template
+Create the scheduled agent using the `RemoteTrigger` tool (invoked via `/schedule`) with:
+
+```
+RemoteTrigger action: "create"
+body: {
+  "name": "job-quest-daily-intel",
+  "description": "Daily job hunt intelligence — discovers roles, generates quizzes, tasks, and coding problems for [NAME]'s Job Quest",
+  "schedule": {
+    "cron": "<cron expression based on user's schedule choice, e.g. '3 7 * * 1-5' for weekdays at 7:03 AM>"
+  },
+  "session_request": {
+    "system": "<the personalized intel agent template>"
+  }
+}
+```
+
+This creates a **durable** scheduled agent that persists across sessions and runs automatically on the configured schedule. Avoid using `CronCreate` as it is session-only and auto-expires after 7 days.
 
 ### Phase 5: Generate Today's Content
 
@@ -234,5 +246,5 @@ When the user asks to practice coding, prep for an interview, or start the dashb
 ## Troubleshooting
 
 - **Dashboard won't start**: Check `node --version` (need 18+), check port 3847 isn't in use
-- **No intel today**: Check the scheduled task is running (`mcp__scheduled-tasks__list_scheduled_tasks`). May need to re-run manually.
-- **Want to change schedule**: Use `mcp__scheduled-tasks__update_scheduled_task` with the new cron expression
+- **No intel today**: Check the scheduled agent is running (`RemoteTrigger action: "list"`). May need to re-run manually with `RemoteTrigger action: "run"`.
+- **Want to change schedule**: Use `RemoteTrigger action: "update"` with the trigger ID and new cron expression
