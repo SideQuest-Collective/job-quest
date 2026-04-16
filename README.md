@@ -80,6 +80,30 @@ The installer puts helper scripts in `~/.claude/job-quest/bin/`:
 - **Python 3** (optional) — for the code execution sandbox
 - **tectonic** (optional) — for LaTeX resume compilation
 
+## Uninstall / Reinstall
+
+**Uninstall** — removes the app, skill, data, and stops the server:
+```bash
+bash ~/job-quest/uninstall.sh
+```
+
+**Uninstall but keep your data** (profile, intel, progress):
+```bash
+bash ~/job-quest/uninstall.sh --keep-data
+```
+
+**Reinstall** — clean reset in one step (uninstall + fresh install):
+```bash
+bash ~/job-quest/reinstall.sh
+```
+
+**Reinstall preserving data:**
+```bash
+bash ~/job-quest/reinstall.sh --keep-data
+```
+
+Both scripts accept `--yes` to skip confirmation prompts.
+
 ## Data Storage
 
 All user data lives in `~/.claude/job-quest/` — your profile, intel reports, quizzes, tasks, coding problems, and progress. This keeps data separate from the app source code and follows the Claude Code skill data convention.
