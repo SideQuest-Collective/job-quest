@@ -976,6 +976,89 @@ app.delete('/api/sd-conversation/:topicId', (req, res) => {
 });
 
 // --- Job Status Endpoint ---
+// Detect the installed daily-intel schedule (launchd on macOS, cron on Linux).
+// Returns { installed, mechanism, cron, humanReadable } — never throws.
+function detectSchedule() {
+  const PLIST_PATH = path.join(os.homedir(), 'Library/LaunchAgents/com.sidequest.job-quest.daily-intel.plist');
+  const CRON_MARKER = '# job-quest-daily-intel';
+
+  // launchd (macOS)
+  if (fs.existsSync(PLIST_PATH)) {
+    try {
+      const plist = fs.readFileSync(PLIST_PATH, 'utf-8');
+      // StartCalendarInterval → <dict><key>Minute</key><integer>3</integer>... pull first entry's Minute/Hour
+      // and collect all Weekday values across entries.
+      const entryBlocks = plist.match(/<dict>[\s\S]*?<\/dict>/g) || [];
+      let minute = null, hour = null;
+      const weekdays = new Set();
+      for (const block of entryBlocks) {
+        const m = block.match(/<key>Minute<\/key>\s*<integer>(\d+)<\/integer>/);
+        const h = block.match(/<key>Hour<\/key>\s*<integer>(\d+)<\/integer>/);
+        const w = block.match(/<key>Weekday<\/key>\s*<integer>(\d+)<\/integer>/);
+        if (m) minute = parseInt(m[1], 10);
+        if (h) hour = parseInt(h[1], 10);
+        if (w) weekdays.add(parseInt(w[1], 10));
+      }
+      if (minute != null && hour != null) {
+        const dow = weekdays.size === 0 ? '*' : [...weekdays].sort((a, b) => a - b).join(',');
+        const cron = `${minute} ${hour} * * ${dow}`;
+        return { installed: true, mechanism: 'launchd', cron, humanReadable: cronToHuman(cron) };
+      }
+    } catch {}
+  }
+
+  // crontab (Linux, or --force-cron on macOS)
+  try {
+    const crontab = execSync('crontab -l 2>/dev/null', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const line = crontab.split('\n').find((l) => l.includes(CRON_MARKER));
+    if (line) {
+      const cron = line.trim().split(/\s+/).slice(0, 5).join(' ');
+      return { installed: true, mechanism: 'cron', cron, humanReadable: cronToHuman(cron) };
+    }
+  } catch {}
+
+  return { installed: false, mechanism: null, cron: null, humanReadable: null };
+}
+
+// Convert a 5-field cron expression to a human-readable schedule.
+// Handles the patterns install-schedule.sh supports; falls back to raw cron otherwise.
+function cronToHuman(cron) {
+  const parts = cron.split(/\s+/);
+  if (parts.length !== 5) return cron;
+  const [m, h, dom, mon, dow] = parts;
+  if (!/^\d+$/.test(m) || !/^\d+$/.test(h) || dom !== '*' || mon !== '*') return cron;
+
+  const hour12 = ((parseInt(h, 10) + 11) % 12) + 1;
+  const ampm = parseInt(h, 10) < 12 ? 'AM' : 'PM';
+  const minStr = m.padStart(2, '0');
+  const time = `${hour12}:${minStr} ${ampm}`;
+
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let dayDesc;
+  if (dow === '*') {
+    dayDesc = 'daily';
+  } else {
+    // Normalize any dow spec (e.g. '1-5', '1,2,3,4,5') to a sorted unique set of day integers.
+    const days = new Set();
+    for (const chunk of dow.split(',')) {
+      if (chunk.includes('-')) {
+        const [lo, hi] = chunk.split('-').map((x) => parseInt(x, 10));
+        if (!isNaN(lo) && !isNaN(hi)) for (let d = lo; d <= hi; d++) days.add(d % 7);
+      } else {
+        const d = parseInt(chunk, 10);
+        if (!isNaN(d)) days.add(d % 7);
+      }
+    }
+    const sorted = [...days].sort((a, b) => a - b).join(',');
+    if (sorted === '1,2,3,4,5') dayDesc = 'weekdays';
+    else if (sorted === '0,6') dayDesc = 'weekends';
+    else if (sorted === '0,1,2,3,4,5,6') dayDesc = 'daily';
+    else dayDesc = sorted.split(',').map((d) => dayNames[parseInt(d, 10)]).join(', ');
+  }
+
+  return `${time} ${dayDesc}`;
+}
+
 app.get('/api/job-status', (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   const intelFile = path.join(DATA_DIR, 'intel', `${today}.json`);
@@ -999,7 +1082,11 @@ app.get('/api/job-status', (req, res) => {
 
   const allReady = intelExists && quizExists && tasksExists;
   const noneReady = !intelExists && !quizExists && !tasksExists;
-  const status = allReady ? 'success' : noneReady ? 'pending' : 'partial';
+  const baseStatus = allReady ? 'success' : noneReady ? 'pending' : 'partial';
+
+  const schedule = detectSchedule();
+  // If the user hasn't installed a schedule, surface it as a warning state — the daily agent will never fire.
+  const status = !schedule.installed && noneReady ? 'not_scheduled' : baseStatus;
 
   res.json({
     date: today,
@@ -1007,6 +1094,7 @@ app.get('/api/job-status', (req, res) => {
     intel: { ready: intelExists, roles: rolesCount },
     quiz: { ready: quizExists, questions: questionsCount },
     tasks: { ready: tasksExists, count: tasksCount },
+    schedule,
   });
 });
 
