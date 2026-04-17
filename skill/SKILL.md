@@ -112,35 +112,21 @@ If the user already has the app installed somewhere, skip cloning — just confi
 
 Ask the user about their preferred schedule using AskUserQuestion:
 - **How often?** Daily (recommended), weekdays only, or custom
-- **What time?** Morning is ideal. Suggest something like 7:05 AM.
+- **What time?** Morning is ideal. Suggest something like 7:03 AM.
 
-Read `references/intel-agent-template.md` and personalize it by replacing all `{{PLACEHOLDER}}` values with the user's profile data:
-- `{{NAME}}` → user's name
-- `{{STRENGTHS}}` → their technical strengths
-- `{{TARGET_LEVEL}}` → target seniority level
-- `{{TARGET_COMPANIES_SECTION}}` → build from their specific companies and categories
-- `{{LOCATION}}` → location preferences
-- `{{DEAL_BREAKERS_SECTION}}` → exclusion criteria (or remove the section if none)
-- `{{WEAK_SPOTS_QUIZ_SECTION}}` → bias quiz questions toward weak areas
-- `{{DATA_DIR}}` → `~/.claude/job-quest`
+Install a **local cron entry** that runs the intel agent on the user's machine. The helper script `~/.claude/job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers the entry so it survives shell restarts and system reboots:
 
-Create the scheduled agent using the `RemoteTrigger` tool (invoked via `/schedule`) with:
+```bash
+# 7:03 AM weekdays
+~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"
 
-```
-RemoteTrigger action: "create"
-body: {
-  "name": "job-quest-daily-intel",
-  "description": "Daily job hunt intelligence — discovers roles, generates quizzes, tasks, and coding problems for [NAME]'s Job Quest",
-  "schedule": {
-    "cron": "<cron expression based on user's schedule choice, e.g. '3 7 * * 1-5' for weekdays at 7:03 AM>"
-  },
-  "session_request": {
-    "system": "<the personalized intel agent template>"
-  }
-}
+# 7:03 AM daily
+~/.claude/job-quest/bin/install-schedule.sh "3 7 * * *"
 ```
 
-This creates a **durable** scheduled agent that persists across sessions and runs automatically on the configured schedule. Avoid using `CronCreate` as it is session-only and auto-expires after 7 days.
+The installed entry invokes `~/.claude/job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs `claude -p` locally, and writes JSON files directly into `~/.claude/job-quest/{intel,quizzes,tasks}/` and appends to `problems/problems.json`. Logs land in `~/.claude/job-quest/logs/daily-intel.log`.
+
+**Why local cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state.
 
 ### Phase 5: Generate Today's Content
 
@@ -241,10 +227,33 @@ Starts the web dashboard server. Automatically sets the data directory.
 # Dashboard available at http://localhost:3847
 ```
 
+### run-daily-intel.sh
+Runs the daily intel agent locally via `claude -p`. Reads `profile.json`, builds a personalized prompt, and writes fresh `intel/`, `quizzes/`, and `tasks/` files for today. Invoked by the cron entry installed via `install-schedule.sh`, but can also be run manually for an on-demand refresh.
+
+```bash
+~/.claude/job-quest/bin/run-daily-intel.sh
+# Logs to ~/.claude/job-quest/logs/daily-intel.log
+```
+
+### install-schedule.sh
+Installs a crontab entry that runs `run-daily-intel.sh` on a schedule. Idempotent — replaces any existing job-quest entry.
+
+```bash
+# 7:03 AM weekdays
+~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+
+# Show current schedule
+~/.claude/job-quest/bin/install-schedule.sh --show
+
+# Remove the schedule
+~/.claude/job-quest/bin/install-schedule.sh --uninstall
+```
+
 When the user asks to practice coding, prep for an interview, or start the dashboard, use these scripts rather than reimplementing the functionality. They handle Claude CLI detection, nvm loading, and error logging.
 
 ## Troubleshooting
 
 - **Dashboard won't start**: Check `node --version` (need 18+), check port 3847 isn't in use
-- **No intel today**: Check the scheduled agent is running (`RemoteTrigger action: "list"`). May need to re-run manually with `RemoteTrigger action: "run"`.
-- **Want to change schedule**: Use `RemoteTrigger action: "update"` with the trigger ID and new cron expression
+- **No intel today**: Check the cron entry is installed (`~/.claude/job-quest/bin/install-schedule.sh --show`) and check `~/.claude/job-quest/logs/daily-intel.log` for errors. Re-run manually with `~/.claude/job-quest/bin/run-daily-intel.sh`.
+- **Want to change schedule**: Run `~/.claude/job-quest/bin/install-schedule.sh "<new-cron>"` — it replaces any existing job-quest entry.
+- **Remove the schedule entirely**: `~/.claude/job-quest/bin/install-schedule.sh --uninstall`
