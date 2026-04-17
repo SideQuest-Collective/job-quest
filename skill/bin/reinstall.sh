@@ -27,17 +27,13 @@ echo ""
 
 # Save uninstall script to temp — uninstall will delete ~/.claude/job-quest/bin/
 UNINSTALL_TMP=$(mktemp)
-if [ -f "$UNINSTALL_SRC" ]; then
-  cp "$UNINSTALL_SRC" "$UNINSTALL_TMP"
-# Fallback for legacy installs where the script still lives in the repo root
-elif [ -f "$HOME/job-quest/uninstall.sh" ]; then
-  cp "$HOME/job-quest/uninstall.sh" "$UNINSTALL_TMP"
-else
+if [ ! -f "$UNINSTALL_SRC" ]; then
   echo "  Error: uninstall.sh not found at $UNINSTALL_SRC"
   echo "  Run this script from an existing job-quest installation."
   rm -f "$UNINSTALL_TMP"
   exit 1
 fi
+cp "$UNINSTALL_SRC" "$UNINSTALL_TMP"
 
 echo "Step 1/2: Uninstalling current installation..."
 echo ""

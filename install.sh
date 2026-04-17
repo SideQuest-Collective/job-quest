@@ -9,12 +9,12 @@ echo "  ⚔️  Job Quest — Personal Job Hunt Command Center"
 echo "  ================================================"
 echo ""
 
-# Detect home directory
+# All job-quest assets live under ~/.claude/job-quest/
 HOME_DIR="$HOME"
 CLAUDE_DIR="$HOME_DIR/.claude"
 SKILL_DIR="$CLAUDE_DIR/skills/job-quest"
-DATA_DIR="$CLAUDE_DIR/job-quest"
-APP_DIR="$HOME_DIR/job-quest"
+APP_DIR="$CLAUDE_DIR/job-quest"
+DATA_DIR="$APP_DIR"
 
 # Check prerequisites
 echo "Checking prerequisites..."
@@ -39,13 +39,24 @@ if ! command -v git &> /dev/null; then
 fi
 echo "  git OK"
 
-# Clone or update the app
+# Clone or update the repo at APP_DIR. If APP_DIR exists but isn't a git
+# checkout (e.g. user data was seeded here before the repo existed), clone
+# into a temp dir and move the git-tracked files alongside the data.
 echo ""
-if [ -d "$APP_DIR" ]; then
+if [ -d "$APP_DIR/.git" ]; then
     echo "Updating existing installation at $APP_DIR..."
     cd "$APP_DIR" && git pull
+elif [ -d "$APP_DIR" ]; then
+    echo "Populating $APP_DIR with Job Quest source (preserving existing data)..."
+    TMP_CLONE=$(mktemp -d)
+    git clone --quiet https://github.com/SideQuest-Collective/job-quest.git "$TMP_CLONE"
+    # Move everything from the clone into APP_DIR (including .git), merging with existing data.
+    # Using tar avoids dotfile glob pitfalls and preserves the .git directory.
+    (cd "$TMP_CLONE" && tar cf - .) | (cd "$APP_DIR" && tar xf -)
+    rm -rf "$TMP_CLONE"
 else
     echo "Cloning Job Quest to $APP_DIR..."
+    mkdir -p "$(dirname "$APP_DIR")"
     git clone https://github.com/SideQuest-Collective/job-quest.git "$APP_DIR"
 fi
 
