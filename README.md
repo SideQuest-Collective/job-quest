@@ -17,8 +17,8 @@ curl -sL https://raw.githubusercontent.com/SideQuest-Collective/job-quest/main/i
 
 **Or manually:**
 ```bash
-git clone https://github.com/SideQuest-Collective/job-quest.git ~/job-quest
-cd ~/job-quest && bash install.sh
+git clone https://github.com/SideQuest-Collective/job-quest.git ~/.claude/job-quest
+cd ~/.claude/job-quest && bash install.sh
 ```
 
 Then open Claude Code and type `/job-quest` to start your quest.
@@ -110,9 +110,25 @@ bash ~/.claude/job-quest/bin/reinstall.sh --keep-data
 
 Both scripts accept `--yes` to skip confirmation prompts.
 
-## Data Storage
+## Install Layout
 
-All user data lives in `~/.claude/job-quest/` — your profile, intel reports, quizzes, tasks, coding problems, and progress. This keeps data separate from the app source code and follows the Claude Code skill data convention.
+Everything Job Quest needs lives under **`~/.claude/job-quest/`**:
+
+```
+~/.claude/job-quest/
+├── app/                 # Express dashboard server
+├── skill/               # skill definition (source)
+├── bin/                 # user-facing scripts (start, uninstall, reinstall, …)
+├── references/          # prompt templates
+├── intel/, quizzes/,    # daily agent output
+│   tasks/, problems/, …
+├── profile.json         # your profile
+├── activity.json, ...   # your state
+├── install.sh           # bootstrap
+└── .git/                # clone of the repo, so `git pull` works for updates
+```
+
+Additionally, `~/.claude/skills/job-quest/SKILL.md` is where Claude Code registers the skill — that path is fixed by the Claude Code convention.
 
 ## License
 

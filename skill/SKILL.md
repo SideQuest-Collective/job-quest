@@ -97,18 +97,18 @@ echo '{}' > ~/.claude/job-quest/resume.json
 
 Check if Node.js 18+ is installed (`node --version`). If not, walk the user through installing it for their platform.
 
-Then clone and install the web dashboard:
+Everything Job Quest needs (app, skill, scripts, user data) lives under `~/.claude/job-quest/`. Clone and install the dashboard there:
 ```bash
-git clone https://github.com/SideQuest-Collective/job-quest.git ~/job-quest
-cd ~/job-quest && npm install
+git clone https://github.com/SideQuest-Collective/job-quest.git ~/.claude/job-quest
+cd ~/.claude/job-quest/app && npm install
 ```
 
-Configure it to use the shared data directory:
+The data directory is the install root itself, so no `.env` is strictly required. The installer script writes one anyway for clarity:
 ```bash
-echo "DATA_DIR=~/.claude/job-quest" > ~/job-quest/.env
+echo "DATA_DIR=~/.claude/job-quest" > ~/.claude/job-quest/app/.env
 ```
 
-If the user already has the app installed somewhere, skip cloning — just confirm the path and create the `.env` file.
+If the user already ran `install.sh`, this is done. Skip re-cloning — just confirm the layout.
 
 ### Phase 4: Configure the Daily Intel Agent
 
@@ -143,9 +143,9 @@ Write all outputs to `~/.claude/job-quest/` in the correct JSON formats (see `re
 
 ### Phase 6: Start the Dashboard and Orient
 
-Start the web dashboard:
+Start the web dashboard via the installed helper:
 ```bash
-cd ~/job-quest && DATA_DIR=~/.claude/job-quest node server.js &
+~/.claude/job-quest/bin/start.sh &
 ```
 
 Tell the user it's running at `http://localhost:3847` and give them a quick tour:
