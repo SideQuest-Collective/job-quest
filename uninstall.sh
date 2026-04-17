@@ -60,6 +60,15 @@ else
   echo "  No server running on port 3847"
 fi
 
+# 1b. Remove the daily intel cron entry if installed
+echo "Removing cron schedule..."
+if crontab -l 2>/dev/null | grep -q "# job-quest-daily-intel"; then
+  crontab -l 2>/dev/null | grep -v "# job-quest-daily-intel" | crontab -
+  echo "  Removed job-quest cron entry"
+else
+  echo "  No cron entry to remove"
+fi
+
 # 2. Remove the Claude Code skill
 echo "Removing skill..."
 if [ -d "$SKILL_DIR" ]; then
