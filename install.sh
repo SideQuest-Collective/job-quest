@@ -69,6 +69,8 @@ cp "$APP_DIR/skill/references/intel-agent-template.md" "$DATA_DIR/references/int
 cp "$APP_DIR/skill/bin/generate-plan.sh" "$DATA_DIR/bin/generate-plan.sh"
 cp "$APP_DIR/skill/bin/code-review.sh" "$DATA_DIR/bin/code-review.sh"
 cp "$APP_DIR/skill/bin/start.sh" "$DATA_DIR/bin/start.sh"
+cp "$APP_DIR/skill/bin/run-daily-intel.sh" "$DATA_DIR/bin/run-daily-intel.sh"
+cp "$APP_DIR/skill/bin/install-schedule.sh" "$DATA_DIR/bin/install-schedule.sh"
 chmod +x "$DATA_DIR/bin/"*.sh
 echo "  Scripts installed to $DATA_DIR/bin/"
 

@@ -57,6 +57,10 @@ The installer puts helper scripts in `~/.claude/job-quest/bin/`:
 | `start.sh` | Launch the web dashboard with correct data directory |
 | `generate-plan.sh` | Generate interview prep plans via Claude CLI |
 | `code-review.sh` | Get AI code review on your solutions via Claude CLI |
+| `run-daily-intel.sh` | Run the daily intel agent on demand — writes today's roles, quiz, tasks, problems |
+| `install-schedule.sh` | Install a cron entry to run the daily intel agent automatically |
+
+**macOS note:** `install-schedule.sh` uses `crontab`, which requires your terminal app to have Full Disk Access (System Settings → Privacy & Security → Full Disk Access). The script surfaces a clear error with instructions if this permission is missing.
 
 ## Dashboard Features
 
