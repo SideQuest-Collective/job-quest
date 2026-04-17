@@ -728,13 +728,18 @@ function Dashboard({ progress, todayTasks, todayQuiz, latestIntel, setPage, newR
   if (todayQuiz?.questions?.length > 0) nextActions.push({ icon: Icons.brain, label: 'Take today\'s quiz', color: 'var(--cyan)', page: 'quiz' });
   if (tasksTotal > 0 && tasksDone < tasksTotal) nextActions.push({ icon: Icons.checkSquare, label: `${tasksTotal - tasksDone} tasks remaining`, color: 'var(--emerald)', page: 'tasks' });
 
-  // Job status styling
+  // Job status styling. The pending label is rewritten from the real schedule below.
   const statusConfig = {
     success: { color: 'var(--emerald)', bg: 'var(--emerald-dim)', icon: Icons.check, label: 'Daily run complete', border: 'rgba(52,211,153,0.2)' },
     partial: { color: 'var(--amber)', bg: 'var(--amber-dim)', icon: Icons.clock, label: 'Partially complete', border: 'rgba(251,191,36,0.2)' },
-    pending: { color: 'var(--text-muted)', bg: 'var(--bg-surface)', icon: Icons.clock, label: 'Scheduled for 8:00 AM', border: 'var(--border)' },
+    pending: { color: 'var(--text-muted)', bg: 'var(--bg-surface)', icon: Icons.clock, label: 'Waiting for next run', border: 'var(--border)' },
+    not_scheduled: { color: 'var(--rose)', bg: 'var(--rose-dim)', icon: Icons.clock, label: 'Daily schedule not installed', border: 'rgba(251,113,133,0.25)' },
   };
-  const js = jobStatus ? statusConfig[jobStatus.status] || statusConfig.pending : null;
+  let js = jobStatus ? statusConfig[jobStatus.status] || statusConfig.pending : null;
+  // Personalize the pending label with the user's actual schedule.
+  if (js && jobStatus?.status === 'pending' && jobStatus.schedule?.installed) {
+    js = { ...js, label: `Scheduled for ${jobStatus.schedule.humanReadable}` };
+  }
 
   return (
     <>
@@ -751,11 +756,14 @@ function Dashboard({ progress, todayTasks, todayQuiz, latestIntel, setPage, newR
               {js.label}
               <span style={{fontSize:11,fontWeight:400,color:'var(--text-muted)',marginLeft:10}}>{jobStatus.date}</span>
             </div>
-            <div style={{fontSize:12,color:'var(--text-secondary)',display:'flex',gap:16,marginTop:4}}>
+            <div style={{fontSize:12,color:'var(--text-secondary)',display:'flex',gap:16,marginTop:4,flexWrap:'wrap'}}>
               {jobStatus.intel?.ready && <span>{jobStatus.intel.roles} roles found</span>}
               {jobStatus.quiz?.ready && <span>{jobStatus.quiz.questions} quiz questions</span>}
               {jobStatus.tasks?.ready && <span>{jobStatus.tasks.count} tasks generated</span>}
-              {jobStatus.status === 'pending' && <span>Waiting for daily intelligence run...</span>}
+              {jobStatus.status === 'pending' && jobStatus.schedule?.installed && <span>Next run: {jobStatus.schedule.humanReadable} via {jobStatus.schedule.mechanism}</span>}
+              {jobStatus.status === 'pending' && !jobStatus.schedule?.installed && <span>Waiting for daily intelligence run...</span>}
+              {jobStatus.status === 'not_scheduled' && <span>Run <code style={{fontFamily:'var(--font-mono)',fontSize:11,background:'var(--bg-surface)',padding:'1px 6px',borderRadius:4}}>~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"</code> to schedule the daily intel agent</span>}
+              {(jobStatus.status === 'success' || jobStatus.status === 'partial') && jobStatus.schedule?.installed && <span style={{opacity:0.7}}>Next: {jobStatus.schedule.humanReadable}</span>}
             </div>
           </div>
           {jobStatus.status === 'success' && <div style={{width:10,height:10,borderRadius:'50%',background:'var(--emerald)',boxShadow:'0 0 8px var(--emerald)',flexShrink:0}} />}
@@ -918,7 +926,7 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
             <div className="discover-counter">{currentIdx + 1} / {unseen.length}</div>
           </>
         ) : (
-          <div className="discover-empty anim-enter anim-delay-2"><Icons.compass style={{width:56,height:56}} /><p style={{fontSize:16,color:'var(--text-muted)',marginBottom:8}}>All caught up!</p><p style={{fontSize:13,color:'var(--text-muted)'}}>You've reviewed all available roles. New intel arrives daily at 8 AM.</p></div>
+          <div className="discover-empty anim-enter anim-delay-2"><Icons.compass style={{width:56,height:56}} /><p style={{fontSize:16,color:'var(--text-muted)',marginBottom:8}}>All caught up!</p><p style={{fontSize:13,color:'var(--text-muted)'}}>You've reviewed all available roles. New intel arrives on your next scheduled run.</p></div>
         ))}
 
         {viewMode === 'saved' && (
@@ -1669,7 +1677,7 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
           })}
         </div>
       ) : (
-        <div className="card anim-enter anim-delay-2"><div className="empty-state"><Icons.clipboard className="empty-icon" /><p>No tasks generated yet.<br/>The scheduled task runs daily at 8:00 AM.</p><div className="hint">Trigger a run manually from Scheduled Tasks</div></div></div>
+        <div className="card anim-enter anim-delay-2"><div className="empty-state"><Icons.clipboard className="empty-icon" /><p>No tasks generated yet.<br/>The scheduled task runs on your configured schedule (see Dashboard).</p><div className="hint">Trigger a run manually from Scheduled Tasks</div></div></div>
       )}
     </>
   );
