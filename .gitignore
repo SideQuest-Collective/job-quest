@@ -1,6 +1,31 @@
+# node
 node_modules/
+
+# env & logs
 .env
-data/
 logs/
 *.log
+
+# macOS
 .DS_Store
+
+# user data directories created when installed at ~/.claude/job-quest/
+# (anchored with leading / so they don't collide with app/ or skill/ subtrees)
+/bin/
+/references/
+/intel/
+/quizzes/
+/tasks/
+/problems/
+/behavioral/
+/conversations/
+/sd-conversations/
+/resume-files/
+
+# user data JSON files at repo root (only present post-install)
+/profile.json
+/activity.json
+/progress.json
+/resume.json
+/role-tracker.json
+/role-actions.json
