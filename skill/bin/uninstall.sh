@@ -1,6 +1,6 @@
 #!/bin/bash
 # Job Quest Uninstaller
-# Usage: bash ~/job-quest/uninstall.sh [--keep-data] [--yes]
+# Usage: bash ~/.claude/job-quest/bin/uninstall.sh [--keep-data] [--yes]
 #
 # Options:
 #   --keep-data   Remove the app and skill but preserve user data (profile, intel, progress, etc.)
@@ -60,13 +60,23 @@ else
   echo "  No server running on port 3847"
 fi
 
-# 1b. Remove the daily intel cron entry if installed
-echo "Removing cron schedule..."
-if crontab -l 2>/dev/null | grep -q "# job-quest-daily-intel"; then
-  crontab -l 2>/dev/null | grep -v "# job-quest-daily-intel" | crontab -
-  echo "  Removed job-quest cron entry"
+# 1b. Remove the daily intel schedule (launchd on macOS, cron on Linux)
+echo "Removing daily intel schedule..."
+SCHEDULE_REMOVER="$DATA_DIR/bin/install-schedule.sh"
+if [ -x "$SCHEDULE_REMOVER" ]; then
+  "$SCHEDULE_REMOVER" --uninstall || true
 else
-  echo "  No cron entry to remove"
+  # Fallback if the helper is already gone — clean up both mechanisms directly
+  PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.daily-intel.plist"
+  if [ -f "$PLIST" ]; then
+    launchctl unload "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST"
+    echo "  Removed launchd agent"
+  fi
+  if crontab -l 2>/dev/null | grep -q "# job-quest-daily-intel"; then
+    crontab -l 2>/dev/null | grep -v "# job-quest-daily-intel" | crontab - 2>/dev/null || true
+    echo "  Removed cron entry"
+  fi
 fi
 
 # 2. Remove the Claude Code skill
