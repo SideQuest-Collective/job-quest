@@ -2,7 +2,7 @@
 # Start the Job Quest web dashboard
 # Usage: ~/.claude/job-quest/bin/start.sh
 
-APP_DIR="$HOME/job-quest/app"
+APP_DIR="$HOME/.claude/job-quest/app"
 DATA_DIR="$HOME/.claude/job-quest"
 
 if [ ! -d "$APP_DIR" ]; then
