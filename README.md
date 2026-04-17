@@ -58,9 +58,11 @@ The installer puts helper scripts in `~/.claude/job-quest/bin/`:
 | `generate-plan.sh` | Generate interview prep plans via Claude CLI |
 | `code-review.sh` | Get AI code review on your solutions via Claude CLI |
 | `run-daily-intel.sh` | Run the daily intel agent on demand — writes today's roles, quiz, tasks, problems |
-| `install-schedule.sh` | Install a cron entry to run the daily intel agent automatically |
+| `install-schedule.sh` | Install the daily schedule (launchd on macOS, cron on Linux) |
+| `uninstall.sh` | Clean uninstall (stops server, removes schedule, skill, data, app) |
+| `reinstall.sh` | One-step clean reset (uninstall + fresh install from GitHub) |
 
-**macOS note:** `install-schedule.sh` uses `crontab`, which requires your terminal app to have Full Disk Access (System Settings → Privacy & Security → Full Disk Access). The script surfaces a clear error with instructions if this permission is missing.
+**macOS scheduling:** `install-schedule.sh` uses launchd by default — no Full Disk Access or elevated permissions required. Pass `--force-cron` to opt into crontab, which will prompt you to grant Full Disk Access via System Settings if missing.
 
 ## Dashboard Features
 
@@ -88,22 +90,22 @@ The installer puts helper scripts in `~/.claude/job-quest/bin/`:
 
 **Uninstall** — removes the app, skill, data, and stops the server:
 ```bash
-bash ~/job-quest/uninstall.sh
+bash ~/.claude/job-quest/bin/uninstall.sh
 ```
 
 **Uninstall but keep your data** (profile, intel, progress):
 ```bash
-bash ~/job-quest/uninstall.sh --keep-data
+bash ~/.claude/job-quest/bin/uninstall.sh --keep-data
 ```
 
 **Reinstall** — clean reset in one step (uninstall + fresh install):
 ```bash
-bash ~/job-quest/reinstall.sh
+bash ~/.claude/job-quest/bin/reinstall.sh
 ```
 
 **Reinstall preserving data:**
 ```bash
-bash ~/job-quest/reinstall.sh --keep-data
+bash ~/.claude/job-quest/bin/reinstall.sh --keep-data
 ```
 
 Both scripts accept `--yes` to skip confirmation prompts.
