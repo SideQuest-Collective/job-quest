@@ -41,9 +41,11 @@ Directory ownership rules:
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `schemaVersion` | string | Contract version for the runtime descriptor shape. |
+| `migrationState` | string | Bootstrap/migration status for the descriptor. Allowed values: `ready`, `deferred`. |
 | `activeRuntime` | string | Persisted default runtime Job Quest should use now. Allowed values: `claude`, `codex`. |
 | `detectedRuntime` | string | Runtime inferred from the current invoking CLI or registration surface during the current bootstrap or invocation. Allowed values: `claude`, `codex`. |
 | `productHomeDir` | string | Canonical shared product home. Must resolve to `~/.job-quest`. |
+| `pendingCanonicalHomeDir` | string | Intended canonical shared home when migration is deferred. Required when `migrationState` is `deferred`. |
 | `appDir` | string | Resolved path to the installed product app subtree under `productHomeDir`. |
 | `dataDir` | string | Resolved path to mutable user data under `productHomeDir`. |
 | `binDir` | string | Resolved path to runtime-neutral helper binaries under `productHomeDir`. |
@@ -61,32 +63,37 @@ Directory ownership rules:
 Normalization rules:
 
 - `schemaVersion` is required even when the file is first bootstrapped.
+- `migrationState=ready` means the descriptor points at the canonical shared home. `migrationState=deferred` means the descriptor points at the last-known-good root for this run while migration is postponed.
+- When `migrationState=deferred`, `productHomeDir` may temporarily point at the last-known-good runtime root and `pendingCanonicalHomeDir` must point at `~/.job-quest`.
 - `activeRuntime` and `detectedRuntime` must use the same enum values.
 - `productHomeDir`, `appDir`, `dataDir`, `binDir`, `referencesDir`, `runtimeRegistrationRoot`, and `runtimeSkillDir` are stored as user-home-relative strings in config examples and may be expanded to absolute paths at runtime.
 - `runtimeRegistrationFile` names the concrete runtime-native artifact inside `runtimeSkillDir`; later install phases must not guess this from runtime id alone.
 - `runtimeCommand` is the executable only; `runtimeCommandArgs` carries any fixed flags or subcommands.
 - `runtimeDisplayName` must be suitable for direct display without further mapping.
-- `supportedRuntimes` is required for supported runtime metadata. Each runtime entry must expose `displayName`, `registrationRoot`, `skillDir`, `registrationFile`, `command`, `commandArgs`, and `entryMode`.
+- `supportedRuntimes` is required for supported runtime metadata. Each runtime entry must expose `displayName`, `registrationRoot`, `skillDir`, `registrationFile`, `command`, `commandArgs`, `commandCandidates`, and `entryMode`.
 - The resolved active-runtime fields (`runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode`) must always match the currently selected entry in `supportedRuntimes`.
+- `commandCandidates` is an ordered list of allowed runtime command probes. The resolved top-level `runtimeCommand` and `runtimeCommandArgs` must match the validated candidate currently in use.
 
 ## Path Resolution Rules
 
-1. Resolve `productHomeDir` first. The canonical target is `~/.job-quest`.
+1. Resolve `productHomeDir` first. The canonical target is `~/.job-quest`, except when `migrationState=deferred` and the descriptor explicitly points at a documented last-known-good root for continuity.
 2. Derive `appDir`, `dataDir`, `binDir`, and `referencesDir` from `productHomeDir`; consumers must not recompute alternate roots.
 3. `runtimeRegistrationRoot` and `runtimeSkillDir` are runtime-specific and may point outside `productHomeDir`.
 4. Runtime-specific registration files live under `runtimeSkillDir`, and the concrete file name is `runtimeRegistrationFile`; they must point back to the shared `productHomeDir` layout.
 5. Scheduled jobs, the dashboard server, uninstall/reinstall flows, and helper scripts must read writable state from `dataDir`, not from `appDir`.
 6. If a legacy Claude install exists at `~/.claude/job-quest`, that path is migration input only. It is not the canonical resolved `productHomeDir` once migration has completed.
 7. If a consumer cannot resolve `config/runtime.json`, it may perform bootstrap discovery, but it must write the resolved descriptor back to `config/runtime.json` before continuing normal operation.
+8. Consumers must honor `migrationState=deferred` by using the descriptor's last-known-good resolved paths for the current run while surfacing the deferred migration warning.
 
 ## Command Resolution Rules
 
-1. Runtime-backed helpers must read `runtimeCommand` and `runtimeCommandArgs` from the runtime descriptor instead of probing `claude` or `codex` independently in each script.
-2. `runtimeCommand` plus `runtimeCommandArgs` defines the stable command prefix for AI-backed execution, including scheduled intel and server-triggered helper flows.
+1. Runtime-backed helpers must read `runtimeCommand`, `runtimeCommandArgs`, and the selected runtime's `commandCandidates` from the runtime descriptor instead of probing `claude` or `codex` independently in each script.
+2. `runtimeCommand` plus `runtimeCommandArgs` defines the validated command prefix currently in use for AI-backed execution, including scheduled intel and server-triggered helper flows.
 3. Scripts may append task-specific flags after `runtimeCommandArgs`, but they must not overwrite the configured command prefix.
 4. User-facing recovery messages must use `runtimeDisplayName` and `runtimeEntryMode` instead of hard-coded "Claude" or "Claude Code" text.
 5. Consumers that need runtime-native registration paths must read `runtimeRegistrationRoot`, `runtimeSkillDir`, and `runtimeRegistrationFile` from the descriptor rather than deriving them from `activeRuntime` inline.
 6. The shared runtime contract is CLI-only for this milestone. No consumer should infer direct API credentials or provider-specific HTTP flows from this config.
+7. Runtime validation may probe `commandCandidates` in order, but once one candidate succeeds, the winning choice must be persisted back into the resolved top-level `runtimeCommand` and `runtimeCommandArgs`.
 
 ## Runtime Switch Semantics
 

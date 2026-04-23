@@ -36,7 +36,7 @@ Required behavior:
 2. If no legacy install exists, create `~/.job-quest/` directly using the directory layout in `runtime-contract.md`.
 3. If `~/.claude/job-quest` exists and `~/.job-quest/` does not, seed `~/.job-quest/` from the legacy install.
 4. If both paths exist, prefer `~/.job-quest/` as canonical when reconciliation succeeds; otherwise keep the last-known-good root active for this run and treat `~/.claude/job-quest` as legacy state to reconcile or retire using the conflict rules below.
-5. Write `~/.job-quest/config/runtime.json` only after bootstrap reconciliation and runtime validation succeed so later phases do not inherit a half-migrated state.
+5. Always write a valid runtime descriptor for the current run. When migration is deferred, write `migrationState=deferred`, keep `productHomeDir` pointed at the last-known-good root, and set `pendingCanonicalHomeDir=~/.job-quest` so consumers can continue safely while surfacing the migration warning.
 6. Set `detectedRuntime` from the invoking CLI and initialize `activeRuntime` to the same value on first bootstrap only after the selected runtime passes validation for background and interactive consumers.
 7. Preserve runtime-native registration artifacts for Claude users while adding Codex registration support later in the install surface phase.
 
@@ -53,7 +53,8 @@ Conflict resolution rules when both roots exist:
 2. If only one copy exists, adopt that copy into `~/.job-quest/data/`.
 3. If both copies exist and hashes match, keep the canonical copy and mark the legacy copy as redundant.
 4. If both copies exist and differ, block migration for that run, emit a conflict report, and keep startup bound to the last-known-good root until the user or a later phase resolves the conflict.
-5. Treat `runtime.json`, schedule metadata, and registration artifacts as regenerated outputs, not merge inputs; they are rewritten from the validated shared-home contract after data reconciliation succeeds.
+5. In that deferred state, `runtime.json` must still be written with `migrationState=deferred`, the last-known-good `productHomeDir`, and `pendingCanonicalHomeDir=~/.job-quest` so schedulers, helpers, and the server have one persisted source of truth.
+6. Treat `runtime.json`, schedule metadata, and registration artifacts as regenerated outputs, not merge inputs; they are rewritten from the validated shared-home contract after data reconciliation succeeds.
 
 ## Automatic Runtime Switch
 
