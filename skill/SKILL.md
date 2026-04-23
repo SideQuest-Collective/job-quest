@@ -8,13 +8,13 @@ Set up and run a personalized job hunt command center. This is a conversational 
 </objective>
 
 <execution_context>
-@$HOME/.claude/job-quest/references/intel-agent-template.md
+@$HOME/.job-quest/references/intel-agent-template.md
 </execution_context>
 
 <first_run_detection>
 First, check the user's raw input for an **installation management keyword**. If their message contains (case-insensitive) any of: `uninstall`, `reinstall`, `reset`, `nuke my install`, `start over`, `wipe everything`, route immediately to the "Installation Management" section below — do not run onboarding, do not show the menu. This lets users type `/job-quest reinstall` and skip straight to the action.
 
-Otherwise, check if `~/.claude/job-quest/profile.json` exists.
+Otherwise, check if `~/.job-quest/data/profile.json` exists.
 - If it does NOT exist → this is a first run. Start the full onboarding flow below.
 - If it DOES exist → the user is returning. Read their profile and ask what they want to do today (review intel, prep for an interview, practice coding, check progress, manage installation, etc).
 </first_run_detection>
@@ -52,7 +52,7 @@ Then have a natural conversation to gather:
 - If they give short answers, work with what you have
 - Summarize and confirm: "Here's what I'm hearing — does this sound right?"
 
-Once confirmed, save to `~/.claude/job-quest/profile.json`:
+Once confirmed, save to `~/.job-quest/data/profile.json`:
 ```json
 {
   "name": "...",
@@ -75,37 +75,37 @@ Once confirmed, save to `~/.claude/job-quest/profile.json`:
 
 ### Phase 2: Initialize the Data Directory
 
-Create the full directory structure at `~/.claude/job-quest/`:
+Create the full directory structure at `~/.job-quest/data/`:
 
 ```bash
-mkdir -p ~/.claude/job-quest/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files}
+mkdir -p ~/.job-quest/data/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs}
 ```
 
 Seed empty JSON files so nothing crashes on first read:
 ```bash
-echo '[]' > ~/.claude/job-quest/problems/problems.json
-echo '{}' > ~/.claude/job-quest/problems/progress.json
-echo '[]' > ~/.claude/job-quest/behavioral/answers.json
-echo '{}' > ~/.claude/job-quest/role-tracker.json
-echo '{"saved":[],"skipped":[],"applied":[]}' > ~/.claude/job-quest/role-actions.json
-echo '[]' > ~/.claude/job-quest/activity.json
-echo '{}' > ~/.claude/job-quest/progress.json
-echo '{}' > ~/.claude/job-quest/resume.json
+echo '[]' > ~/.job-quest/data/problems/problems.json
+echo '{}' > ~/.job-quest/data/problems/progress.json
+echo '{}' > ~/.job-quest/data/behavioral/answers.json
+echo '{}' > ~/.job-quest/data/role-tracker.json
+echo '{"saved":[],"skipped":[],"applied":[]}' > ~/.job-quest/data/role-actions.json
+echo '{}' > ~/.job-quest/data/activity.json
+echo '{}' > ~/.job-quest/data/progress.json
+echo '{}' > ~/.job-quest/data/resume.json
 ```
 
 ### Phase 3: Set Up the Dashboard App
 
 Check if Node.js 18+ is installed (`node --version`). If not, walk the user through installing it for their platform.
 
-Everything Job Quest needs (app, skill, scripts, user data) lives under `~/.claude/job-quest/`. Clone and install the dashboard there:
+Everything Job Quest needs lives under the shared home at `~/.job-quest/`, with the repo checkout in `app/` and mutable user data in `data/`. Clone and install the dashboard there:
 ```bash
-git clone https://github.com/SideQuest-Collective/job-quest.git ~/.claude/job-quest
-cd ~/.claude/job-quest/app && npm install
+git clone https://github.com/SideQuest-Collective/job-quest.git ~/.job-quest/app
+cd ~/.job-quest/app/app && npm install
 ```
 
-The data directory is the install root itself, so no `.env` is strictly required. The installer script writes one anyway for clarity:
+The installer writes the dashboard data directory explicitly:
 ```bash
-echo "DATA_DIR=~/.claude/job-quest" > ~/.claude/job-quest/app/.env
+echo "DATA_DIR=~/.job-quest/data" > ~/.job-quest/app/app/.env
 ```
 
 If the user already ran `install.sh`, this is done. Skip re-cloning — just confirm the layout.
@@ -116,17 +116,17 @@ Ask the user about their preferred schedule using AskUserQuestion:
 - **How often?** Daily (recommended), weekdays only, or custom
 - **What time?** Morning is ideal. Suggest something like 7:03 AM.
 
-Install a **local cron entry** that runs the intel agent on the user's machine. The helper script `~/.claude/job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers the entry so it survives shell restarts and system reboots:
+Install a **local cron entry** that runs the intel agent on the user's machine. The helper script `~/.job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers the entry so it survives shell restarts and system reboots:
 
 ```bash
 # 7:03 AM weekdays
-~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
 
 # 7:03 AM daily
-~/.claude/job-quest/bin/install-schedule.sh "3 7 * * *"
+~/.job-quest/bin/install-schedule.sh "3 7 * * *"
 ```
 
-The installed entry invokes `~/.claude/job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs `claude -p` locally, and writes JSON files directly into `~/.claude/job-quest/{intel,quizzes,tasks}/` and appends to `problems/problems.json`. Logs land in `~/.claude/job-quest/logs/daily-intel.log`.
+The installed entry invokes `~/.job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs the active runtime CLI locally, and writes JSON files into `~/.job-quest/data/{intel,quizzes,tasks}/` and `~/.job-quest/data/problems/problems.json`. Logs land in `~/.job-quest/data/logs/daily-intel.log`.
 
 **Why local cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state.
 
@@ -139,13 +139,13 @@ Don't make them wait until tomorrow. Run the first intel generation right now, i
 3. **Create daily tasks** — 8-10 tasks across categories (coding, system-design, behavioral, research, networking, application), each with substantial `content` field
 4. **Generate coding problems** — 3-5 problems calibrated to their level
 
-Write all outputs to `~/.claude/job-quest/` in the correct JSON formats (see `references/intel-agent-template.md` for schemas).
+Write all outputs to `~/.job-quest/data/` in the correct JSON formats (see `references/intel-agent-template.md` for schemas).
 
 ### Phase 6: Start the Dashboard and Orient
 
 Start the web dashboard via the installed helper:
 ```bash
-~/.claude/job-quest/bin/start.sh &
+~/.job-quest/bin/start.sh &
 ```
 
 Tell the user it's running at `http://localhost:3847` and give them a quick tour:
@@ -186,7 +186,7 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 ### Handling Each Return Flow:
 
-**Review Intel:** Read `~/.claude/job-quest/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
+**Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
 
 **Interview Prep:** Ask which company/role. Search the web for company-specific intel, recent interview reports, and generate a tailored prep plan with technical questions, behavioral prompts, and a readiness checklist. Save to role-tracker.
 
@@ -206,61 +206,61 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 When the user picks "Manage installation" from the menu OR their initial message contained a keyword (`uninstall`, `reinstall`, `reset`, `start over`, `wipe`, `nuke`), present the three management actions via AskUserQuestion:
 
-- **Reinstall** — Clean reset. Runs `~/.claude/job-quest/bin/reinstall.sh --yes` which uninstalls the current installation (stops server, removes skill, data, app, temp files, cron entry) then re-runs `install.sh` from GitHub for a fresh setup. After it completes, onboarding must be re-run via `/job-quest`.
-- **Reinstall (keep my data)** — Same as above but runs `~/.claude/job-quest/bin/reinstall.sh --yes --keep-data`, preserving `profile.json`, intel, quizzes, tasks, problems, and progress across the reset. Useful when the app/skill is broken but the user's data is fine.
-- **Uninstall** — Full removal. Runs `~/.claude/job-quest/bin/uninstall.sh --yes`. No reinstall. Useful when the user wants to stop using Job Quest entirely.
+- **Reinstall** — Clean reset. Runs `~/.job-quest/bin/reinstall.sh --yes` which uninstalls the current installation (stops server, removes skill, data, app, temp files, cron entry) then re-runs `install.sh` from GitHub for a fresh setup. After it completes, onboarding must be re-run via `/job-quest`.
+- **Reinstall (keep my data)** — Same as above but runs `~/.job-quest/bin/reinstall.sh --yes --keep-data`, preserving `profile.json`, intel, quizzes, tasks, problems, and progress across the reset. Useful when the app/skill is broken but the user's data is fine.
+- **Uninstall** — Full removal. Runs `~/.job-quest/bin/uninstall.sh --yes`. No reinstall. Useful when the user wants to stop using Job Quest entirely.
 
 Before executing, **always confirm in plain language** what's about to happen ("This will remove your app, skill, data, and cron schedule. It cannot be undone. Proceed?"). If they confirm, invoke the script via Bash:
 
 ```bash
 # Reinstall (destructive — use --yes only after explicit confirmation)
-bash ~/.claude/job-quest/bin/reinstall.sh --yes
+bash ~/.job-quest/bin/reinstall.sh --yes
 
 # Reinstall preserving data
-bash ~/.claude/job-quest/bin/reinstall.sh --yes --keep-data
+bash ~/.job-quest/bin/reinstall.sh --yes --keep-data
 
 # Uninstall
-bash ~/.claude/job-quest/bin/uninstall.sh --yes
+bash ~/.job-quest/bin/uninstall.sh --yes
 ```
 
-After a reinstall completes, the user's Claude Code session still has the loaded skill definition, but `~/.claude/skills/job-quest/SKILL.md` has been rewritten from the latest `main` branch. Tell them to run `/job-quest` again to start fresh onboarding. After an uninstall, tell them they can always come back by re-running the install one-liner from the README.
+After a reinstall completes, the runtime skill registrations have been rewritten from the latest `main` branch. Tell them to reopen Job Quest from their runtime entrypoint and start onboarding again. After an uninstall, tell them they can always come back by re-running the install one-liner from the README.
 
 ## Available Scripts
 
-The skill installs helper scripts at `~/.claude/job-quest/bin/` that wrap the Claude CLI for common tasks. Use these from within Claude Code or from the terminal:
+The skill installs helper scripts at `~/.job-quest/bin/` that wrap the active runtime CLI. Use these from within Claude, Codex, or the terminal:
 
 ### generate-plan.sh
-Generates a role-specific interview prep plan using Claude CLI. Takes a prompt file as input and returns structured JSON with technical questions, behavioral questions, quiz, system design prompts, and a readiness checklist.
+Generates a role-specific interview prep plan using the active runtime CLI. Takes a prompt file as input and returns structured JSON with technical questions, behavioral questions, quiz, system design prompts, and a readiness checklist.
 
 ```bash
-# From Claude Code — use when the user wants interview prep for a specific role
-~/.claude/job-quest/bin/generate-plan.sh /tmp/prep-prompt.txt
+# Use when the user wants interview prep for a specific role
+~/.job-quest/bin/generate-plan.sh /tmp/prep-prompt.txt
 ```
 
 The prompt file should contain the role details (company, title, level, fit analysis, tips). The script outputs JSON that can be saved to the role tracker.
 
 ### code-review.sh
-Multi-turn code review using Claude CLI. Takes a prompt (via argument or stdin) and returns feedback. Used by the Code Lab for reviewing the user's solutions to coding problems.
+Multi-turn code review using the active runtime CLI. Takes a prompt (via argument or stdin) and returns feedback. Used by the Code Lab for reviewing the user's solutions to coding problems.
 
 ```bash
 # Pipe code for review
-echo "Review this solution for the two-sum problem: ..." | ~/.claude/job-quest/bin/code-review.sh
+echo "Review this solution for the two-sum problem: ..." | ~/.job-quest/bin/code-review.sh
 ```
 
 ### start.sh
 Starts the web dashboard server. Automatically sets the data directory.
 
 ```bash
-~/.claude/job-quest/bin/start.sh
+~/.job-quest/bin/start.sh
 # Dashboard available at http://localhost:3847
 ```
 
 ### run-daily-intel.sh
-Runs the daily intel agent locally via `claude -p`. Reads `profile.json`, builds a personalized prompt, and writes fresh `intel/`, `quizzes/`, and `tasks/` files for today. Invoked by the cron entry installed via `install-schedule.sh`, but can also be run manually for an on-demand refresh.
+Runs the daily intel agent locally via the active runtime CLI. Reads `profile.json`, builds a personalized prompt, and writes fresh `intel/`, `quizzes/`, and `tasks/` files for today. Invoked by the cron entry installed via `install-schedule.sh`, but can also be run manually for an on-demand refresh.
 
 ```bash
-~/.claude/job-quest/bin/run-daily-intel.sh
-# Logs to ~/.claude/job-quest/logs/daily-intel.log
+~/.job-quest/bin/run-daily-intel.sh
+# Logs to ~/.job-quest/data/logs/daily-intel.log
 ```
 
 ### install-schedule.sh
@@ -268,37 +268,37 @@ Installs the daily intel schedule. Uses **launchd on macOS** (no elevated permis
 
 ```bash
 # 7:03 AM weekdays
-~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
 
 # Show current schedule
-~/.claude/job-quest/bin/install-schedule.sh --show
+~/.job-quest/bin/install-schedule.sh --show
 
 # Remove the schedule (both launchd and any legacy cron entry)
-~/.claude/job-quest/bin/install-schedule.sh --uninstall
+~/.job-quest/bin/install-schedule.sh --uninstall
 ```
 
 ### uninstall.sh
 Full uninstaller. Stops the dashboard, removes the daily schedule (launchd or cron), removes the skill, data, and app directories, and cleans temp files.
 
 ```bash
-~/.claude/job-quest/bin/uninstall.sh           # with confirmation
-~/.claude/job-quest/bin/uninstall.sh --yes     # skip confirmation
-~/.claude/job-quest/bin/uninstall.sh --keep-data  # preserve profile/intel/progress
+~/.job-quest/bin/uninstall.sh           # with confirmation
+~/.job-quest/bin/uninstall.sh --yes     # skip confirmation
+~/.job-quest/bin/uninstall.sh --keep-data  # preserve profile/intel/progress
 ```
 
 ### reinstall.sh
 One-step clean reset — runs uninstall then re-runs `install.sh` from GitHub.
 
 ```bash
-~/.claude/job-quest/bin/reinstall.sh --yes
-~/.claude/job-quest/bin/reinstall.sh --yes --keep-data
+~/.job-quest/bin/reinstall.sh --yes
+~/.job-quest/bin/reinstall.sh --yes --keep-data
 ```
 
-When the user asks to practice coding, prep for an interview, or start the dashboard, use these scripts rather than reimplementing the functionality. They handle Claude CLI detection, nvm loading, and error logging.
+When the user asks to practice coding, prep for an interview, or start the dashboard, use these scripts rather than reimplementing the functionality. They handle runtime detection, shared-home paths, and error logging.
 
 ## Troubleshooting
 
 - **Dashboard won't start**: Check `node --version` (need 18+), check port 3847 isn't in use
-- **No intel today**: Check the cron entry is installed (`~/.claude/job-quest/bin/install-schedule.sh --show`) and check `~/.claude/job-quest/logs/daily-intel.log` for errors. Re-run manually with `~/.claude/job-quest/bin/run-daily-intel.sh`.
-- **Want to change schedule**: Run `~/.claude/job-quest/bin/install-schedule.sh "<new-cron>"` — it replaces any existing job-quest entry.
-- **Remove the schedule entirely**: `~/.claude/job-quest/bin/install-schedule.sh --uninstall`
+- **No intel today**: Check the cron entry is installed (`~/.job-quest/bin/install-schedule.sh --show`) and check `~/.job-quest/data/logs/daily-intel.log` for errors. Re-run manually with `~/.job-quest/bin/run-daily-intel.sh`.
+- **Want to change schedule**: Run `~/.job-quest/bin/install-schedule.sh "<new-cron>"` — it replaces any existing job-quest entry.
+- **Remove the schedule entirely**: `~/.job-quest/bin/install-schedule.sh --uninstall`

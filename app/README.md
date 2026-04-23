@@ -1,72 +1,52 @@
-# Job Hunt Command Center
+# Job Quest Dashboard
 
-A personal job search dashboard that helps you stay organized and prepared throughout your job hunt. Built with Node.js/Express and a single-page frontend.
+The dashboard is a local Express app that reads and writes Job Quest data from the shared product home.
 
-## Features
+## Runtime Expectations
 
-- **Intel Reports** -- Daily curated role discoveries with fit analysis and interview tips
-- **Role Tracker** -- Track roles through stages (discovered, applied, interviewing, etc.)
-- **Daily Quizzes** -- Technical quiz questions to keep your skills sharp
-- **Task Manager** -- Daily to-do lists with completion tracking and streak counter
-- **Code Lab** -- Practice coding problems with a built-in Python runner and test harness
-- **AI Code Review** -- Get feedback on your solutions via the Claude CLI
-- **Interview Prep Plans** -- AI-generated, role-specific interview preparation plans
-- **Resume Manager** -- Store and edit your resume (supports LaTeX files)
-- **Activity Calendar** -- Visualize your daily progress across all features
-- **Application Tracker** -- Keep tabs on where you've applied
+- The dashboard server runs from `~/.job-quest/app/app/`
+- Data lives in `~/.job-quest/data/`
+- Runtime selection comes from `~/.job-quest/config/runtime.json`
+- AI-backed endpoints use the active runtime CLI rather than a Claude-only wrapper
 
-## Prerequisites
+## Start
 
-- [Node.js](https://nodejs.org/) (v18+)
-- Python 3 (for the code runner)
-- [Claude CLI](https://github.com/anthropics/claude-code) (optional, for AI code review and interview plan generation)
-
-## Getting Started
+From an installed Job Quest home:
 
 ```bash
-# Install dependencies
+~/.job-quest/bin/start.sh
+```
+
+For local repo development:
+
+```bash
+cd app
 npm install
-
-# Start the server
-./start.sh
-# or
-node server.js
+DATA_DIR="$HOME/.job-quest/data" node server.js
 ```
 
-The app runs at **http://localhost:3847**.
+## Key Features
 
-## Project Structure
+- Intel and role tracking
+- Daily quizzes and tasks
+- Coding practice with local execution
+- Runtime-aware interview-plan generation
+- Runtime-aware code review and editing flows
+- Resume upload, edit, and compile
 
-```
+## Important Paths
+
+```text
 app/
-├── server.js          # Express API server
-├── public/            # Frontend (static HTML/CSS/JS)
-├── data/              # JSON data store (auto-created)
-│   ├── intel/         # Daily intel reports
-│   ├── quizzes/       # Daily quizzes
-│   ├── tasks/         # Daily task lists
-│   ├── problems/      # Coding problems & progress
-│   ├── conversations/ # Code review chat history
-│   └── resume-files/  # Uploaded resume files
-├── scripts/           # Helper scripts (Claude CLI wrapper)
-└── start.sh           # Startup script
+├── public/         # single-page frontend
+├── scripts/        # wrappers that delegate to the shared runtime-aware shell scripts
+└── server.js       # Express API server
 ```
 
-## API Overview
+## API Highlights
 
-| Endpoint | Description |
-|---|---|
-| `GET /api/intel` | All intel reports |
-| `GET /api/quizzes/today` | Today's quiz |
-| `GET /api/tasks/today` | Today's tasks |
-| `GET /api/problems` | Coding problems |
-| `POST /api/run-code` | Execute Python code against test cases |
-| `POST /api/code-review` | AI code review via Claude |
-| `GET /api/progress` | Aggregated stats and streaks |
-| `GET /api/activity` | Activity calendar data |
-| `GET/POST /api/resume` | Resume data |
-| `GET/POST /api/role-tracker` | Role pipeline tracker |
-
-## Data Storage
-
-All data is stored as JSON files in the `data/` directory. No database required.
+- `GET /api/runtime` — current runtime metadata used by the UI
+- `GET /api/job-status` — latest content/schedule status plus runtime-aware install command hint
+- `POST /api/interview-plan` — runtime-backed plan generation
+- `POST /api/code-review` — runtime-backed conversational review
+- `POST /api/resume/edit` — runtime-backed file editing

@@ -1,30 +1,42 @@
 #!/bin/bash
-# Code review script using Claude CLI
-# Usage: echo "prompt text" | ./scripts/code-review.sh
-# Or:    ./scripts/code-review.sh "prompt text"
+# Generic conversational runtime wrapper used by code review, chat, and editing flows.
 
-# Load nvm if available
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+set -euo pipefail
 
-# Read prompt from argument or stdin
-if [ -n "$1" ]; then
-  PROMPT="$1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../../lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+elif [ -f "$SCRIPT_DIR/../app/lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../app" && pwd)"
 else
-  PROMPT=$(cat)
-fi
-
-if [ -z "$PROMPT" ]; then
-  echo "Error: No prompt provided"
+  echo "Error: Job Quest runtime helpers not found" >&2
   exit 1
 fi
 
-# Try claude directly first, then npx fallback
-if command -v claude &>/dev/null; then
-  echo "$PROMPT" | claude --print
-elif command -v npx &>/dev/null; then
-  echo "$PROMPT" | npx -y @anthropic-ai/claude-code --print
+# shellcheck disable=SC1090
+source "$REPO_ROOT/lib/runtime-shell.sh"
+JOB_QUEST_REPO_ROOT="$REPO_ROOT"
+job_quest_load_runtime --require-registration
+
+if [ -n "${1:-}" ]; then
+  PROMPT_FILE="$(mktemp)"
+  printf '%s' "$1" > "$PROMPT_FILE"
+  CLEANUP_PROMPT=1
 else
-  echo "Error: Neither 'claude' nor 'npx' found in PATH. Install Claude Code: npm install -g @anthropic-ai/claude-code"
-  exit 1
+  PROMPT_FILE="$(mktemp)"
+  cat > "$PROMPT_FILE"
+  CLEANUP_PROMPT=1
 fi
+
+if [ "$JOB_QUEST_ACTIVE_RUNTIME" = "codex" ]; then
+  job_quest_run_prompt_file "$PROMPT_FILE" --sandbox workspace-write
+else
+  job_quest_run_prompt_file "$PROMPT_FILE"
+fi
+EXIT_CODE=$?
+
+if [ "$CLEANUP_PROMPT" -eq 1 ]; then
+  rm -f "$PROMPT_FILE"
+fi
+
+exit "$EXIT_CODE"

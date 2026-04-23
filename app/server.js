@@ -5,6 +5,7 @@ const { execSync } = require('child_process');
 const crypto = require('crypto');
 const os = require('os');
 const AdmZip = require('adm-zip');
+const { ensureRuntime, expandHome } = require('../lib/runtime');
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '.env');
@@ -26,9 +27,13 @@ const PORT = process.env.PORT || 3847;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+const runtimeState = ensureRuntime({ write: true });
+const runtimeDisplayName = runtimeState.runtimeDisplayName;
+const runtimeCommandLabel = runtimeState.runtimeCommand;
+const installScheduleCommand = `${expandHome(runtimeState.binDir)}/install-schedule.sh "3 7 * * 1-5"`;
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR.replace(/^~/, os.homedir()))
-  : path.join(__dirname, 'data');
+  : expandHome(runtimeState.dataDir);
 
 // Ensure DATA_DIR exists on startup
 if (!fs.existsSync(DATA_DIR)) {
@@ -98,6 +103,21 @@ function autoCompleteDailyTask(matchFn) {
 }
 
 // --- API Routes ---
+
+app.get('/api/runtime', (req, res) => {
+  const freshRuntime = ensureRuntime({ write: true });
+  res.json({
+    activeRuntime: freshRuntime.activeRuntime,
+    detectedRuntime: freshRuntime.detectedRuntime,
+    displayName: freshRuntime.runtimeDisplayName,
+    command: freshRuntime.runtimeCommand,
+    entryMode: freshRuntime.runtimeEntryMode,
+    dataDir: expandHome(freshRuntime.dataDir),
+    binDir: expandHome(freshRuntime.binDir),
+    installScheduleCommand: `${expandHome(freshRuntime.binDir)}/install-schedule.sh "3 7 * * 1-5"`,
+    validation: freshRuntime.runtimeValidation,
+  });
+});
 
 // Get all intel reports
 app.get('/api/intel', (req, res) => {
@@ -367,7 +387,7 @@ REQUIREMENTS:
       return;
     }
 
-    console.log(`[${requestId}] Claude responded in ${elapsed}s (${(stdout || '').length} bytes)`);
+    console.log(`[${requestId}] ${runtimeDisplayName} responded in ${elapsed}s (${(stdout || '').length} bytes)`);
     console.log(`[${requestId}] stdout preview: ${(stdout || '').slice(0, 200)}`);
     if (stderr) console.log(`[${requestId}] stderr: ${stderr.slice(0, 200)}`);
 
@@ -423,7 +443,7 @@ REQUIREMENTS:
         res.json({ plan: null, fallbackMarkdown: stdout.trim() });
       } else {
         console.error(`[${requestId}] Response too short or empty, treating as failure`);
-        res.json({ error: true, message: `Claude returned empty/invalid response after ${elapsed}s` });
+        res.json({ error: true, message: `${runtimeDisplayName} returned empty or invalid output after ${elapsed}s` });
       }
     }
   });
@@ -743,7 +763,7 @@ print(json.dumps(results))
   }
 });
 
-// Claude code review via CLI
+// Runtime-backed code review via CLI
 const conversations = {};
 const CONV_DIR = path.join(DATA_DIR, 'conversations');
 
@@ -783,7 +803,7 @@ Review their code and provide:
 
 Be concise and encouraging. Format with markdown.`;
   } else {
-    // Build context with problem info + recent conversation history so Claude remembers what we're working on
+    // Build context with problem info + recent conversation history so the active runtime remembers what we're working on
     const recentHistory = conversations[convId].slice(-6).map(m => `${m.role === 'user' ? 'Student' : 'Mentor'}: ${m.content}`).join('\n\n');
     const followUpMessage = userMessage || `Here is my updated code:\n\`\`\`python\n${code}\n\`\`\`\n\nWhat do you think?`;
     prompt = `${systemContext}
@@ -803,7 +823,7 @@ Continue mentoring. Be concise and encouraging. Format with markdown.`;
 
   conversations[convId].push({ role: 'user', content: prompt });
 
-  const tmpPrompt = path.join(os.tmpdir(), `claude_prompt_${Date.now()}.txt`);
+  const tmpPrompt = path.join(os.tmpdir(), `job_quest_prompt_${Date.now()}.txt`);
   fs.writeFileSync(tmpPrompt, prompt);
   const scriptPath = path.join(__dirname, 'scripts', 'code-review.sh');
   const nvmBin = path.join(os.homedir(), '.nvm/versions/node/v22.12.0/bin');
@@ -818,7 +838,7 @@ Continue mentoring. Be concise and encouraging. Format with markdown.`;
     try { fs.unlinkSync(tmpPrompt); } catch {}
     if (err) {
       res.json({
-        response: 'Claude CLI is not available. Install it with `npm install -g @anthropic-ai/claude-code` or check your PATH.',
+        response: `${runtimeDisplayName} is not available. Check that \`${runtimeCommandLabel}\` is installed and on PATH.`,
         conversationId: convId,
         history: conversations[convId],
         error: true,
@@ -945,7 +965,7 @@ Continue the interview. Remember:
   }, (err, stdout, stderr) => {
     try { fs.unlinkSync(tmpPrompt); } catch {}
     if (err) {
-      res.json({ response: 'Failed to reach Claude CLI. Make sure it is installed.\n\nError: ' + (stderr || err.message || '').slice(0, 200), error: true, messages: conv.messages });
+      res.json({ response: `Failed to reach ${runtimeDisplayName}. Make sure \`${runtimeCommandLabel}\` is installed.\n\nError: ` + (stderr || err.message || '').slice(0, 200), error: true, messages: conv.messages });
     } else {
       const result = stdout.trim();
       conv.messages.push({ role: 'assistant', content: result, timestamp: new Date().toISOString() });
@@ -1095,6 +1115,11 @@ app.get('/api/job-status', (req, res) => {
     quiz: { ready: quizExists, questions: questionsCount },
     tasks: { ready: tasksExists, count: tasksCount },
     schedule,
+    runtime: {
+      displayName: runtimeDisplayName,
+      command: runtimeCommandLabel,
+    },
+    installScheduleCommand,
   });
 });
 
@@ -1390,7 +1415,7 @@ Read the file, make the requested changes, and write the updated file back. Only
   }, (err, stdout, stderr) => {
     try { fs.unlinkSync(tmpPrompt); } catch {}
     if (err) {
-      res.json({ response: 'Claude CLI is not available for editing. Error: ' + (stderr || err.message || '').slice(0, 200), error: true });
+      res.json({ response: `${runtimeDisplayName} is not available for editing. Error: ` + (stderr || err.message || '').slice(0, 200), error: true });
     } else {
       logActivity('resume_edit', { filename, instruction: instruction.substring(0, 100) });
       res.json({ response: stdout.trim(), success: true });

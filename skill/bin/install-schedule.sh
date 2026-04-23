@@ -3,8 +3,8 @@
 #   macOS → uses launchd (~/Library/LaunchAgents/, no elevated permissions)
 #   Linux → uses crontab
 #
-# Usage: ~/.claude/job-quest/bin/install-schedule.sh <cron-expression>
-#   e.g. ~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+# Usage: ~/.job-quest/bin/install-schedule.sh <cron-expression>
+#   e.g. ~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
 #
 # Pass --uninstall to remove the schedule.
 # Pass --show to print the current schedule.
@@ -12,9 +12,23 @@
 
 set -euo pipefail
 
-DATA_DIR="$HOME/.claude/job-quest"
-RUNNER="$DATA_DIR/bin/run-daily-intel.sh"
-LOG_DIR="$DATA_DIR/logs"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../../lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+elif [ -f "$SCRIPT_DIR/../app/lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../app" && pwd)"
+else
+  echo "Error: could not locate Job Quest runtime helpers." >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$REPO_ROOT/lib/runtime-shell.sh"
+JOB_QUEST_REPO_ROOT="$REPO_ROOT"
+job_quest_load_runtime --require-registration
+
+RUNNER="$JOB_QUEST_BIN_DIR/run-daily-intel.sh"
+LOG_DIR="$JOB_QUEST_DATA_DIR/logs"
 MARKER="# job-quest-daily-intel"
 PLIST_LABEL="com.sidequest.job-quest.daily-intel"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
@@ -184,7 +198,10 @@ show_schedule() {
     crontab -l 2>/dev/null | grep "$MARKER"
     found=1
   fi
-  [ $found -eq 0 ] && echo "No job-quest schedule installed."
+  if [ $found -eq 0 ]; then
+    echo "No job-quest schedule installed."
+  fi
+  return 0
 }
 
 # ---- arg parsing ----

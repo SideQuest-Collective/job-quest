@@ -1,21 +1,36 @@
 #!/bin/bash
 # Start the Job Quest web dashboard
-# Usage: ~/.claude/job-quest/bin/start.sh
 
-APP_DIR="$HOME/.claude/job-quest/app"
-DATA_DIR="$HOME/.claude/job-quest"
+set -euo pipefail
 
-if [ ! -d "$APP_DIR" ]; then
-  echo "Error: Job Quest app not found at $APP_DIR"
-  echo "Run the installer: curl -sL https://raw.githubusercontent.com/SideQuest-Collective/job-quest/main/install.sh | bash"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../../lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+elif [ -f "$SCRIPT_DIR/../app/lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../app" && pwd)"
+else
+  echo "Error: could not locate Job Quest runtime helpers." >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$REPO_ROOT/lib/runtime-shell.sh"
+JOB_QUEST_REPO_ROOT="$REPO_ROOT"
+job_quest_load_runtime --require-registration
+
+DASHBOARD_DIR="$JOB_QUEST_APP_ROOT/app"
+
+if [ ! -d "$DASHBOARD_DIR" ]; then
+  echo "Error: Job Quest app not found at $DASHBOARD_DIR" >&2
   exit 1
 fi
 
 echo ""
 echo "  Starting Job Quest Command Center..."
-echo "  Data: $DATA_DIR"
+echo "  Runtime:   $(job_quest_runtime_hint)"
+echo "  Data:      $JOB_QUEST_DATA_DIR"
 echo "  Dashboard: http://localhost:${PORT:-3847}"
 echo ""
 
-cd "$APP_DIR"
-DATA_DIR="$DATA_DIR" node server.js
+cd "$DASHBOARD_DIR"
+DATA_DIR="$JOB_QUEST_DATA_DIR" node server.js
