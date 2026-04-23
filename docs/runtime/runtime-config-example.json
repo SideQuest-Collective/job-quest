@@ -19,6 +19,13 @@
   "runtimeDisplayName": "Claude Code",
   "runtimeEntryMode": "skill",
   "runtimeSwitchPolicy": "persist-on-invoke",
+  "runtimeValidation": {
+    "status": "ready",
+    "lastCheckedRuntime": "claude",
+    "lastSuccessAt": "2026-04-23T00:00:00Z",
+    "lastFailureAt": null,
+    "lastFailureReason": null
+  },
   "supportedRuntimes": {
     "claude": {
       "displayName": "Claude Code",
