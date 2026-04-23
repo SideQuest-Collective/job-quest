@@ -44,7 +44,7 @@ Directory ownership rules:
 | `migrationState` | string | Bootstrap/migration status for the descriptor. Allowed values: `ready`, `deferred`. |
 | `activeRuntime` | string | Persisted default runtime Job Quest should use now. Allowed values: `claude`, `codex`. |
 | `detectedRuntime` | string | Runtime inferred from the current invoking CLI or registration surface during the current bootstrap or invocation. Allowed values: `claude`, `codex`. |
-| `productHomeDir` | string | Canonical shared product home. Must resolve to `~/.job-quest`. |
+| `productHomeDir` | string | Effective product home for the current run. Must resolve to `~/.job-quest` when `migrationState=ready`; may temporarily point at the last-known-good root when `migrationState=deferred`. |
 | `pendingCanonicalHomeDir` | string | Intended canonical shared home when migration is deferred. Required when `migrationState` is `deferred`. |
 | `appDir` | string | Resolved path to the installed product app subtree under `productHomeDir`. |
 | `dataDir` | string | Resolved path to mutable user data under `productHomeDir`. |
@@ -53,8 +53,8 @@ Directory ownership rules:
 | `runtimeRegistrationRoot` | string | Runtime-native directory where the active runtime expects Job Quest registration artifacts to live. |
 | `runtimeSkillDir` | string | Runtime-native Job Quest registration directory inside `runtimeRegistrationRoot`. |
 | `runtimeRegistrationFile` | string | Runtime-native file the installer writes inside `runtimeSkillDir` for the active runtime, such as `SKILL.md`. |
-| `runtimeCommand` | string | Executable used to invoke the active runtime CLI. |
-| `runtimeCommandArgs` | string[] | Stable argument prefix required before Job Quest appends prompt/input-specific arguments. |
+| `runtimeCommand` | string | Executable currently validated for the active runtime CLI. |
+| `runtimeCommandArgs` | string[] | Stable argument prefix for the validated runtime command currently in use before Job Quest appends prompt/input-specific arguments. |
 | `runtimeDisplayName` | string | User-facing runtime name for logs, API responses, and docs generated from config. |
 | `runtimeEntryMode` | string | Registration style the runtime expects. Allowed values: `skill`, `instruction`. |
 | `runtimeSwitchPolicy` | string | Persisted policy controlling whether later invocation from another supported runtime updates `activeRuntime`. Required value for this milestone: `persist-on-invoke`. |
@@ -71,7 +71,8 @@ Normalization rules:
 - `runtimeCommand` is the executable only; `runtimeCommandArgs` carries any fixed flags or subcommands.
 - `runtimeDisplayName` must be suitable for direct display without further mapping.
 - `supportedRuntimes` is required for supported runtime metadata. Each runtime entry must expose `displayName`, `registrationRoot`, `skillDir`, `registrationFile`, `command`, `commandArgs`, `commandCandidates`, and `entryMode`.
-- The resolved active-runtime fields (`runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode`) must always match the currently selected entry in `supportedRuntimes`.
+- Within `supportedRuntimes`, `command` and `commandArgs` represent the default preferred command for that runtime, while `commandCandidates` captures the full ordered fallback chain.
+- The resolved active-runtime fields (`runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeDisplayName`, and `runtimeEntryMode`) must always match the currently selected entry in `supportedRuntimes`.
 - `commandCandidates` is an ordered list of allowed runtime command probes. The resolved top-level `runtimeCommand` and `runtimeCommandArgs` must match the validated candidate currently in use.
 
 ## Path Resolution Rules
@@ -93,7 +94,7 @@ Normalization rules:
 4. User-facing recovery messages must use `runtimeDisplayName` and `runtimeEntryMode` instead of hard-coded "Claude" or "Claude Code" text.
 5. Consumers that need runtime-native registration paths must read `runtimeRegistrationRoot`, `runtimeSkillDir`, and `runtimeRegistrationFile` from the descriptor rather than deriving them from `activeRuntime` inline.
 6. The shared runtime contract is CLI-only for this milestone. No consumer should infer direct API credentials or provider-specific HTTP flows from this config.
-7. Runtime validation may probe `commandCandidates` in order, but once one candidate succeeds, the winning choice must be persisted back into the resolved top-level `runtimeCommand` and `runtimeCommandArgs`.
+7. Runtime validation may probe `commandCandidates` in order, but once one candidate succeeds, the winning choice must be persisted back into the resolved top-level `runtimeCommand` and `runtimeCommandArgs` without mutating the catalog's default `command` and `commandArgs`.
 
 ## Runtime Switch Semantics
 
