@@ -58,18 +58,20 @@ Directory ownership rules:
 | `runtimeDisplayName` | string | User-facing runtime name for logs, API responses, and docs generated from config. |
 | `runtimeEntryMode` | string | Registration style the runtime expects. Allowed values: `skill`, `instruction`. |
 | `runtimeSwitchPolicy` | string | Persisted policy controlling whether later invocation from another supported runtime updates `activeRuntime`. Required value for this milestone: `persist-on-invoke`. |
+| `runtimeValidation` | object | Persisted readiness diagnostics for bootstrap and runtime switching. Must contain `status`, `lastCheckedRuntime`, `lastSuccessAt`, `lastFailureAt`, and `lastFailureReason`. |
 | `supportedRuntimes` | object | Catalog of supported runtime descriptors keyed by runtime id so installers and wrappers can derive resolved active-runtime fields without inventing ad hoc tables. |
 
 Normalization rules:
 
 - `schemaVersion` is required even when the file is first bootstrapped.
 - `migrationState=ready` means the descriptor points at the canonical shared home. `migrationState=deferred` means the descriptor points at the last-known-good root for this run while migration is postponed.
-- When `migrationState=deferred`, `productHomeDir` may temporarily point at the last-known-good runtime root and `pendingCanonicalHomeDir` must point at `~/.job-quest`.
+- When `migrationState=deferred`, `productHomeDir` remains on the last-known-good root and `pendingCanonicalHomeDir` must point at `~/.job-quest`.
 - `activeRuntime` and `detectedRuntime` must use the same enum values.
 - `productHomeDir`, `appDir`, `dataDir`, `binDir`, `referencesDir`, `runtimeRegistrationRoot`, and `runtimeSkillDir` are stored as user-home-relative strings in config examples and may be expanded to absolute paths at runtime.
 - `runtimeRegistrationFile` names the concrete runtime-native artifact inside `runtimeSkillDir`; later install phases must not guess this from runtime id alone.
 - `runtimeCommand` is the executable only; `runtimeCommandArgs` carries any fixed flags or subcommands.
 - `runtimeDisplayName` must be suitable for direct display without further mapping.
+- `runtimeValidation.status` records the latest readiness result. `runtimeValidation.lastCheckedRuntime`, `runtimeValidation.lastSuccessAt`, `runtimeValidation.lastFailureAt`, and `runtimeValidation.lastFailureReason` persist the most recent validation outcome for the runtime-switch path.
 - `supportedRuntimes` is required for supported runtime metadata. Each runtime entry must expose `displayName`, `registrationRoot`, `skillDir`, `registrationFile`, `command`, `commandArgs`, `commandCandidates`, and `entryMode`.
 - Within `supportedRuntimes`, `command` and `commandArgs` represent the default preferred command for that runtime, while `commandCandidates` captures the full ordered fallback chain.
 - The resolved active-runtime fields (`runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeDisplayName`, and `runtimeEntryMode`) must always match the currently selected entry in `supportedRuntimes`.
@@ -77,7 +79,7 @@ Normalization rules:
 
 ## Path Resolution Rules
 
-1. Resolve `productHomeDir` first. The canonical target is `~/.job-quest`, except when `migrationState=deferred` and the descriptor explicitly points at a documented last-known-good root for continuity.
+1. Resolve `productHomeDir` first. The canonical target is `~/.job-quest` only when `migrationState=ready`; when `migrationState=deferred`, `productHomeDir` remains on the documented last-known-good root for continuity and `pendingCanonicalHomeDir=~/.job-quest`.
 2. Derive `appDir`, `dataDir`, `binDir`, and `referencesDir` from `productHomeDir`; consumers must not recompute alternate roots.
 3. `runtimeRegistrationRoot` and `runtimeSkillDir` are runtime-specific and may point outside `productHomeDir`.
 4. Runtime-specific registration files live under `runtimeSkillDir`, and the concrete file name is `runtimeRegistrationFile`; they must point back to the shared `productHomeDir` layout.
@@ -100,13 +102,13 @@ Normalization rules:
 
 Bootstrap and later invocations follow one persisted default:
 
-1. On first bootstrap, Job Quest detects the invoking runtime and sets both `detectedRuntime` and `activeRuntime` to that runtime.
-2. The initial runtime descriptor always points product paths at `~/.job-quest/...` even if bootstrap is running from a legacy Claude install.
-3. On later invocation, Job Quest records the current invoking runtime as `detectedRuntime`.
-4. If `detectedRuntime` differs from `activeRuntime` and `runtimeSwitchPolicy` is `persist-on-invoke`, Job Quest must first validate the candidate runtime in the same non-interactive environments used by scheduled jobs, helper wrappers, and server-triggered flows.
-5. Validation must confirm the candidate runtime command resolves, the runtime-native registration artifact exists, and the shared-home runner can execute without changing the shared data layout.
-6. Only after those checks pass may Job Quest update `activeRuntime`, `runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode` to the newly invoking runtime.
-7. If validation fails, Job Quest persists `detectedRuntime` for diagnostics but keeps the previous `activeRuntime` as the default and surfaces a recoverable warning instead of breaking background flows.
+1. On first bootstrap, Job Quest detects the invoking runtime and records `detectedRuntime` immediately.
+2. On later invocation, Job Quest records the current invoking runtime as `detectedRuntime` immediately before any runtime switch decision is made.
+3. If `runtimeSwitchPolicy` is `persist-on-invoke`, Job Quest must validate the candidate runtime in the same non-interactive environments used by scheduled jobs, helper wrappers, and server-triggered flows before it writes `activeRuntime`.
+4. Validation must confirm the candidate runtime command resolves, the runtime-native registration artifact exists, and the shared-home runner can execute without changing the shared data layout.
+5. Job Quest writes `activeRuntime` only after those checks pass, then updates `runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode` to the validated runtime.
+6. If validation fails, Job Quest persists the result in `runtimeValidation` by updating `status`, `lastCheckedRuntime`, `lastFailureAt`, and `lastFailureReason`, keeps the previous `activeRuntime` as the default, and surfaces a recoverable warning instead of breaking background flows.
+7. If validation succeeds, Job Quest persists the result in `runtimeValidation` by updating `status`, `lastCheckedRuntime`, and `lastSuccessAt`, and may clear `lastFailureReason` for the newly validated runtime.
 8. Runtime switching must not require reinstall as long as the shared product home and required registration artifact for the invoking runtime are present.
 9. Runtime switching must not create a second product home or split user data across runtimes.
 
