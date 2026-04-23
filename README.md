@@ -1,134 +1,118 @@
 # Job Quest
 
-Your personal job hunt command center — AI-powered daily intel, interview prep, coding practice, and role tracking.
+Job Quest is a local job-search command center with a web dashboard, scheduled daily intel generation, and a conversational skill entrypoint. It now supports both Claude and Codex while keeping one shared local install and one shared data footprint.
 
-Job Quest is a Claude Code skill that sets up a complete job search system on your machine. It includes:
+## What You Get
 
-- **Daily Intelligence Agent** — a scheduled Claude task that discovers relevant roles, generates personalized quizzes, creates prep tasks, and adapts coding problems to your skill level
-- **Web Dashboard** — a local app for tracking roles, practicing interviews, solving coding problems, and managing your job search pipeline
-- **Conversational Coach** — use `/job-quest` anytime in Claude Code to review intel, prep for interviews, practice system design, or update your profile
+- Daily intel generation with roles, quizzes, tasks, and adaptive coding problems
+- A local dashboard at `http://localhost:3847`
+- Helper scripts for interview-plan generation, code review, scheduling, uninstall, and reinstall
+- Runtime-aware skill registration for Claude and Codex backed by the same shared install
 
-## Installation
+## Install
 
-**One-liner:**
 ```bash
 curl -sL https://raw.githubusercontent.com/SideQuest-Collective/job-quest/main/install.sh | bash
 ```
 
-**Or manually:**
-```bash
-git clone https://github.com/SideQuest-Collective/job-quest.git ~/.claude/job-quest
-cd ~/.claude/job-quest && bash install.sh
+The installer creates a shared home at `~/.job-quest/`, installs the repo under `~/.job-quest/app/`, writes runtime config to `~/.job-quest/config/runtime.json`, and registers `job-quest` in:
+
+- `~/.claude/skills/job-quest/SKILL.md`
+- `~/.codex/skills/job-quest/SKILL.md`
+
+The active runtime defaults to the CLI that ran the installer and can switch later without reinstall.
+
+## Shared Layout
+
+```text
+~/.job-quest/
+├── app/           # repo checkout
+├── bin/           # installed helper scripts
+├── config/        # runtime.json
+├── data/          # local user data and generated artifacts
+└── references/    # shared prompt/reference files
 ```
 
-Then open Claude Code and type `/job-quest` to start your quest.
+Mutable state lives under `~/.job-quest/data/`, including:
 
-## How It Works
+- `profile.json`
+- `intel/`
+- `quizzes/`
+- `tasks/`
+- `problems/`
+- `behavioral/`
+- `conversations/`
+- `sd-conversations/`
+- `resume-files/`
+- `logs/`
 
-### First Run
-When you invoke `/job-quest` for the first time, Claude walks you through a conversational onboarding:
+## Runtime Behavior
 
-1. **Profile Interview** — Tell Claude about your background, target roles, and what matters to you
-2. **Dashboard Setup** — The web app gets configured with your data directory
-3. **Daily Intel Agent** — A scheduled task gets created on your preferred schedule
-4. **First Content** — Claude generates your first batch of roles, quizzes, tasks, and coding problems right away
+Job Quest keeps one shared install and one shared data tree, while runtime-specific registration stays native to each assistant. Runtime selection and command resolution live in `~/.job-quest/config/runtime.json`.
 
-### Daily Use
-Each day, your intel agent runs automatically and generates:
-- 15-20 new roles matching your profile with personalized "why this fits" analysis
-- 5-7 quiz questions (system design, coding, behavioral)
-- 8-10 prep tasks with detailed walkthroughs
-- 3-5 adaptive coding problems calibrated to your level
+- Claude uses the configured Claude CLI candidate
+- Codex uses `codex exec`
+- Helper scripts and the dashboard server read the active runtime from the shared runtime descriptor instead of probing Claude-only paths
 
-Run `/job-quest` to check in, review intel, practice interviews, or work through tasks.
+## Dashboard
 
-### Web Dashboard
 Start the dashboard with:
+
 ```bash
-~/.claude/job-quest/bin/start.sh
+~/.job-quest/bin/start.sh
 ```
-Open `http://localhost:3847` for a visual overview of your job search.
 
-### CLI Scripts
-The installer puts helper scripts in `~/.claude/job-quest/bin/`:
+The server reads data from `~/.job-quest/data/`.
 
-| Script | What it does |
-|--------|-------------|
-| `start.sh` | Launch the web dashboard with correct data directory |
-| `generate-plan.sh` | Generate interview prep plans via Claude CLI |
-| `code-review.sh` | Get AI code review on your solutions via Claude CLI |
-| `run-daily-intel.sh` | Run the daily intel agent on demand — writes today's roles, quiz, tasks, problems |
-| `install-schedule.sh` | Install the daily schedule (launchd on macOS, cron on Linux) |
-| `uninstall.sh` | Clean uninstall (stops server, removes schedule, skill, data, app) |
-| `reinstall.sh` | One-step clean reset (uninstall + fresh install from GitHub) |
+## Helper Scripts
 
-**macOS scheduling:** `install-schedule.sh` uses launchd by default — no Full Disk Access or elevated permissions required. Pass `--force-cron` to opt into crontab, which will prompt you to grant Full Disk Access via System Settings if missing.
+The installer writes these scripts to `~/.job-quest/bin/`:
 
-## Dashboard Features
+- `start.sh` — start the dashboard
+- `generate-plan.sh` — runtime-aware interview-plan and evaluation generation
+- `code-review.sh` — runtime-aware conversational review/edit wrapper
+- `run-daily-intel.sh` — generate today’s intel batch
+- `install-schedule.sh` — install or inspect the local schedule
+- `uninstall.sh` — remove Job Quest
+- `reinstall.sh` — uninstall then reinstall
 
-| Feature | Description |
-|---------|-------------|
-| **Intel** | Daily role discoveries with fit analysis |
-| **Tasks** | Prep tasks across 6 categories with detailed walkthroughs |
-| **Quiz** | Daily knowledge checks with explanations |
-| **Code Lab** | Adaptive coding problems with test runner and AI code review |
-| **System Design** | Practice Staff-level design discussions |
-| **Interview Prep** | Company-specific prep plans with technical + behavioral questions |
-| **Behavioral Practice** | STAR framework templates with AI scoring |
-| **Role Tracker** | Pipeline CRM from discovery through offer |
-| **Resume Manager** | LaTeX editor with live PDF compilation |
-| **Activity Calendar** | Track your streak and daily progress |
+## Scheduling
+
+Install a weekday schedule:
+
+```bash
+~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+```
+
+On macOS this uses `launchd` by default. On Linux it uses `crontab`.
 
 ## Requirements
 
-- **Node.js 18+** — for the web dashboard
-- **Claude Code CLI** — for the skill and daily intel agent
-- **Python 3** (optional) — for the code execution sandbox
-- **tectonic** (optional) — for LaTeX resume compilation
+- Node.js 18+
+- Git
+- One supported runtime CLI:
+  - Claude Code CLI, or
+  - Codex CLI
+
+Optional:
+
+- Python 3 for the coding sandbox
+- `tectonic` for LaTeX resume compilation
 
 ## Uninstall / Reinstall
 
-**Uninstall** — removes the app, skill, data, and stops the server:
 ```bash
-bash ~/.claude/job-quest/bin/uninstall.sh
+bash ~/.job-quest/bin/uninstall.sh
+bash ~/.job-quest/bin/uninstall.sh --keep-data
+bash ~/.job-quest/bin/reinstall.sh
+bash ~/.job-quest/bin/reinstall.sh --keep-data
 ```
 
-**Uninstall but keep your data** (profile, intel, progress):
-```bash
-bash ~/.claude/job-quest/bin/uninstall.sh --keep-data
-```
+## Runtime Docs
 
-**Reinstall** — clean reset in one step (uninstall + fresh install):
-```bash
-bash ~/.claude/job-quest/bin/reinstall.sh
-```
-
-**Reinstall preserving data:**
-```bash
-bash ~/.claude/job-quest/bin/reinstall.sh --keep-data
-```
-
-Both scripts accept `--yes` to skip confirmation prompts.
-
-## Install Layout
-
-Everything Job Quest needs lives under **`~/.claude/job-quest/`**:
-
-```
-~/.claude/job-quest/
-├── app/                 # Express dashboard server
-├── skill/               # skill definition (source)
-├── bin/                 # user-facing scripts (start, uninstall, reinstall, …)
-├── references/          # prompt templates
-├── intel/, quizzes/,    # daily agent output
-│   tasks/, problems/, …
-├── profile.json         # your profile
-├── activity.json, ...   # your state
-├── install.sh           # bootstrap
-└── .git/                # clone of the repo, so `git pull` works for updates
-```
-
-Additionally, `~/.claude/skills/job-quest/SKILL.md` is where Claude Code registers the skill — that path is fixed by the Claude Code convention.
+- [Runtime contract](docs/runtime/runtime-contract.md)
+- [Migration strategy](docs/runtime/runtime-migration.md)
+- [Coupling audit](docs/runtime/runtime-coupling-audit.md)
 
 ## License
 

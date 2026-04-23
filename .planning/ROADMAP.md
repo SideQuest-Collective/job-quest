@@ -13,10 +13,10 @@ This milestone turns Job Quest from a Claude-only local skill into a dual-runtim
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Runtime Audit and Abstraction Plan** - Identify Claude-specific coupling and define the shared runtime contract
-- [ ] **Phase 2: Dual-Runtime Install Surface** - Make install, uninstall, and skill registration work for Claude and Codex
-- [ ] **Phase 3: Runtime-Aware AI Execution** - Route helper scripts and scheduled jobs through a shared Claude/Codex execution layer
-- [ ] **Phase 4: Product Integration Hardening** - Preserve dashboard behavior and close runtime-specific regressions
-- [ ] **Phase 5: Documentation and Validation** - Publish dual-runtime guidance and prove the supported flows work
+- [x] **Phase 2: Dual-Runtime Install Surface** - Make install, uninstall, and skill registration work for Claude and Codex
+- [x] **Phase 3: Runtime-Aware AI Execution** - Route helper scripts and scheduled jobs through a shared Claude/Codex execution layer
+- [x] **Phase 4: Product Integration Hardening** - Preserve dashboard behavior and close runtime-specific regressions
+- [x] **Phase 5: Documentation and Validation** - Publish dual-runtime guidance and prove the supported flows work
 
 ## Phase Details
 
@@ -45,9 +45,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Refactor install-time directory and runtime detection logic
-- [ ] 02-02: Add Codex-compatible skill or instruction artifact generation and registration
-- [ ] 02-03: Align uninstall and reinstall behavior with the new dual-runtime layout
+- [x] 02-01: Refactor install-time directory and runtime detection logic
+- [x] 02-02: Add Codex-compatible skill or instruction artifact generation and registration
+- [x] 02-03: Align uninstall and reinstall behavior with the new dual-runtime layout
 
 ### Phase 3: Runtime-Aware AI Execution
 **Goal**: Replace direct Claude-only helper invocation with a runtime-aware execution layer used by scripts and scheduled intel generation.
@@ -60,9 +60,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: Build the shared runtime command wrapper used by shell scripts
-- [ ] 03-02: Update generation, review, and scheduling scripts to use the wrapper
-- [ ] 03-03: Revise prompts and surfaced command text for runtime-aware behavior
+- [x] 03-01: Build the shared runtime command wrapper used by shell scripts
+- [x] 03-02: Update generation, review, and scheduling scripts to use the wrapper
+- [x] 03-03: Revise prompts and surfaced command text for runtime-aware behavior
 
 ### Phase 4: Product Integration Hardening
 **Goal**: Verify that the dashboard-backed product behavior remains stable after the compatibility refactor and that failures are explicit and recoverable.
@@ -75,8 +75,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: Harden server-side integrations and shared data-path assumptions
-- [ ] 04-02: Add regression coverage and explicit runtime-failure handling
+- [x] 04-01: Harden server-side integrations and shared data-path assumptions
+- [x] 04-02: Add regression coverage and explicit runtime-failure handling
 
 ### Phase 5: Documentation and Validation
 **Goal**: Document the dual-runtime user journey and verify the complete setup and usage path for each supported runtime.
@@ -89,8 +89,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: Rewrite README and onboarding guidance for dual-runtime support
-- [ ] 05-02: Capture end-to-end validation steps and support criteria
+- [x] 05-01: Rewrite README and onboarding guidance for dual-runtime support
+- [x] 05-02: Capture end-to-end validation steps and support criteria
 
 ## Progress
 
@@ -100,7 +100,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Runtime Audit and Abstraction Plan | 2/2 | Complete | 2026-04-23 |
-| 2. Dual-Runtime Install Surface | 0/3 | Not started | - |
-| 3. Runtime-Aware AI Execution | 0/3 | Not started | - |
-| 4. Product Integration Hardening | 0/2 | Not started | - |
-| 5. Documentation and Validation | 0/2 | Not started | - |
+| 2. Dual-Runtime Install Surface | 3/3 | Complete | 2026-04-22 |
+| 3. Runtime-Aware AI Execution | 3/3 | Complete | 2026-04-22 |
+| 4. Product Integration Hardening | 2/2 | Complete | 2026-04-22 |
+| 5. Documentation and Validation | 2/2 | Complete | 2026-04-22 |

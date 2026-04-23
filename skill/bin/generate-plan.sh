@@ -1,12 +1,25 @@
 #!/bin/bash
-# Generate interview prep plan using Claude Code CLI
-# Usage: ./scripts/generate-plan.sh <prompt-file>
-# Reads prompt from a temp file, sends to Claude CLI, outputs JSON
+# Generate interview prep or evaluation output using the active runtime CLI
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../../lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+elif [ -f "$SCRIPT_DIR/../app/lib/runtime-shell.sh" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../app" && pwd)"
+else
+  echo '{"error": true, "message": "Job Quest runtime helpers not found"}'
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$REPO_ROOT/lib/runtime-shell.sh"
+JOB_QUEST_REPO_ROOT="$REPO_ROOT"
+job_quest_load_runtime --require-registration
+
 PROMPT_FILE="${1:-}"
-LOG_DIR="$(dirname "$0")/../logs"
+LOG_DIR="$JOB_QUEST_DATA_DIR/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/plan-generation.log"
 
@@ -14,75 +27,43 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
 }
 
-log "=== Plan generation started ==="
-
 if [ -z "$PROMPT_FILE" ] || [ ! -f "$PROMPT_FILE" ]; then
-  log "ERROR: No prompt file provided or file not found: $PROMPT_FILE"
+  log "ERROR: missing prompt file: $PROMPT_FILE"
   echo '{"error": true, "message": "No prompt file provided"}'
   exit 1
 fi
 
+log "=== Plan generation started ==="
+log "Runtime: $(job_quest_runtime_hint)"
 log "Prompt file: $PROMPT_FILE ($(wc -c < "$PROMPT_FILE") bytes)"
 
-# Load nvm
-export NVM_DIR="$HOME/.nvm"
-if [ -s "$NVM_DIR/nvm.sh" ]; then
-  . "$NVM_DIR/nvm.sh"
-  log "nvm loaded, node: $(node --version 2>/dev/null || echo 'not found')"
+STDOUT_FILE="$(mktemp)"
+STDERR_FILE="$(mktemp)"
+
+if [ "$JOB_QUEST_ACTIVE_RUNTIME" = "codex" ]; then
+  CMD=(job_quest_run_prompt_file "$PROMPT_FILE" --sandbox read-only)
 else
-  log "WARNING: nvm not found at $NVM_DIR/nvm.sh"
+  CMD=(job_quest_run_prompt_file "$PROMPT_FILE" --disallowed-tools Bash,Edit,Read,Write,Glob,Grep,Agent)
 fi
 
-# Find Claude CLI
-CLAUDE_CMD=""
-if command -v claude &>/dev/null; then
-  CLAUDE_CMD="claude"
-  log "Using: claude ($(which claude))"
-elif command -v npx &>/dev/null; then
-  CLAUDE_CMD="npx -y @anthropic-ai/claude-code"
-  log "Using: npx @anthropic-ai/claude-code ($(which npx))"
-else
-  log "ERROR: Neither claude nor npx found in PATH"
-  echo '{"error": true, "message": "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"}'
-  exit 1
-fi
+set +e
+"${CMD[@]}" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+EXIT_CODE=$?
+set -e
 
-# Claude CLI flags for single-turn, fast generation
-# Disallow all tools so Claude just generates text, and cap spend
-CLAUDE_FLAGS="--print --disallowed-tools Bash,Edit,Read,Write,Glob,Grep,Agent"
-log "Executing: cat prompt | $CLAUDE_CMD $CLAUDE_FLAGS"
-START_TIME=$(date +%s)
-
-STDOUT_FILE=$(mktemp)
-STDERR_FILE=$(mktemp)
-
-if cat "$PROMPT_FILE" | $CLAUDE_CMD $CLAUDE_FLAGS > "$STDOUT_FILE" 2> "$STDERR_FILE"; then
-  END_TIME=$(date +%s)
-  DURATION=$((END_TIME - START_TIME))
-  STDOUT_SIZE=$(wc -c < "$STDOUT_FILE")
-  log "SUCCESS: Claude responded in ${DURATION}s (${STDOUT_SIZE} bytes)"
-
-  # Log first 200 chars of output for debugging
-  log "Output preview: $(head -c 200 "$STDOUT_FILE" | tr '\n' ' ')"
-
+if [ "$EXIT_CODE" -eq 0 ]; then
+  log "SUCCESS: runtime responded ($(wc -c < "$STDOUT_FILE") bytes)"
   cat "$STDOUT_FILE"
 else
-  EXIT_CODE=$?
-  END_TIME=$(date +%s)
-  DURATION=$((END_TIME - START_TIME))
-  STDERR_CONTENT=$(cat "$STDERR_FILE" | head -c 500)
-  log "FAILED: exit code $EXIT_CODE after ${DURATION}s"
-  log "stderr: $STDERR_CONTENT"
-
-  # Still output whatever we got — might be partial
+  log "FAILED: exit code $EXIT_CODE"
+  log "stderr: $(head -c 300 "$STDERR_FILE" | tr '\n' ' ')"
   if [ -s "$STDOUT_FILE" ]; then
-    log "Has partial stdout ($(wc -c < "$STDOUT_FILE") bytes), outputting"
     cat "$STDOUT_FILE"
   else
-    echo ""
+    echo "{\"error\": true, \"message\": \"$(job_quest_install_hint)\"}"
   fi
 fi
 
-# Cleanup temp files
 rm -f "$STDOUT_FILE" "$STDERR_FILE"
 log "=== Plan generation finished ==="
+exit "$EXIT_CODE"

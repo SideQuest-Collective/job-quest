@@ -762,7 +762,7 @@ function Dashboard({ progress, todayTasks, todayQuiz, latestIntel, setPage, newR
               {jobStatus.tasks?.ready && <span>{jobStatus.tasks.count} tasks generated</span>}
               {jobStatus.status === 'pending' && jobStatus.schedule?.installed && <span>Next run: {jobStatus.schedule.humanReadable} via {jobStatus.schedule.mechanism}</span>}
               {jobStatus.status === 'pending' && !jobStatus.schedule?.installed && <span>Waiting for daily intelligence run...</span>}
-              {jobStatus.status === 'not_scheduled' && <span>Run <code style={{fontFamily:'var(--font-mono)',fontSize:11,background:'var(--bg-surface)',padding:'1px 6px',borderRadius:4}}>~/.claude/job-quest/bin/install-schedule.sh "3 7 * * 1-5"</code> to schedule the daily intel agent</span>}
+              {jobStatus.status === 'not_scheduled' && <span>Run <code style={{fontFamily:'var(--font-mono)',fontSize:11,background:'var(--bg-surface)',padding:'1px 6px',borderRadius:4}}>{jobStatus.installScheduleCommand || '~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"'}</code> to schedule the daily intel agent</span>}
               {(jobStatus.status === 'success' || jobStatus.status === 'partial') && jobStatus.schedule?.installed && <span style={{opacity:0.7}}>Next: {jobStatus.schedule.humanReadable}</span>}
             </div>
           </div>
@@ -1287,7 +1287,7 @@ function Resume({ resume, setResume }) {
     try {
       const res = await api.post('/api/resume/edit', { instruction, filename: selectedFile });
       setEditHistory(prev => [...prev, { role: 'assistant', text: res.response }]);
-      // Reload file content after Claude edit
+      // Reload file content after runtime-assisted edit
       if (isTextFile(selectedFile)) {
         fetch(fileUrl(selectedFile)).then(r => r.text()).then(text => {
           setEditorContent(text);
@@ -1296,7 +1296,7 @@ function Resume({ resume, setResume }) {
         });
       }
     } catch (err) {
-      setEditHistory(prev => [...prev, { role: 'assistant', text: 'Error: Could not reach Claude CLI.' }]);
+      setEditHistory(prev => [...prev, { role: 'assistant', text: 'Error: Could not reach the active runtime CLI.' }]);
     }
     setEditLoading(false);
   };
@@ -1452,7 +1452,7 @@ function Resume({ resume, setResume }) {
           </button>
         )}
         <button className="btn btn-secondary" onClick={() => setShowChat(!showChat)} style={{padding:'6px 14px',fontSize:12,display:'flex',alignItems:'center',gap:5}}>
-          <Icons.zap style={{width:13,height:13}} /> {showChat ? 'Hide' : ''} Claude
+          <Icons.zap style={{width:13,height:13}} /> {showChat ? 'Hide' : ''} Assistant
         </button>
         <button className="btn btn-secondary" onClick={() => setShowUpload(true)} style={{padding:'6px 14px',fontSize:12,display:'flex',alignItems:'center',gap:5}}>
           <Icons.folder style={{width:13,height:13}} /> Upload
@@ -1555,12 +1555,12 @@ function Resume({ resume, setResume }) {
           </div>
         )}
 
-        {/* Right: Claude Chat Panel */}
+        {/* Right: Assistant Panel */}
         {showChat && (
           <div style={{width:300,minWidth:240,flexShrink:0,borderLeft:'1px solid var(--border)',display:'flex',flexDirection:'column',overflow:'hidden',background:'var(--bg-card)'}}>
             <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               <span style={{fontSize:12,fontWeight:700,color:'var(--text)',fontFamily:'var(--font-mono)',display:'flex',alignItems:'center',gap:6}}>
-                <Icons.zap style={{width:14,height:14,color:'var(--amber)'}} /> Claude Editor
+                <Icons.zap style={{width:14,height:14,color:'var(--amber)'}} /> Runtime Editor
               </span>
               <button onClick={() => setShowChat(false)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',padding:2}}>
                 <Icons.x style={{width:14,height:14}} />
@@ -1570,13 +1570,13 @@ function Resume({ resume, setResume }) {
               {editHistory.length === 0 && (
                 <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'var(--text-muted)',gap:8,padding:20}}>
                   <Icons.zap style={{width:28,height:28,opacity:0.3}} />
-                  <div style={{fontSize:12,textAlign:'center',lineHeight:1.6}}>Describe changes in plain English. Claude will edit your LaTeX file directly.</div>
+                  <div style={{fontSize:12,textAlign:'center',lineHeight:1.6}}>Describe changes in plain English. The active runtime will edit your LaTeX file directly.</div>
                   <div style={{fontSize:11,color:'var(--text-muted)',textAlign:'center',lineHeight:1.5,maxWidth:260}}>e.g., "Add my new role at Google" or "Reorder skills to prioritize ML"</div>
                 </div>
               )}
               {editHistory.map((msg, i) => (
                 <div key={i} style={{padding:'10px 12px',borderRadius:8,fontSize:12,lineHeight:1.6,background: msg.role === 'user' ? 'var(--amber-dim)' : 'var(--bg-surface)',border:'1px solid var(--border)',maxWidth:'100%'}}>
-                  <div style={{fontSize:9,color:'var(--text-muted)',fontFamily:'var(--font-mono)',marginBottom:3,textTransform:'uppercase',letterSpacing:0.5}}>{msg.role === 'user' ? 'You' : 'Claude'}</div>
+                  <div style={{fontSize:9,color:'var(--text-muted)',fontFamily:'var(--font-mono)',marginBottom:3,textTransform:'uppercase',letterSpacing:0.5}}>{msg.role === 'user' ? 'You' : 'Assistant'}</div>
                   <div style={{color:'var(--text-secondary)',wordBreak:'break-word'}} dangerouslySetInnerHTML={{__html: msg.role === 'assistant' ? marked.parse(msg.text) : msg.text}} />
                 </div>
               ))}
@@ -2383,7 +2383,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 ) : (
                   <button onClick={generatePlan} disabled={planLoading} className="btn btn-secondary" style={{display:'flex',alignItems:'center',gap:8,fontSize:13,width:'100%',justifyContent:'center',padding:'14px 20px'}}>
                     {planLoading ? (
-                      <><span className="dot-pulse" style={{display:'inline-flex',gap:4}}><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span> Generating prep plan with Claude...</>
+                      <><span className="dot-pulse" style={{display:'inline-flex',gap:4}}><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span> Generating prep plan...</>
                     ) : (
                       <><Icons.zap style={{width:16,height:16,color:'var(--amber)'}} /> Generate Interview Prep Plan</>
                     )}
@@ -3131,7 +3131,7 @@ function Calendar({ progress }) {
                     quiz_answer: ev.detail?.isCorrect ? 'Quiz: correct answer' : 'Quiz: wrong answer',
                     problem_solved: 'Solved problem',
                     code_saved: 'Saved code',
-                    code_review: 'Asked Claude for review',
+                    code_review: 'Asked AI for review',
                     resume_update: 'Updated resume',
                     role_saved: 'Saved role',
                     role_skipped: 'Skipped role',
@@ -3218,7 +3218,7 @@ function SystemDesign() {
       // Refresh topic list to show hasConversation
       api.get('/api/sd-topics').then(setTopics);
     } catch {
-      setMessages([{ role: 'assistant', content: 'Failed to start interview. Check Claude CLI.', timestamp: new Date().toISOString() }]);
+      setMessages([{ role: 'assistant', content: 'Failed to start interview. Check the active runtime CLI.', timestamp: new Date().toISOString() }]);
     }
     setStarting(false);
   };
@@ -3233,7 +3233,7 @@ function SystemDesign() {
       const res = await api.post(`/api/sd-conversation/${selectedTopic.id}`, { userMessage: msg });
       setMessages(res.messages || []);
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to get response. Check Claude CLI.', timestamp: new Date().toISOString() }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to get response. Check the active runtime CLI.', timestamp: new Date().toISOString() }]);
     }
     setLoading(false);
     if (textareaRef.current) textareaRef.current.focus();
@@ -3480,7 +3480,7 @@ function Behavioral() {
     <>
       <div className="page-header anim-enter">
         <h2>Behavioral Practice</h2>
-        <div className="greeting-sub">{completedCount}/{questions.length} practiced &middot; Write STAR responses and get Claude feedback</div>
+        <div className="greeting-sub">{completedCount}/{questions.length} practiced &middot; Write STAR responses and get AI feedback</div>
       </div>
       <div className="intel-split anim-enter anim-delay-1" style={{display:'flex',gap:0,height:'calc(100vh - 160px)',overflow:'hidden'}}>
         <div className="intel-left" style={{width:320,minWidth:280,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column'}}>
@@ -3824,7 +3824,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
       setConvId(res.conversationId);
       setChatHistory(prev => [...prev, { role: 'assistant', content: res.response }]);
     } catch {
-      setChatHistory(prev => [...prev, { role: 'assistant', content: 'Failed to reach Claude. Check if the CLI is available.' }]);
+      setChatHistory(prev => [...prev, { role: 'assistant', content: 'Failed to reach the runtime assistant. Check that the CLI is available.' }]);
     }
     setChatLoading(false);
   };
@@ -3881,7 +3881,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
           <Icons.play style={{width:14,height:14}} /> {running ? 'Running...' : 'Run Tests'}
         </button>
         <button className="btn btn-link" onClick={() => askClaude()} disabled={chatLoading} style={{padding:'8px 18px',fontSize:13,display:'flex',alignItems:'center',gap:6}}>
-          <Icons.messageCircle style={{width:14,height:14}} /> Ask Claude
+          <Icons.messageCircle style={{width:14,height:14}} /> Ask AI
         </button>
       </div>
 
@@ -3987,7 +3987,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
               <div className="bottom-tabs">
                 <div className={`bottom-tab ${bottomTab==='results'?'active':''}`} onClick={() => setBottomTab('results')}>Results</div>
                 <div className={`bottom-tab ${bottomTab==='chat'?'active':''}`} onClick={() => setBottomTab('chat')}>
-                  Claude {chatHistory.length > 0 ? `(${chatHistory.filter(m=>m.role==='assistant').length})` : ''}
+                  Assistant {chatHistory.length > 0 ? `(${chatHistory.filter(m=>m.role==='assistant').length})` : ''}
                 </div>
                 <div style={{flex:1}} />
                 <button onClick={() => setShowBottom(false)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',padding:'4px 8px',fontSize:11,fontFamily:'var(--font-mono)'}} title="Collapse panel">
@@ -4045,7 +4045,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
                           <div style={{clear:'both'}} />
                         </div>
                       ))}
-                      {chatLoading && <div className="chat-loading"><div className="dot-pulse"><span/><span/><span/></div> Claude is thinking...</div>}
+                      {chatLoading && <div className="chat-loading"><div className="dot-pulse"><span/><span/><span/></div> Assistant is thinking...</div>}
                     </div>
                     <div className="chat-input-row" style={{flexShrink:0,borderTop:'1px solid var(--border)',paddingTop:8}}>
                       <input className="chat-input" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Ask a follow-up question..." onKeyDown={e => { if (e.key === 'Enter' && chatInput.trim()) askClaude(chatInput); }} />
