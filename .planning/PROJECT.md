@@ -35,6 +35,8 @@ The repository already contains a working Express dashboard in `app/`, a Claude-
 
 The compatibility effort is brownfield rather than greenfield. Existing behavior around local JSON storage, scheduling, interview prep, code review, and daily intel generation needs to remain intact while the runtime-specific pieces are abstracted. The repo also needs a clearer separation between product logic and agent-runtime integration so future compatibility work does not require touching every script and document.
 
+Phase 1 completed the runtime coupling audit and the shared runtime contract/migration artifacts. Phase 2 now focuses on making install, uninstall, reinstall, and skill registration flows honor that contract for both Claude and Codex.
+
 ## Constraints
 
 - **Compatibility**: Claude behavior must keep working while Codex support is added — the current user base and docs assume Claude already works
@@ -68,4 +70,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-21 after initialization*
+*Last updated: 2026-04-23 after Phase 1 completion*
