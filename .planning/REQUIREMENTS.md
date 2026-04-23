@@ -21,7 +21,7 @@
 
 - [ ] **RT-01**: AI helper scripts can invoke Claude CLI or the Codex equivalent through a shared runtime-aware wrapper
 - [ ] **RT-02**: Scheduled intel generation runs through the selected runtime and produces the same JSON outputs the dashboard expects
-- [ ] **RT-03**: Runtime-specific configuration is centralized so new scripts do not duplicate path and command detection logic
+- [x] **RT-03**: Runtime-specific configuration is centralized so new scripts do not duplicate path and command detection logic
 
 ### Product Continuity
 
@@ -65,7 +65,7 @@
 | INST-03 | Phase 2 | Pending |
 | RT-01 | Phase 3 | Pending |
 | RT-02 | Phase 3 | Pending |
-| RT-03 | Phase 1 | Pending |
+| RT-03 | Phase 1 | Complete |
 | PROD-01 | Phase 4 | Pending |
 | PROD-02 | Phase 4 | Pending |
 | VER-01 | Phase 5 | Pending |

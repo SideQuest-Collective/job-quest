@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Audit Claude-specific paths, commands, and command names across the repo
+- [x] 01-01: Audit Claude-specific paths, commands, and command names across the repo
 - [ ] 01-02: Define the shared runtime configuration shape and migration approach
 
 ### Phase 2: Dual-Runtime Install Surface
@@ -99,7 +99,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime Audit and Abstraction Plan | 0/2 | Not started | - |
+| 1. Runtime Audit and Abstraction Plan | 1/2 | In Progress | - |
 | 2. Dual-Runtime Install Surface | 0/3 | Not started | - |
 | 3. Runtime-Aware AI Execution | 0/3 | Not started | - |
 | 4. Product Integration Hardening | 0/2 | Not started | - |
