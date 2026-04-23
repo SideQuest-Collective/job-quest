@@ -37,7 +37,7 @@ Required behavior:
 3. If `~/.claude/job-quest` exists and `~/.job-quest/` does not, seed `~/.job-quest/` from the legacy install.
 4. If both paths exist, prefer `~/.job-quest/` as canonical when reconciliation succeeds; otherwise keep the last-known-good root active for this run and treat `~/.claude/job-quest` as legacy state to reconcile or retire using the conflict rules below.
 5. Always write a valid runtime descriptor for the current run. When migration is deferred, write `migrationState=deferred`, keep `productHomeDir` pointed at the last-known-good root, and set `pendingCanonicalHomeDir=~/.job-quest` so consumers can continue safely while surfacing the migration warning.
-6. Set `detectedRuntime` from the invoking CLI and initialize `activeRuntime` to the same value on first bootstrap only after the selected runtime passes validation for background and interactive consumers.
+6. Set `detectedRuntime` from the invoking CLI immediately, validate the selected runtime for background and interactive consumers, and write `activeRuntime` only after those readiness checks pass.
 7. Preserve runtime-native registration artifacts for Claude users while adding Codex registration support later in the install surface phase.
 
 Migration scope during bootstrap:
@@ -74,15 +74,34 @@ Rules:
 2. If the invoking runtime differs from `activeRuntime`, Job Quest records the new `detectedRuntime` immediately but keeps the existing `activeRuntime` until the candidate runtime passes readiness checks.
 3. Readiness checks must verify the runtime command from the non-interactive environment used by scheduled jobs and helper wrappers, plus the runtime-native registration artifact that points at `~/.job-quest/`.
 4. Only after those checks pass does Job Quest update `activeRuntime` and refresh the resolved runtime-specific fields in `runtime.json`, including registration root, registration directory, command, command args, display name, and entry mode.
-5. If readiness checks fail, Job Quest keeps the current `activeRuntime`, records the failure for diagnostics, and surfaces a recoverable warning instead of flipping scheduled or server-triggered flows to a broken runtime.
+5. If readiness checks fail, Job Quest keeps the current `activeRuntime`, records the failure in the persisted `runtimeValidation` object (`status`, `lastCheckedRuntime`, `lastFailureAt`, and `lastFailureReason`), and surfaces a recoverable warning instead of flipping scheduled or server-triggered flows to a broken runtime.
 6. The user must not need to reinstall to switch runtimes; invoking Job Quest from the other supported runtime is enough to persist the new default without reinstall once readiness checks pass.
 
 Example sequence:
 
-- A user installs Job Quest through Claude first. Bootstrap sets `activeRuntime=claude`.
+- A user installs Job Quest through Claude first. Bootstrap records `detectedRuntime=claude`, validates Claude readiness, then sets `activeRuntime=claude`.
 - The same user later invokes Job Quest from Codex against the existing shared home.
 - Job Quest records `detectedRuntime=codex`, validates Codex readiness for the shared-home runner, then updates `activeRuntime=codex` and persists the Codex command and registration metadata.
 - The shared `~/.job-quest/data/` footprint remains unchanged.
+
+## Persisted Validation Diagnostics
+
+`runtime.json` stores runtime readiness outcomes in one top-level `runtimeValidation` object defined by the contract.
+
+Required fields:
+
+- `status`
+- `lastCheckedRuntime`
+- `lastSuccessAt`
+- `lastFailureAt`
+- `lastFailureReason`
+
+Rules:
+
+1. Bootstrap and automatic runtime switches must update `runtimeValidation.lastCheckedRuntime` every time readiness checks run.
+2. Successful checks update `status` and `lastSuccessAt`.
+3. Failed readiness checks update `status`, `lastFailureAt`, and `lastFailureReason`.
+4. Readiness checks fail closed: the last-known-good root stays active when `migrationState=deferred`, `pendingCanonicalHomeDir=~/.job-quest`, and the current `activeRuntime` remains unchanged until validation succeeds.
 
 ## Scheduler and Helper Script Impact
 
