@@ -12,7 +12,7 @@ This milestone turns Job Quest from a Claude-only local skill into a dual-runtim
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Runtime Audit and Abstraction Plan** - Identify Claude-specific coupling and define the shared runtime contract
+- [x] **Phase 1: Runtime Audit and Abstraction Plan** - Identify Claude-specific coupling and define the shared runtime contract
 - [ ] **Phase 2: Dual-Runtime Install Surface** - Make install, uninstall, and skill registration work for Claude and Codex
 - [ ] **Phase 3: Runtime-Aware AI Execution** - Route helper scripts and scheduled jobs through a shared Claude/Codex execution layer
 - [ ] **Phase 4: Product Integration Hardening** - Preserve dashboard behavior and close runtime-specific regressions
@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01: Audit Claude-specific paths, commands, and command names across the repo
-- [ ] 01-02: Define the shared runtime configuration shape and migration approach
+- [x] 01-02: Define the shared runtime configuration shape and migration approach
 
 ### Phase 2: Dual-Runtime Install Surface
 **Goal**: Update installation, uninstall, reinstall, and skill asset placement so Claude and Codex installs land in the right locations without breaking shared data.
@@ -99,7 +99,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime Audit and Abstraction Plan | 1/2 | In Progress | - |
+| 1. Runtime Audit and Abstraction Plan | 2/2 | Complete | 2026-04-23 |
 | 2. Dual-Runtime Install Surface | 0/3 | Not started | - |
 | 3. Runtime-Aware AI Execution | 0/3 | Not started | - |
 | 4. Product Integration Hardening | 0/2 | Not started | - |
