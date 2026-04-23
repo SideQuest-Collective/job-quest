@@ -24,6 +24,7 @@ When any of those inputs exist, bootstrap must treat `~/.claude/job-quest` as th
 5. Scheduler behavior, dashboard data reads, and helper scripts must continue to resolve valid files after migration.
 6. A later runtime change must update the persisted default without reinstall.
 7. Uninstall and reinstall flows must treat the legacy Claude path as cleanup or import input, not as the canonical destination for fresh installs.
+8. If migration detects conflicting writable state, normal product startup must continue against the last-known-good root while migration is deferred and surfaced as a warning.
 
 ## Bootstrap Behavior
 
@@ -34,7 +35,7 @@ Required behavior:
 1. Infer the current runtime from the invoking CLI or runtime registration surface.
 2. If no legacy install exists, create `~/.job-quest/` directly using the directory layout in `runtime-contract.md`.
 3. If `~/.claude/job-quest` exists and `~/.job-quest/` does not, seed `~/.job-quest/` from the legacy install.
-4. If both paths exist, prefer `~/.job-quest/` as canonical and treat `~/.claude/job-quest` as legacy state to reconcile or retire using the conflict rules below.
+4. If both paths exist, prefer `~/.job-quest/` as canonical when reconciliation succeeds; otherwise keep the last-known-good root active for this run and treat `~/.claude/job-quest` as legacy state to reconcile or retire using the conflict rules below.
 5. Write `~/.job-quest/config/runtime.json` only after bootstrap reconciliation and runtime validation succeed so later phases do not inherit a half-migrated state.
 6. Set `detectedRuntime` from the invoking CLI and initialize `activeRuntime` to the same value on first bootstrap only after the selected runtime passes validation for background and interactive consumers.
 7. Preserve runtime-native registration artifacts for Claude users while adding Codex registration support later in the install surface phase.
@@ -51,7 +52,7 @@ Conflict resolution rules when both roots exist:
 1. Compare each writable file under the legacy and canonical data trees by relative path and hash before mutating either root.
 2. If only one copy exists, adopt that copy into `~/.job-quest/data/`.
 3. If both copies exist and hashes match, keep the canonical copy and mark the legacy copy as redundant.
-4. If both copies exist and differ, stop bootstrap and emit a conflict report unless a later phase defines a file-type-specific merge rule.
+4. If both copies exist and differ, block migration for that run, emit a conflict report, and keep startup bound to the last-known-good root until the user or a later phase resolves the conflict.
 5. Treat `runtime.json`, schedule metadata, and registration artifacts as regenerated outputs, not merge inputs; they are rewritten from the validated shared-home contract after data reconciliation succeeds.
 
 ## Automatic Runtime Switch

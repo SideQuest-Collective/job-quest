@@ -50,6 +50,7 @@ Directory ownership rules:
 | `referencesDir` | string | Resolved path to shared static references under `productHomeDir`. |
 | `runtimeRegistrationRoot` | string | Runtime-native directory where the active runtime expects Job Quest registration artifacts to live. |
 | `runtimeSkillDir` | string | Runtime-native Job Quest registration directory inside `runtimeRegistrationRoot`. |
+| `runtimeRegistrationFile` | string | Runtime-native file the installer writes inside `runtimeSkillDir` for the active runtime, such as `SKILL.md`. |
 | `runtimeCommand` | string | Executable used to invoke the active runtime CLI. |
 | `runtimeCommandArgs` | string[] | Stable argument prefix required before Job Quest appends prompt/input-specific arguments. |
 | `runtimeDisplayName` | string | User-facing runtime name for logs, API responses, and docs generated from config. |
@@ -62,17 +63,18 @@ Normalization rules:
 - `schemaVersion` is required even when the file is first bootstrapped.
 - `activeRuntime` and `detectedRuntime` must use the same enum values.
 - `productHomeDir`, `appDir`, `dataDir`, `binDir`, `referencesDir`, `runtimeRegistrationRoot`, and `runtimeSkillDir` are stored as user-home-relative strings in config examples and may be expanded to absolute paths at runtime.
+- `runtimeRegistrationFile` names the concrete runtime-native artifact inside `runtimeSkillDir`; later install phases must not guess this from runtime id alone.
 - `runtimeCommand` is the executable only; `runtimeCommandArgs` carries any fixed flags or subcommands.
 - `runtimeDisplayName` must be suitable for direct display without further mapping.
-- `supportedRuntimes` is required for supported runtime metadata. Each runtime entry must expose `displayName`, `registrationRoot`, `skillDir`, `command`, `commandArgs`, and `entryMode`.
-- The resolved active-runtime fields (`runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode`) must always match the currently selected entry in `supportedRuntimes`.
+- `supportedRuntimes` is required for supported runtime metadata. Each runtime entry must expose `displayName`, `registrationRoot`, `skillDir`, `registrationFile`, `command`, `commandArgs`, and `entryMode`.
+- The resolved active-runtime fields (`runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode`) must always match the currently selected entry in `supportedRuntimes`.
 
 ## Path Resolution Rules
 
 1. Resolve `productHomeDir` first. The canonical target is `~/.job-quest`.
 2. Derive `appDir`, `dataDir`, `binDir`, and `referencesDir` from `productHomeDir`; consumers must not recompute alternate roots.
 3. `runtimeRegistrationRoot` and `runtimeSkillDir` are runtime-specific and may point outside `productHomeDir`.
-4. Runtime-specific registration files live under `runtimeSkillDir`, but they must point back to the shared `productHomeDir` layout.
+4. Runtime-specific registration files live under `runtimeSkillDir`, and the concrete file name is `runtimeRegistrationFile`; they must point back to the shared `productHomeDir` layout.
 5. Scheduled jobs, the dashboard server, uninstall/reinstall flows, and helper scripts must read writable state from `dataDir`, not from `appDir`.
 6. If a legacy Claude install exists at `~/.claude/job-quest`, that path is migration input only. It is not the canonical resolved `productHomeDir` once migration has completed.
 7. If a consumer cannot resolve `config/runtime.json`, it may perform bootstrap discovery, but it must write the resolved descriptor back to `config/runtime.json` before continuing normal operation.
@@ -83,7 +85,7 @@ Normalization rules:
 2. `runtimeCommand` plus `runtimeCommandArgs` defines the stable command prefix for AI-backed execution, including scheduled intel and server-triggered helper flows.
 3. Scripts may append task-specific flags after `runtimeCommandArgs`, but they must not overwrite the configured command prefix.
 4. User-facing recovery messages must use `runtimeDisplayName` and `runtimeEntryMode` instead of hard-coded "Claude" or "Claude Code" text.
-5. Consumers that need runtime-native registration paths must read `runtimeRegistrationRoot` and `runtimeSkillDir` from the descriptor rather than deriving them from `activeRuntime` inline.
+5. Consumers that need runtime-native registration paths must read `runtimeRegistrationRoot`, `runtimeSkillDir`, and `runtimeRegistrationFile` from the descriptor rather than deriving them from `activeRuntime` inline.
 6. The shared runtime contract is CLI-only for this milestone. No consumer should infer direct API credentials or provider-specific HTTP flows from this config.
 
 ## Runtime Switch Semantics
@@ -95,7 +97,7 @@ Bootstrap and later invocations follow one persisted default:
 3. On later invocation, Job Quest records the current invoking runtime as `detectedRuntime`.
 4. If `detectedRuntime` differs from `activeRuntime` and `runtimeSwitchPolicy` is `persist-on-invoke`, Job Quest must first validate the candidate runtime in the same non-interactive environments used by scheduled jobs, helper wrappers, and server-triggered flows.
 5. Validation must confirm the candidate runtime command resolves, the runtime-native registration artifact exists, and the shared-home runner can execute without changing the shared data layout.
-6. Only after those checks pass may Job Quest update `activeRuntime`, `runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode` to the newly invoking runtime.
+6. Only after those checks pass may Job Quest update `activeRuntime`, `runtimeRegistrationRoot`, `runtimeSkillDir`, `runtimeRegistrationFile`, `runtimeCommand`, `runtimeCommandArgs`, `runtimeDisplayName`, and `runtimeEntryMode` to the newly invoking runtime.
 7. If validation fails, Job Quest persists `detectedRuntime` for diagnostics but keeps the previous `activeRuntime` as the default and surfaces a recoverable warning instead of breaking background flows.
 8. Runtime switching must not require reinstall as long as the shared product home and required registration artifact for the invoking runtime are present.
 9. Runtime switching must not create a second product home or split user data across runtimes.
