@@ -1,8 +1,10 @@
 {
   "schemaVersion": "1.0",
+  "migrationState": "ready",
   "activeRuntime": "claude",
   "detectedRuntime": "claude",
   "productHomeDir": "~/.job-quest",
+  "pendingCanonicalHomeDir": "~/.job-quest",
   "appDir": "~/.job-quest/app",
   "dataDir": "~/.job-quest/data",
   "binDir": "~/.job-quest/bin",
@@ -27,6 +29,22 @@
       "commandArgs": [
         "--print"
       ],
+      "commandCandidates": [
+        {
+          "command": "claude",
+          "commandArgs": [
+            "--print"
+          ]
+        },
+        {
+          "command": "npx",
+          "commandArgs": [
+            "-y",
+            "@anthropic-ai/claude-code",
+            "--print"
+          ]
+        }
+      ],
       "entryMode": "skill"
     },
     "codex": {
@@ -37,6 +55,14 @@
       "command": "codex",
       "commandArgs": [
         "exec"
+      ],
+      "commandCandidates": [
+        {
+          "command": "codex",
+          "commandArgs": [
+            "exec"
+          ]
+        }
       ],
       "entryMode": "skill"
     }
