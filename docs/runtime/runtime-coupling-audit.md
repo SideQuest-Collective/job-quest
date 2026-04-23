@@ -2,7 +2,7 @@
 
 ## Audit Scope
 
-This audit inventories the current Claude-coupled surfaces that later compatibility phases must revisit. Every finding in this document maps back to a committed repo file so follow-on changes can stay source-linked and reviewable.
+This audit inventories the current Claude-coupled surfaces that later compatibility phases must revisit. Every finding in this document maps back to a committed repo file so follow-on changes can stay source-linked and reviewable, and the scope now covers every repo-visible Claude-coupled documentation surface, including the app-local README.
 
 ## Runtime Coupling Inventory
 
@@ -60,13 +60,16 @@ This audit inventories the current Claude-coupled surfaces that later compatibil
 ### Phase 5 docs and validation
 
 - `README.md`: rewrite installation, daily use, and lifecycle docs so Claude and Codex are both first-class supported runtimes.
+- `app/README.md`: rewrite the embedded app guide so prerequisites, helper-script descriptions, and API notes no longer describe AI features as Claude-only.
 - `skill/SKILL.md`: align the documented user journey with the dual-runtime contract after implementation lands.
 - `app/public/index.html`: validate that surfaced commands and runtime wording match the supported user guidance.
 
 ## Verification Checklist
 
+- This checklist now covers every repo-visible Claude-coupled documentation surface, including the app-local README, so later phases can prove the audit is exhaustive before rewriting user-facing guidance.
 - `install.sh`: grep for `~/.claude/job-quest`, `~/.claude/skills/job-quest/SKILL.md`, and `/job-quest`.
 - `README.md`: grep for `~/.claude/job-quest`, `~/.claude/skills/job-quest/SKILL.md`, `Claude Code`, and `/job-quest`.
+- `app/README.md`: grep for `Claude CLI`, `Claude CLI wrapper`, and `AI code review via Claude`.
 - `skill/SKILL.md`: grep for `~/.claude/job-quest`, `/job-quest`, `Claude`, and `claude -p`.
 - `skill/bin/start.sh`: grep for `$HOME/.claude/job-quest/app` and `$HOME/.claude/job-quest`.
 - `skill/bin/install-schedule.sh`: grep for `~/.claude/job-quest/bin/install-schedule.sh`, `$HOME/.claude/job-quest`, and `com.sidequest.job-quest.daily-intel`.
