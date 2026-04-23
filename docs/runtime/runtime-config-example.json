@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0",
+  "activeRuntime": "claude",
+  "detectedRuntime": "claude",
+  "productHomeDir": "~/.job-quest",
+  "appDir": "~/.job-quest/app",
+  "dataDir": "~/.job-quest/data",
+  "binDir": "~/.job-quest/bin",
+  "referencesDir": "~/.job-quest/references",
+  "runtimeRegistrationRoot": "~/.claude/skills",
+  "runtimeSkillDir": "~/.claude/skills/job-quest",
+  "runtimeCommand": "claude",
+  "runtimeCommandArgs": [
+    "--print"
+  ],
+  "runtimeDisplayName": "Claude Code",
+  "runtimeEntryMode": "skill",
+  "runtimeSwitchPolicy": "persist-on-invoke",
+  "supportedRuntimes": {
+    "claude": {
+      "displayName": "Claude Code",
+      "registrationRoot": "~/.claude/skills",
+      "skillDir": "~/.claude/skills/job-quest",
+      "command": "claude",
+      "commandArgs": [
+        "--print"
+      ],
+      "entryMode": "skill"
+    },
+    "codex": {
+      "displayName": "Codex",
+      "registrationRoot": "~/.codex/skills",
+      "skillDir": "~/.codex/skills/job-quest",
+      "command": "codex",
+      "commandArgs": [
+        "exec"
+      ],
+      "entryMode": "instruction"
+    }
+  }
+}
