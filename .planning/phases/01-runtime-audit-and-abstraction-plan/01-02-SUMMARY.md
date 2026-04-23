@@ -65,7 +65,7 @@ Each task was committed atomically:
 
 - Standardized the canonical shared product home as `~/.job-quest/` with separate `app/`, `data/`, `bin/`, `references/`, and `config/runtime.json` ownership.
 - Kept runtime-native registration paths outside the shared home so Claude and Codex can coexist without duplicating the product install.
-- Defined `persist-on-invoke` as the required runtime switch policy so invocation from the other supported runtime updates `activeRuntime` immediately.
+- Defined `persist-on-invoke` as the required runtime switch policy so invocation from another supported runtime records `detectedRuntime`, validates readiness, and only then updates `activeRuntime`.
 
 ## Deviations from Plan
 
