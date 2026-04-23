@@ -34,9 +34,9 @@ Required behavior:
 1. Infer the current runtime from the invoking CLI or runtime registration surface.
 2. If no legacy install exists, create `~/.job-quest/` directly using the directory layout in `runtime-contract.md`.
 3. If `~/.claude/job-quest` exists and `~/.job-quest/` does not, seed `~/.job-quest/` from the legacy install.
-4. If both paths exist, prefer `~/.job-quest/` as canonical and treat `~/.claude/job-quest` as legacy state to reconcile or retire.
-5. Write `~/.job-quest/config/runtime.json` on every successful bootstrap so later phases can resolve the active runtime and shared paths without rediscovery.
-6. Set `detectedRuntime` from the invoking CLI and initialize `activeRuntime` to the same value on first bootstrap.
+4. If both paths exist, prefer `~/.job-quest/` as canonical and treat `~/.claude/job-quest` as legacy state to reconcile or retire using the conflict rules below.
+5. Write `~/.job-quest/config/runtime.json` only after bootstrap reconciliation and runtime validation succeed so later phases do not inherit a half-migrated state.
+6. Set `detectedRuntime` from the invoking CLI and initialize `activeRuntime` to the same value on first bootstrap only after the selected runtime passes validation for background and interactive consumers.
 7. Preserve runtime-native registration artifacts for Claude users while adding Codex registration support later in the install surface phase.
 
 Migration scope during bootstrap:
@@ -46,6 +46,14 @@ Migration scope during bootstrap:
 - Shared helper entrypoints live under `~/.job-quest/bin/`.
 - Static prompt/reference files live under `~/.job-quest/references/`.
 
+Conflict resolution rules when both roots exist:
+
+1. Compare each writable file under the legacy and canonical data trees by relative path and hash before mutating either root.
+2. If only one copy exists, adopt that copy into `~/.job-quest/data/`.
+3. If both copies exist and hashes match, keep the canonical copy and mark the legacy copy as redundant.
+4. If both copies exist and differ, stop bootstrap and emit a conflict report unless a later phase defines a file-type-specific merge rule.
+5. Treat `runtime.json`, schedule metadata, and registration artifacts as regenerated outputs, not merge inputs; they are rewritten from the validated shared-home contract after data reconciliation succeeds.
+
 ## Automatic Runtime Switch
 
 Runtime switching is invocation-driven and persisted automatically.
@@ -53,16 +61,17 @@ Runtime switching is invocation-driven and persisted automatically.
 Rules:
 
 1. Every supported runtime invocation records `detectedRuntime`.
-2. If the invoking runtime differs from `activeRuntime`, Job Quest updates `activeRuntime` to the newly invoking runtime.
-3. That update also refreshes the resolved runtime-specific fields in `runtime.json`, including registration root, registration directory, command, command args, display name, and entry mode.
-4. The switch becomes effective immediately for helper wrappers, scheduled intel, server-triggered AI actions, and subsequent launches.
-5. The user must not need to reinstall to switch runtimes; invoking Job Quest from the other supported runtime is enough to persist the new default without reinstall.
+2. If the invoking runtime differs from `activeRuntime`, Job Quest records the new `detectedRuntime` immediately but keeps the existing `activeRuntime` until the candidate runtime passes readiness checks.
+3. Readiness checks must verify the runtime command from the non-interactive environment used by scheduled jobs and helper wrappers, plus the runtime-native registration artifact that points at `~/.job-quest/`.
+4. Only after those checks pass does Job Quest update `activeRuntime` and refresh the resolved runtime-specific fields in `runtime.json`, including registration root, registration directory, command, command args, display name, and entry mode.
+5. If readiness checks fail, Job Quest keeps the current `activeRuntime`, records the failure for diagnostics, and surfaces a recoverable warning instead of flipping scheduled or server-triggered flows to a broken runtime.
+6. The user must not need to reinstall to switch runtimes; invoking Job Quest from the other supported runtime is enough to persist the new default without reinstall once readiness checks pass.
 
 Example sequence:
 
 - A user installs Job Quest through Claude first. Bootstrap sets `activeRuntime=claude`.
 - The same user later invokes Job Quest from Codex against the existing shared home.
-- Job Quest records `detectedRuntime=codex`, updates `activeRuntime=codex`, and persists the Codex command and registration metadata.
+- Job Quest records `detectedRuntime=codex`, validates Codex readiness for the shared-home runner, then updates `activeRuntime=codex` and persists the Codex command and registration metadata.
 - The shared `~/.job-quest/data/` footprint remains unchanged.
 
 ## Scheduler and Helper Script Impact
