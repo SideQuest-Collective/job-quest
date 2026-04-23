@@ -47,6 +47,14 @@ Migration scope during bootstrap:
 - Shared helper entrypoints live under `~/.job-quest/bin/`.
 - Static prompt/reference files live under `~/.job-quest/references/`.
 
+Legacy-to-canonical mapping rules:
+
+- `~/.claude/job-quest/profile.json` -> `~/.job-quest/data/profile.json`
+- `~/.claude/job-quest/role-actions.json` -> `~/.job-quest/data/role-actions.json`
+- `~/.claude/job-quest/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs}/` -> `~/.job-quest/data/...`
+- `~/.claude/job-quest/skill/bin/*` -> regenerated into `~/.job-quest/bin/` from the installed product, not copied into `data/`
+- Repo checkout files, dashboard source, and static references under the legacy root -> regenerated into `app/` or `references/`, not merged into `data/`
+
 Conflict resolution rules when both roots exist:
 
 1. Compare each writable file under the legacy and canonical data trees by relative path and hash before mutating either root.
