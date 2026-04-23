@@ -9,6 +9,7 @@
   "referencesDir": "~/.job-quest/references",
   "runtimeRegistrationRoot": "~/.claude/skills",
   "runtimeSkillDir": "~/.claude/skills/job-quest",
+  "runtimeRegistrationFile": "SKILL.md",
   "runtimeCommand": "claude",
   "runtimeCommandArgs": [
     "--print"
@@ -21,6 +22,7 @@
       "displayName": "Claude Code",
       "registrationRoot": "~/.claude/skills",
       "skillDir": "~/.claude/skills/job-quest",
+      "registrationFile": "SKILL.md",
       "command": "claude",
       "commandArgs": [
         "--print"
@@ -31,11 +33,12 @@
       "displayName": "Codex",
       "registrationRoot": "~/.codex/skills",
       "skillDir": "~/.codex/skills/job-quest",
+      "registrationFile": "SKILL.md",
       "command": "codex",
       "commandArgs": [
         "exec"
       ],
-      "entryMode": "instruction"
+      "entryMode": "skill"
     }
   }
 }
