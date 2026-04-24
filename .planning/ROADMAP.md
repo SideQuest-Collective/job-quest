@@ -103,12 +103,12 @@ Plans:
   1. `~/.job-quest/bin/run-daily-intel.sh` completes successfully in a Codex-installed environment and writes the expected JSON artifacts
   2. Dashboard endpoints that read "today" use the same local-date semantics as the generator so `/api/job-status`, `/api/intel/latest`, `/api/quizzes/today`, and `/api/tasks/today` agree
   3. Regression coverage exists for the Codex helper path and local date-boundary behavior
-**Plans**: 0 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 06-01: Repair the Codex runtime invocation path for installed daily intel generation
-- [ ] 06-02: Normalize dashboard daily artifact selection to local-date behavior
-- [ ] 06-03: Add regression coverage for Codex helper execution and date-boundary handling
+- [x] 06-01: Repair the Codex runtime invocation path for installed daily intel generation
+- [x] 06-02: Normalize dashboard daily artifact selection to local-date behavior
+- [x] 06-03: Add regression coverage for Codex helper execution and date-boundary handling
 
 ### Phase 7: Validation and Release Proof Hardening
 **Goal**: Strengthen validation and verification artifacts so milestone closeout is based on observed runtime behavior instead of checklist presence alone.
@@ -137,5 +137,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 3. Runtime-Aware AI Execution | 3/3 | Complete | 2026-04-22 |
 | 4. Product Integration Hardening | 2/2 | Complete | 2026-04-22 |
 | 5. Documentation and Validation | 2/2 | Complete | 2026-04-22 |
-| 6. Runtime Intel Execution Recovery | 0/3 | Planned | - |
+| 6. Runtime Intel Execution Recovery | 3/3 | In Review | - |
 | 7. Validation and Release Proof Hardening | 0/2 | Planned | - |

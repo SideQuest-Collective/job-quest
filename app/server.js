@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const os = require('os');
 const AdmZip = require('adm-zip');
 const { ensureRuntime, expandHome } = require('../lib/runtime');
+const { findRecordByDate, getLocalDateStamp, preferTodayOrLatest } = require('./lib/local-date');
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '.env');
@@ -71,7 +72,7 @@ function readActivity() {
 
 function logActivity(type, detail) {
   const activity = readActivity();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateStamp();
   if (!activity[today]) activity[today] = { events: [] };
   activity[today].events.push({
     type,
@@ -84,7 +85,7 @@ function logActivity(type, detail) {
 // --- Auto-complete daily tasks helper ---
 // Marks today's daily tasks as completed when matching criteria is met
 function autoCompleteDailyTask(matchFn) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateStamp();
   const taskFile = path.join(DATA_DIR, 'tasks', `${today}.json`);
   if (!fs.existsSync(taskFile)) return;
   const data = JSON.parse(fs.readFileSync(taskFile, 'utf-8'));
@@ -127,7 +128,7 @@ app.get('/api/intel', (req, res) => {
 // Get latest intel
 app.get('/api/intel/latest', (req, res) => {
   const all = readDataDir('intel');
-  res.json(all[0] || null);
+  res.json(preferTodayOrLatest(all, getLocalDateStamp()));
 });
 
 // Get all quizzes
@@ -137,10 +138,9 @@ app.get('/api/quizzes', (req, res) => {
 
 // Get today's quiz
 app.get('/api/quizzes/today', (req, res) => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateStamp();
   const all = readDataDir('quizzes');
-  const todayQuiz = all.find(q => q.date === today);
-  res.json(todayQuiz || all[0] || null);
+  res.json(preferTodayOrLatest(all, today));
 });
 
 // Submit quiz answer
@@ -166,10 +166,9 @@ app.get('/api/tasks', (req, res) => {
 
 // Get today's tasks
 app.get('/api/tasks/today', (req, res) => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateStamp();
   const all = readDataDir('tasks');
-  const todayTasks = all.find(t => t.date === today);
-  res.json(todayTasks || all[0] || null);
+  res.json(preferTodayOrLatest(all, today));
 });
 
 // Update task status
@@ -229,8 +228,8 @@ function calculateStreak(allTasks) {
   for (let i = 0; i < 60; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const dayTasks = allTasks.find(t => t.date === dateStr);
+    const dateStr = getLocalDateStamp(d);
+    const dayTasks = findRecordByDate(allTasks, dateStr);
     if (dayTasks && dayTasks.tasks && dayTasks.tasks.some(t => t.completed)) {
       streak++;
     } else if (i > 0) break;
@@ -1111,7 +1110,7 @@ function cronToHuman(cron) {
 }
 
 app.get('/api/job-status', (req, res) => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateStamp();
   const intelFile = path.join(DATA_DIR, 'intel', `${today}.json`);
   const quizFile = path.join(DATA_DIR, 'quizzes', `${today}.json`);
   const tasksFile = path.join(DATA_DIR, 'tasks', `${today}.json`);

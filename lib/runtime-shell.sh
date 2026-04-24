@@ -67,6 +67,14 @@ job_quest_install_hint() {
   esac
 }
 
+job_quest_print_command() {
+  local arg
+  for arg in "$@"; do
+    printf '%q ' "$arg"
+  done
+  printf '\n'
+}
+
 job_quest_run_prompt_file() {
   local prompt_file="$1"
   shift
@@ -84,8 +92,17 @@ job_quest_run_prompt_file() {
       --skip-git-repo-check
     )
 
-    if [ -n "${JOB_QUEST_DATA_DIR:-}" ] && [ -d "${JOB_QUEST_DATA_DIR}" ]; then
+    if [ -n "${JOB_QUEST_DATA_DIR:-}" ]; then
       codex_cmd+=(--add-dir "${JOB_QUEST_DATA_DIR}")
+    fi
+
+    if [ -n "${JOB_QUEST_REFERENCES_DIR:-}" ]; then
+      codex_cmd+=(--add-dir "${JOB_QUEST_REFERENCES_DIR}")
+    fi
+
+    if [ "${JOB_QUEST_RUNTIME_DRY_RUN:-0}" = "1" ]; then
+      job_quest_print_command "${codex_cmd[@]}" "$@"
+      return 0
     fi
 
     "${codex_cmd[@]}" "$@" < "$prompt_file"
