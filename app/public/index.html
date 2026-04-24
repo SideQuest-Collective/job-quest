@@ -3799,7 +3799,12 @@ function CodeLab({ sessionRef, initialProblemRef }) {
         api.post('/api/problems/progress', updated);
       }
     } catch (err) {
-      setTestResults({ error: 'Failed to run code', results: [] });
+      setTestResults({
+        error: 'The browser could not reach the local Code Lab runner.',
+        errorSource: 'runtime',
+        errorTitle: 'Code Lab failed to run your code',
+        results: [],
+      });
     }
     setRunning(false);
   };
@@ -3841,6 +3846,13 @@ function CodeLab({ sessionRef, initialProblemRef }) {
 
   const allPassed = testResults?.results?.length > 0 && testResults.results.every(r => r.passed);
   const isSolved = !!progress.solved?.[problem.id];
+  const inferErrorSource = (error) => /^(NameError|SyntaxError|TypeError|ValueError|KeyError|IndexError|AttributeError|IndentationError|ZeroDivisionError|AssertionError|ImportError|ModuleNotFoundError)\b/.test(error || '')
+    ? 'user_code'
+    : 'runtime';
+  const globalErrorSource = testResults?.errorSource || inferErrorSource(testResults?.error);
+  const globalErrorTitle = testResults?.errorTitle || (globalErrorSource === 'user_code'
+    ? 'Your code hit an error'
+    : 'Code Lab failed to run your code');
 
   return (
     <>
@@ -3997,7 +4009,20 @@ function CodeLab({ sessionRef, initialProblemRef }) {
               <div className="bottom-content" style={{overflow:'auto',flex:1}}>
                 {bottomTab === 'results' && (
                   <div style={{fontSize:14,lineHeight:1.7}}>
-                    {testResults?.error && <div className="test-fail" style={{marginBottom:8,fontSize:13,padding:'8px 12px',background:'rgba(239,68,68,0.08)',borderRadius:6}}>{testResults.error}</div>}
+                    {testResults?.error && (
+                      <div className="test-fail" style={{marginBottom:8,fontSize:13,padding:'10px 12px',background:'rgba(239,68,68,0.08)',borderRadius:6,border:'1px solid rgba(239,68,68,0.16)'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}}>
+                          <span style={{fontSize:10,fontWeight:700,letterSpacing:0.8,textTransform:'uppercase',fontFamily:'var(--font-mono)',padding:'3px 6px',borderRadius:999,background:globalErrorSource === 'user_code' ? 'rgba(251,191,36,0.14)' : 'rgba(239,68,68,0.14)',color:globalErrorSource === 'user_code' ? 'var(--amber)' : 'var(--rose)'}}>
+                            {globalErrorSource === 'user_code' ? 'Your Code' : 'Code Lab'}
+                          </span>
+                          <span style={{fontWeight:700,color:'var(--text-primary)'}}>{globalErrorTitle}</span>
+                        </div>
+                        <div style={{fontFamily:'var(--font-mono)',color:'var(--text-secondary)'}}>{testResults.error}</div>
+                        {testResults.errorDetails && globalErrorSource === 'runtime' && (
+                          <div style={{marginTop:6,fontSize:12,color:'var(--text-muted)'}}>{testResults.errorDetails}</div>
+                        )}
+                      </div>
+                    )}
                     {testResults?.results?.length > 0 && (
                       <>
                         <div className={`test-summary ${allPassed ? 'test-pass' : 'test-fail'}`}>
@@ -4024,7 +4049,14 @@ function CodeLab({ sessionRef, initialProblemRef }) {
                             </div>
                             {!r.passed && (
                               <div style={{fontSize:13,color:'var(--text-secondary)',fontFamily:'var(--font-mono)',padding:'6px 0 2px 26px',lineHeight:1.6}}>
-                                {r.error ? <span style={{color:'var(--rose)'}}>{r.error}</span> : <>Expected <code style={{color:'var(--emerald)',background:'var(--emerald-dim)',padding:'1px 6px',borderRadius:4}}>{r.expected}</code>, got <code style={{color:'var(--rose)',background:'rgba(239,68,68,0.1)',padding:'1px 6px',borderRadius:4}}>{r.actual}</code></>}
+                                {r.error ? (
+                                  <>
+                                    <span style={{display:'inline-block',marginRight:8,fontSize:10,fontWeight:700,letterSpacing:0.8,textTransform:'uppercase',padding:'3px 6px',borderRadius:999,background:'rgba(251,191,36,0.14)',color:'var(--amber)'}}>
+                                      Your Code Error
+                                    </span>
+                                    <span style={{color:'var(--rose)'}}>{r.error}</span>
+                                  </>
+                                ) : <>Expected <code style={{color:'var(--emerald)',background:'var(--emerald-dim)',padding:'1px 6px',borderRadius:4}}>{r.expected}</code>, got <code style={{color:'var(--rose)',background:'rgba(239,68,68,0.1)',padding:'1px 6px',borderRadius:4}}>{r.actual}</code></>}
                               </div>
                             )}
                           </div>

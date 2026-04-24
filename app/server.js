@@ -720,15 +720,40 @@ app.post('/api/run-code', (req, res) => {
   const testRunner = `
 import json, sys, traceback
 
-# User code
-${code}
+source = ${JSON.stringify(code)}
+function_name = ${JSON.stringify(functionName)}
+tests = json.loads(${JSON.stringify(JSON.stringify(testCases))})
 
-# Test runner
-tests = ${JSON.stringify(testCases)}
+def format_error():
+    lines = traceback.format_exc().strip().split("\\n")
+    return lines[-1] if lines else "Execution failed"
+
+namespace = {}
+try:
+    exec(compile(source, "<user_code>", "exec"), namespace)
+except Exception:
+    print(json.dumps({
+        "error": format_error(),
+        "errorSource": "user_code",
+        "errorTitle": "Your code could not be loaded",
+        "results": []
+    }))
+    sys.exit(0)
+
+fn = namespace.get(function_name)
+if not callable(fn):
+    print(json.dumps({
+        "error": f"Function '{function_name}' is not defined",
+        "errorSource": "user_code",
+        "errorTitle": "Your code is missing the required function",
+        "results": []
+    }))
+    sys.exit(0)
+
 results = []
 for i, test in enumerate(tests):
     try:
-        result = ${functionName}(**test['input'])
+        result = fn(**test['input'])
         # Sort lists for order-insensitive comparison where needed
         expected = test['expected']
         passed = result == expected
@@ -739,9 +764,9 @@ for i, test in enumerate(tests):
             except:
                 pass
         results.append({"index": i, "passed": passed, "actual": repr(result), "expected": repr(expected)})
-    except Exception as e:
-        results.append({"index": i, "passed": False, "error": traceback.format_exc().split("\\n")[-2]})
-print(json.dumps(results))
+    except Exception:
+        results.append({"index": i, "passed": False, "error": format_error(), "errorSource": "user_code"})
+print(json.dumps({"results": results}))
 `;
 
   try {
@@ -752,14 +777,20 @@ print(json.dumps(results))
       maxBuffer: 1024 * 1024,
     });
     fs.unlinkSync(tmpFile);
-    res.json({ results: JSON.parse(output.trim()) });
+    res.json(JSON.parse(output.trim()));
   } catch (err) {
     try { fs.unlinkSync(tmpFile); } catch {}
-    const stderr = err.stderr || err.message || '';
-    // Extract meaningful Python error
-    const lines = stderr.split('\n').filter(l => l.trim());
-    const errorMsg = lines.length > 0 ? lines[lines.length - 1] : 'Execution failed';
-    res.json({ error: errorMsg, results: [] });
+    const stderr = String(err.stderr || err.message || '').trim();
+    const runtimeError = /timed out/i.test(stderr)
+      ? 'Execution timed out after 10 seconds'
+      : 'Code Lab could not start the Python runner';
+    res.json({
+      error: runtimeError,
+      errorSource: 'runtime',
+      errorTitle: 'Code Lab failed to run your code',
+      errorDetails: stderr || 'The local runner failed before your code could be evaluated.',
+      results: [],
+    });
   }
 });
 
