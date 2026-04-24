@@ -17,6 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Runtime-Aware AI Execution** - Route helper scripts and scheduled jobs through a shared Claude/Codex execution layer
 - [x] **Phase 4: Product Integration Hardening** - Preserve dashboard behavior and close runtime-specific regressions
 - [x] **Phase 5: Documentation and Validation** - Publish dual-runtime guidance and prove the supported flows work
+- [ ] **Phase 6: Runtime Intel Execution Recovery** - Restore Codex daily intel execution and align dashboard daily-state logic with generated artifacts
+- [ ] **Phase 7: Validation and Release Proof Hardening** - Rebuild milestone verification so runtime helper execution and daily-state behavior are proven before closeout
 
 ## Phase Details
 
@@ -92,6 +94,37 @@ Plans:
 - [x] 05-01: Rewrite README and onboarding guidance for dual-runtime support
 - [x] 05-02: Capture end-to-end validation steps and support criteria
 
+### Phase 6: Runtime Intel Execution Recovery
+**Goal**: Fix the broken Codex daily intel path and make dashboard daily-state lookups agree with the generated local artifact dates.
+**Depends on**: Phase 5
+**Requirements**: [RT-02, PROD-01]
+**Gap Closure**: Closes milestone audit gaps for Codex helper execution, dashboard daily-status date handling, and the runtime-to-dashboard integration path.
+**Success Criteria** (what must be TRUE):
+  1. `~/.job-quest/bin/run-daily-intel.sh` completes successfully in a Codex-installed environment and writes the expected JSON artifacts
+  2. Dashboard endpoints that read "today" use the same local-date semantics as the generator so `/api/job-status`, `/api/intel/latest`, `/api/quizzes/today`, and `/api/tasks/today` agree
+  3. Regression coverage exists for the Codex helper path and local date-boundary behavior
+**Plans**: 0 plans
+
+Plans:
+- [ ] 06-01: Repair the Codex runtime invocation path for installed daily intel generation
+- [ ] 06-02: Normalize dashboard daily artifact selection to local-date behavior
+- [ ] 06-03: Add regression coverage for Codex helper execution and date-boundary handling
+
+### Phase 7: Validation and Release Proof Hardening
+**Goal**: Strengthen validation and verification artifacts so milestone closeout is based on observed runtime behavior instead of checklist presence alone.
+**Depends on**: Phase 6
+**Requirements**: [VER-02]
+**Gap Closure**: Closes milestone audit gaps for release proof, missing validation evidence, and weak traceability across verification artifacts.
+**Success Criteria** (what must be TRUE):
+  1. The dual-runtime validation checklist explicitly proves install, dashboard startup, helper execution, and local-date correctness for both supported runtimes
+  2. Verification artifacts include requirement-level evidence for the repaired runtime and dashboard flows
+  3. The milestone can be re-audited without relying on manual inference from thin verification notes
+**Plans**: 0 plans
+
+Plans:
+- [ ] 07-01: Upgrade the dual-runtime validation checklist with concrete runtime and date-boundary checks
+- [ ] 07-02: Backfill verification and validation artifacts needed for milestone re-audit
+
 ## Progress
 
 **Execution Order:**
@@ -104,3 +137,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 3. Runtime-Aware AI Execution | 3/3 | Complete | 2026-04-22 |
 | 4. Product Integration Hardening | 2/2 | Complete | 2026-04-22 |
 | 5. Documentation and Validation | 2/2 | Complete | 2026-04-22 |
+| 6. Runtime Intel Execution Recovery | 0/3 | Planned | - |
+| 7. Validation and Release Proof Hardening | 0/2 | Planned | - |

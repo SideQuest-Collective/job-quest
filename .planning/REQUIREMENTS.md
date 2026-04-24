@@ -20,18 +20,18 @@
 ### Runtime Integration
 
 - [x] **RT-01**: AI helper scripts can invoke Claude CLI or the Codex equivalent through a shared runtime-aware wrapper
-- [x] **RT-02**: Scheduled intel generation runs through the selected runtime and produces the same JSON outputs the dashboard expects
+- [ ] **RT-02**: Scheduled intel generation runs through the selected runtime and produces the same JSON outputs the dashboard expects
 - [x] **RT-03**: Runtime-specific configuration is centralized so new scripts do not duplicate path and command detection logic
 
 ### Product Continuity
 
-- [x] **PROD-01**: The dashboard continues to read and write the existing JSON data model after compatibility changes
+- [ ] **PROD-01**: The dashboard continues to read and write the existing JSON data model after compatibility changes
 - [x] **PROD-02**: Existing interview-plan, code-review, and evaluation flows fail clearly when a required runtime CLI is unavailable
 
 ### Verification and Docs
 
 - [x] **VER-01**: README and onboarding docs explain Claude and Codex installation and day-one usage paths clearly
-- [x] **VER-02**: The repo includes a validation path proving install, skill registration, dashboard startup, and AI helper execution for each supported runtime
+- [ ] **VER-02**: The repo includes a validation path proving install, skill registration, dashboard startup, and AI helper execution for each supported runtime
 
 ## v2 Requirements
 
@@ -64,12 +64,12 @@
 | INST-02 | Phase 2 | Complete |
 | INST-03 | Phase 2 | Complete |
 | RT-01 | Phase 3 | Complete |
-| RT-02 | Phase 3 | Complete |
+| RT-02 | Phase 6 | Pending |
 | RT-03 | Phase 1 | Complete |
-| PROD-01 | Phase 4 | Complete |
+| PROD-01 | Phase 6 | Pending |
 | PROD-02 | Phase 4 | Complete |
 | VER-01 | Phase 5 | Complete |
-| VER-02 | Phase 5 | Complete |
+| VER-02 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 13 total
@@ -78,4 +78,4 @@
 
 ---
 *Requirements defined: 2026-04-21*
-*Last updated: 2026-04-22 after Phase 5 completion*
+*Last updated: 2026-04-24 after milestone audit gap planning*
