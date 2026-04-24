@@ -76,6 +76,7 @@ Expected outcomes:
 - Each script resolves paths from `~/.job-quest`
 - Runtime failures mention the active runtime command instead of Claude-only text
 - Daily intel writes JSON files into `~/.job-quest/data/`
+- For Codex, `~/.job-quest/bin/run-daily-intel.sh` should complete without a product-home access error and should refresh `~/.job-quest/data/intel/`, `~/.job-quest/data/quizzes/`, and `~/.job-quest/data/tasks/` for the same local day
 
 ## Claude Flow
 
@@ -88,6 +89,23 @@ Expected outcomes:
 1. Invoke Job Quest from Codex.
 2. Confirm Codex uses the same shared install and data tree.
 3. Confirm `runtime.json` keeps or switches `activeRuntime` to `codex` when Codex is the validated invoking runtime.
+
+## Local-Date Checks
+
+Verify the dashboard endpoints agree on the same local-day artifact selection:
+
+```bash
+curl -s http://localhost:3847/api/job-status
+curl -s http://localhost:3847/api/intel/latest
+curl -s http://localhost:3847/api/quizzes/today
+curl -s http://localhost:3847/api/tasks/today
+```
+
+Expected outcomes:
+
+- `/api/job-status`, `/api/intel/latest`, `/api/quizzes/today`, and `/api/tasks/today` point at the same local-day files when today's artifacts exist
+- If today's intel file is missing, `/api/intel/latest` falls back to the newest available artifact without changing the local-day contract used by `/api/job-status`
+- Check these endpoints near local day boundaries to confirm the server is not drifting to UTC-based "tomorrow" or "yesterday"
 
 ## Lifecycle Checks
 

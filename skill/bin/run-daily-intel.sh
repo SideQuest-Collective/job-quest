@@ -30,6 +30,10 @@ log() {
 
 log "=== Daily intel run started ==="
 log "Runtime: $(job_quest_runtime_hint)"
+log "Runtime command: ${JOB_QUEST_RUNTIME_COMMAND:-unknown} ${JOB_QUEST_RUNTIME_COMMAND_ARGS[*]:-}"
+log "App root: ${JOB_QUEST_APP_ROOT:-unset}"
+log "Data dir: ${JOB_QUEST_DATA_DIR:-unset}"
+log "References dir: ${JOB_QUEST_REFERENCES_DIR:-unset}"
 
 if [ ! -f "$PROFILE" ]; then
   log "ERROR: profile.json not found at $PROFILE. Open Job Quest in your runtime and complete onboarding first."
@@ -40,6 +44,8 @@ if [ ! -f "$TEMPLATE" ]; then
   log "ERROR: intel-agent-template.md not found at $TEMPLATE"
   exit 1
 fi
+
+log "Prompt template: $TEMPLATE"
 
 read_profile() {
   python3 -c "import json; d=json.load(open('$PROFILE')); print(d.get('$1',''))"
@@ -116,6 +122,7 @@ if [ "$EXIT_CODE" -eq 0 ]; then
   log "Summary: $(tail -1 "$STDOUT_FILE")"
 else
   log "FAILED: exit code $EXIT_CODE"
+  log "Runtime command failed: ${JOB_QUEST_RUNTIME_COMMAND:-unknown} ${JOB_QUEST_RUNTIME_COMMAND_ARGS[*]:-}"
   log "stderr: $(head -c 400 "$STDERR_FILE" | tr '\n' ' ')"
 fi
 
