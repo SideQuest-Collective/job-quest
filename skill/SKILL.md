@@ -11,6 +11,20 @@ Set up and run a personalized job hunt command center. This is a conversational 
 @$HOME/.job-quest/references/intel-agent-template.md
 </execution_context>
 
+<startup_update>
+Before onboarding, return-flow routing, or installation management, attempt a non-destructive update check:
+
+```bash
+~/.job-quest/bin/update.sh --if-needed
+```
+
+Rules:
+- If the script reports that Job Quest updated successfully, tell the user briefly that the local install was refreshed from remote and continue.
+- If it reports that Job Quest is already up to date, continue without making a big deal of it.
+- If the update check fails because the network is unavailable or the install has local repo changes, tell the user briefly and continue with the current install instead of stopping the whole session.
+- If `~/.job-quest/bin/update.sh` is missing, continue normally; the user is likely on an older install and the next manual reinstall/update will add it.
+</startup_update>
+
 <first_run_detection>
 First, check the user's raw input for an **installation management keyword**. If their message contains (case-insensitive) any of: `uninstall`, `reinstall`, `reset`, `nuke my install`, `start over`, `wipe everything`, route immediately to the "Installation Management" section below — do not run onboarding, do not show the menu. This lets users type `/job-quest reinstall` and skip straight to the action.
 
@@ -228,6 +242,14 @@ After a reinstall completes, the runtime skill registrations have been rewritten
 ## Available Scripts
 
 The skill installs helper scripts at `~/.job-quest/bin/` that wrap the active runtime CLI. Use these from within Claude, Codex, or the terminal:
+
+### update.sh
+Checks whether the installed repo is behind `origin/main` and, if so, refreshes the local install from the latest remote installer. This is what the skill should call first on each invocation.
+
+```bash
+~/.job-quest/bin/update.sh --if-needed
+~/.job-quest/bin/update.sh --check-only
+```
 
 ### generate-plan.sh
 Generates a role-specific interview prep plan using the active runtime CLI. Takes a prompt file as input and returns structured JSON with technical questions, behavioral questions, quiz, system design prompts, and a readiness checklist.

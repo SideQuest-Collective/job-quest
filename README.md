@@ -7,6 +7,7 @@ Job Quest is a local job-search command center with a web dashboard, scheduled d
 - Daily intel generation with roles, quizzes, tasks, and adaptive coding problems
 - A local dashboard at `http://localhost:3847`
 - Helper scripts for interview-plan generation, code review, scheduling, uninstall, and reinstall
+- Automatic skill-start update checks backed by a non-destructive local updater
 - Runtime-aware skill registration for Claude and Codex backed by the same shared install
 
 ## Install
@@ -72,9 +73,18 @@ The installer writes these scripts to `~/.job-quest/bin/`:
 - `generate-plan.sh` — runtime-aware interview-plan and evaluation generation
 - `code-review.sh` — runtime-aware conversational review/edit wrapper
 - `run-daily-intel.sh` — generate today’s intel batch
+- `update.sh` — fetch remote changes and refresh the local install when behind
 - `install-schedule.sh` — install or inspect the local schedule
 - `uninstall.sh` — remove Job Quest
 - `reinstall.sh` — uninstall then reinstall
+
+The `job-quest` skill should begin by running:
+
+```bash
+~/.job-quest/bin/update.sh --if-needed
+```
+
+That keeps the installed skill, helper scripts, and dashboard aligned with `origin/main` before the rest of the workflow continues.
 
 ## Scheduling
 

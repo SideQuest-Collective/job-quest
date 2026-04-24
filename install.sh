@@ -143,6 +143,7 @@ cp "$APP_DIR/skill/bin/code-review.sh" "$BIN_DIR/code-review.sh"
 cp "$APP_DIR/skill/bin/start.sh" "$BIN_DIR/start.sh"
 cp "$APP_DIR/skill/bin/run-daily-intel.sh" "$BIN_DIR/run-daily-intel.sh"
 cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
+cp "$APP_DIR/skill/bin/update.sh" "$BIN_DIR/update.sh"
 cp "$APP_DIR/skill/bin/uninstall.sh" "$BIN_DIR/uninstall.sh"
 cp "$APP_DIR/skill/bin/reinstall.sh" "$BIN_DIR/reinstall.sh"
 chmod +x "$BIN_DIR/"*.sh
