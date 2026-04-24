@@ -85,6 +85,7 @@ The `job-quest` skill should begin by running:
 ```
 
 That keeps the installed skill, helper scripts, and dashboard aligned with `origin/main` before the rest of the workflow continues.
+After that, it should verify a daily intel schedule exists and restore the default weekday `7:03 AM` schedule when none is installed.
 
 ## Scheduling
 
@@ -92,6 +93,15 @@ Install a weekday schedule:
 
 ```bash
 ~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+
+# Check whether any schedule exists
+~/.job-quest/bin/install-schedule.sh --exists
+
+# Print the current cron expression
+~/.job-quest/bin/install-schedule.sh --current-cron
+
+# Change the schedule time later
+~/.job-quest/bin/install-schedule.sh "30 8 * * 1-5"
 ```
 
 On macOS this uses `launchd` by default. On Linux it uses `crontab`.

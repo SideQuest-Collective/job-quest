@@ -25,8 +25,29 @@ Rules:
 - If `~/.job-quest/bin/update.sh` is missing, continue normally; the user is likely on an older install and the next manual reinstall/update will add it.
 </startup_update>
 
+<startup_schedule>
+After the update check, make sure a daily intel schedule exists:
+
+```bash
+~/.job-quest/bin/install-schedule.sh --exists
+```
+
+Rules:
+- If a schedule exists, continue normally.
+- If no schedule exists, install the default schedule immediately:
+
+```bash
+~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+```
+
+- Tell the user briefly that Job Quest restored the default weekday 7:03 AM schedule because none was installed.
+- If schedule installation fails, tell the user briefly and continue; do not block the rest of the skill flow on schedule setup.
+</startup_schedule>
+
 <first_run_detection>
 First, check the user's raw input for an **installation management keyword**. If their message contains (case-insensitive) any of: `uninstall`, `reinstall`, `reset`, `nuke my install`, `start over`, `wipe everything`, route immediately to the "Installation Management" section below — do not run onboarding, do not show the menu. This lets users type `/job-quest reinstall` and skip straight to the action.
+
+If their message contains (case-insensitive) any schedule-management keywords such as `schedule`, `reschedule`, `change time`, `update schedule`, `weekdays`, `daily`, or `cron`, route to the "Schedule Management" section below after the update/schedule startup checks.
 
 Otherwise, check if `~/.job-quest/data/profile.json` exists.
 - If it does NOT exist → this is a first run. Start the full onboarding flow below.
@@ -216,6 +237,50 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 **Manage Installation:** Route to the "Installation Management" section below.
 
+## Schedule Management
+
+When the user asks to view, change, or restore their schedule, treat it as a dedicated flow rather than burying it inside generic setup.
+
+1. Read the current schedule first:
+
+```bash
+~/.job-quest/bin/install-schedule.sh --current-cron
+```
+
+If that command fails, assume no schedule is installed.
+
+2. Tell the user the current schedule if one exists. If none exists, say that clearly and recommend the default weekday morning schedule (`3 7 * * 1-5`).
+
+3. Ask what they want:
+- Keep weekdays and change only the time
+- Switch between weekdays and daily
+- Set a fully custom cron expression
+- Remove the schedule entirely
+
+4. For common cases, translate their request into cron and apply it with:
+
+```bash
+~/.job-quest/bin/install-schedule.sh "<new-cron>"
+```
+
+Examples:
+
+```bash
+# 8:30 AM weekdays
+~/.job-quest/bin/install-schedule.sh "30 8 * * 1-5"
+
+# 7:03 AM daily
+~/.job-quest/bin/install-schedule.sh "3 7 * * *"
+```
+
+5. If they want the schedule removed, run:
+
+```bash
+~/.job-quest/bin/install-schedule.sh --uninstall
+```
+
+6. After any change, confirm the new schedule and remind them they can change it again later by asking Job Quest.
+
 ## Installation Management
 
 When the user picks "Manage installation" from the menu OR their initial message contained a keyword (`uninstall`, `reinstall`, `reset`, `start over`, `wipe`, `nuke`), present the three management actions via AskUserQuestion:
@@ -294,6 +359,12 @@ Installs the daily intel schedule. Uses **launchd on macOS** (no elevated permis
 
 # Show current schedule
 ~/.job-quest/bin/install-schedule.sh --show
+
+# Exit 0 if a schedule exists
+~/.job-quest/bin/install-schedule.sh --exists
+
+# Print the current cron expression
+~/.job-quest/bin/install-schedule.sh --current-cron
 
 # Remove the schedule (both launchd and any legacy cron entry)
 ~/.job-quest/bin/install-schedule.sh --uninstall

@@ -35,6 +35,73 @@ PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 
 is_macos() { [[ "$OSTYPE" == darwin* ]]; }
 
+current_cron_from_launchd() {
+  [ -f "$PLIST_PATH" ] || return 1
+  python3 - "$PLIST_PATH" <<'PY'
+import plistlib
+import sys
+
+plist_path = sys.argv[1]
+
+with open(plist_path, "rb") as fh:
+    data = plistlib.load(fh)
+
+interval = data.get("StartCalendarInterval")
+if not interval:
+    sys.exit(1)
+
+entries = interval if isinstance(interval, list) else [interval]
+if not entries:
+    sys.exit(1)
+
+hours = {entry.get("Hour") for entry in entries}
+minutes = {entry.get("Minute") for entry in entries}
+if len(hours) != 1 or len(minutes) != 1:
+    sys.exit("Unsupported launchd schedule shape")
+
+hour = next(iter(hours))
+minute = next(iter(minutes))
+
+weekdays = []
+for entry in entries:
+    weekday = entry.get("Weekday")
+    if weekday is None:
+        print(f"{minute} {hour} * * *")
+        sys.exit(0)
+    weekdays.append(int(weekday))
+
+weekdays = sorted(set(weekdays))
+
+def compress(values):
+    ranges = []
+    start = prev = values[0]
+    for value in values[1:]:
+        if value == prev + 1:
+            prev = value
+            continue
+        ranges.append((start, prev))
+        start = prev = value
+    ranges.append((start, prev))
+    return ",".join(str(lo) if lo == hi else f"{lo}-{hi}" for lo, hi in ranges)
+
+print(f"{minute} {hour} * * {compress(weekdays)}")
+PY
+}
+
+current_cron_from_crontab() {
+  local line
+  line="$(crontab -l 2>/dev/null | grep "$MARKER" | head -n 1 || true)"
+  [ -n "$line" ] || return 1
+  echo "$line" | awk '{print $1, $2, $3, $4, $5}'
+}
+
+current_cron() {
+  if is_macos; then
+    current_cron_from_launchd && return 0
+  fi
+  current_cron_from_crontab
+}
+
 # Parse cron expression (5 fields) and emit a launchd plist to stdout.
 # Supported patterns for minute/hour: single integer.
 # Supported patterns for day-of-week: '*' (daily), 'N' (single day), 'N-M' (range), 'N,M,...' (list).
@@ -182,10 +249,13 @@ uninstall_launchd() {
 
 show_schedule() {
   local found=0
+  local cron_expr=""
+  cron_expr="$(current_cron 2>/dev/null || true)"
   if is_macos && [ -f "$PLIST_PATH" ]; then
     echo "launchd agent:"
     echo "  Label: $PLIST_LABEL"
     echo "  Plist: $PLIST_PATH"
+    [ -n "$cron_expr" ] && echo "  Schedule (cron): $cron_expr"
     if launchctl list 2>/dev/null | grep -q "$PLIST_LABEL"; then
       echo "  Status: loaded"
     else
@@ -218,6 +288,16 @@ if [ "${1:-}" = "--show" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--exists" ]; then
+  current_cron >/dev/null 2>&1
+  exit $?
+fi
+
+if [ "${1:-}" = "--current-cron" ]; then
+  current_cron
+  exit $?
+fi
+
 # --uninstall: remove both launchd and cron entries if present
 if [ "${1:-}" = "--uninstall" ]; then
   removed=0
@@ -246,6 +326,8 @@ if [ -z "$CRON_EXPR" ]; then
   echo ""
   echo "Other commands:"
   echo "  $0 --show       Print current schedule"
+  echo "  $0 --exists     Exit 0 if a schedule is installed"
+  echo "  $0 --current-cron  Print the current cron expression"
   echo "  $0 --uninstall  Remove the schedule"
   echo ""
   echo "On macOS, launchd is used by default (no elevated permissions needed)."
