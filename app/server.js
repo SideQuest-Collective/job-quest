@@ -723,16 +723,26 @@ source = ${JSON.stringify(code)}
 function_name = ${JSON.stringify(functionName)}
 tests = json.loads(${JSON.stringify(JSON.stringify(testCases))})
 
-def format_error():
+def format_error(exc=None):
+    if isinstance(exc, SyntaxError):
+        loc = f"line {exc.lineno}" if exc.lineno else "unknown line"
+        if exc.offset:
+            loc += f", col {exc.offset}"
+        msg = f"SyntaxError: {exc.msg} ({loc})"
+        if exc.text:
+            msg += "\\n  " + exc.text.rstrip()
+            if exc.offset:
+                msg += "\\n  " + (" " * max(exc.offset - 1, 0)) + "^"
+        return msg
     lines = traceback.format_exc().strip().split("\\n")
     return lines[-1] if lines else "Execution failed"
 
 namespace = {}
 try:
     exec(compile(source, "<user_code>", "exec"), namespace)
-except Exception:
+except Exception as exc:
     print(json.dumps({
-        "error": format_error(),
+        "error": format_error(exc),
         "errorSource": "user_code",
         "errorTitle": "Your code could not be loaded",
         "results": []
@@ -763,8 +773,8 @@ for i, test in enumerate(tests):
             except:
                 pass
         results.append({"index": i, "passed": passed, "actual": repr(result), "expected": repr(expected)})
-    except Exception:
-        results.append({"index": i, "passed": False, "error": format_error(), "errorSource": "user_code"})
+    except Exception as exc:
+        results.append({"index": i, "passed": False, "error": format_error(exc), "errorSource": "user_code"})
 print(json.dumps({"results": results}))
 `;
 
