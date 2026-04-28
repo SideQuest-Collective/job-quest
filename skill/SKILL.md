@@ -116,10 +116,10 @@ Create the full directory structure at `~/.job-quest/data/`:
 mkdir -p ~/.job-quest/data/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs}
 ```
 
-Seed empty JSON files so nothing crashes on first read:
+Seed empty JSON files so nothing crashes on first read. The shipped `install.sh` copies `app/skill/seed/problems.json` (30 base problems across 4 categories) into `~/.job-quest/data/problems/problems.json` for new installs; if you're seeding manually outside the installer, mirror that:
 ```bash
-echo '[]' > ~/.job-quest/data/problems/problems.json
-echo '{}' > ~/.job-quest/data/problems/progress.json
+cp ~/.job-quest/app/skill/seed/problems.json ~/.job-quest/data/problems/problems.json
+echo '{"solved":{},"bookmarked":[],"savedCode":{}}' > ~/.job-quest/data/problems/progress.json
 echo '{}' > ~/.job-quest/data/behavioral/answers.json
 echo '{}' > ~/.job-quest/data/role-tracker.json
 echo '{"saved":[],"skipped":[],"applied":[]}' > ~/.job-quest/data/role-actions.json

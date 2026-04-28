@@ -1,0 +1,2914 @@
+{
+  "categories": [
+    {
+      "id": "arrays-hashing",
+      "name": "Arrays & Hashing",
+      "order": 1
+    },
+    {
+      "id": "graphs",
+      "name": "Graphs & Ordering",
+      "order": 2
+    },
+    {
+      "id": "intervals",
+      "name": "Intervals & Scheduling",
+      "order": 3
+    },
+    {
+      "id": "dynamic-programming",
+      "name": "Dynamic Programming",
+      "order": 4
+    }
+  ],
+  "problems": [
+    {
+      "id": "binary-search-basic",
+      "title": "Binary Search",
+      "category": "arrays-hashing",
+      "difficulty": "easy",
+      "order": 1,
+      "description": "Given a sorted array of integers `nums` and a target value `target`, return the index of `target` if it exists in `nums`, or `-1` if it does not. You must write an algorithm with O(log n) runtime complexity.",
+      "examples": [
+        {
+          "input": "nums = [-1,0,3,5,9,12], target = 9",
+          "output": "4"
+        },
+        {
+          "input": "nums = [-1,0,3,5,9,12], target = 2",
+          "output": "-1"
+        }
+      ],
+      "constraints": [
+        "1 <= nums.length <= 10^4",
+        "-10^4 < nums[i], target < 10^4",
+        "All integers in nums are unique",
+        "nums is sorted in ascending order"
+      ],
+      "starterCode": "function search(nums, target) {\n  // Your code here\n}",
+      "functionName": "search",
+      "testCases": [
+        {
+          "input": {
+            "nums": [
+              -1,
+              0,
+              3,
+              5,
+              9,
+              12
+            ],
+            "target": 9
+          },
+          "expected": 4
+        },
+        {
+          "input": {
+            "nums": [
+              -1,
+              0,
+              3,
+              5,
+              9,
+              12
+            ],
+            "target": 2
+          },
+          "expected": -1
+        },
+        {
+          "input": {
+            "nums": [
+              5
+            ],
+            "target": 5
+          },
+          "expected": 0
+        },
+        {
+          "input": {
+            "nums": [
+              2,
+              5
+            ],
+            "target": 5
+          },
+          "expected": 1
+        }
+      ],
+      "hints": [
+        "Use two pointers: lo and hi. Calculate mid without overflow: lo + Math.floor((hi - lo) / 2).",
+        "If nums[mid] === target, return mid. If nums[mid] < target, search right half. Otherwise, search left half.",
+        "The loop continues while lo <= hi. If the loop exits, the target doesn't exist."
+      ],
+      "tags": [
+        "binary-search",
+        "array"
+      ]
+    },
+    {
+      "id": "daily-temperatures",
+      "title": "Daily Temperatures",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 2,
+      "description": "Given an array of integers `temperatures` represents the daily temperatures, return an array `answer` such that `answer[i]` is the number of days you have to wait after the `i`th day to get a warmer temperature. If there is no future day for which this is possible, keep `answer[i] == 0` instead.",
+      "examples": [
+        {
+          "input": "temperatures = [73,74,75,71,69,72,76,73]",
+          "output": "[1,1,4,2,1,1,0,0]"
+        },
+        {
+          "input": "temperatures = [30,40,50,60]",
+          "output": "[1,1,1,0]"
+        }
+      ],
+      "constraints": [
+        "1 <= temperatures.length <= 10^5",
+        "30 <= temperatures[i] <= 100"
+      ],
+      "starterCode": "function dailyTemperatures(temperatures) {\n  // Your code here\n}",
+      "functionName": "dailyTemperatures",
+      "testCases": [
+        {
+          "input": [
+            73,
+            74,
+            75,
+            71,
+            69,
+            72,
+            76,
+            73
+          ],
+          "expected": [
+            1,
+            1,
+            4,
+            2,
+            1,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "input": [
+            30,
+            40,
+            50,
+            60
+          ],
+          "expected": [
+            1,
+            1,
+            1,
+            0
+          ]
+        },
+        {
+          "input": [
+            30,
+            60,
+            90
+          ],
+          "expected": [
+            1,
+            1,
+            0
+          ]
+        },
+        {
+          "input": [
+            90,
+            80,
+            70,
+            60
+          ],
+          "expected": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "input": [
+            55
+          ],
+          "expected": [
+            0
+          ]
+        }
+      ],
+      "hints": [
+        "Use a monotonic decreasing stack that stores indices. When a warmer day is found, pop all cooler days from the stack.",
+        "For each temperature, while the stack is non-empty and the current temp is warmer than the temp at the top index, pop and compute the difference in indices.",
+        "Each element is pushed and popped at most once, giving O(n) time complexity and O(n) space for the stack."
+      ],
+      "tags": [
+        "monotonic-stack",
+        "stack",
+        "array"
+      ]
+    },
+    {
+      "id": "find-median-stream",
+      "title": "Find Median from Data Stream",
+      "category": "arrays-hashing",
+      "difficulty": "hard",
+      "order": 3,
+      "description": "Implement `MedianFinder`: `addNum(num)` adds an integer to the stream; `findMedian()` returns the median of all elements seen so far.",
+      "examples": [
+        {
+          "input": "addNum(1), addNum(2), findMedian() → 1.5, addNum(3), findMedian() → 2",
+          "output": "[null, null, 1.5, null, 2]"
+        }
+      ],
+      "constraints": [
+        "Up to 5 * 10^4 calls"
+      ],
+      "starterCode": "class MedianFinder {\n  constructor() {}\n  addNum(num) {}\n  findMedian() {}\n}",
+      "functionName": "MedianFinder",
+      "testCases": [
+        {
+          "input": {
+            "ops": [
+              "MedianFinder",
+              "addNum",
+              "addNum",
+              "findMedian",
+              "addNum",
+              "findMedian"
+            ],
+            "args": [
+              [],
+              [
+                1
+              ],
+              [
+                2
+              ],
+              [],
+              [
+                3
+              ],
+              []
+            ]
+          },
+          "expected": [
+            null,
+            null,
+            null,
+            1.5,
+            null,
+            2
+          ]
+        }
+      ],
+      "hints": [
+        "Two heaps: max-heap for lower half, min-heap for upper half.",
+        "Balance so sizes differ by at most 1. Median = top of larger heap, or average of both tops if equal.",
+        "Insert: push to one heap, rebalance by moving top between heaps if size diff > 1."
+      ],
+      "tags": [
+        "heap",
+        "design",
+        "data-stream"
+      ]
+    },
+    {
+      "id": "group-anagrams",
+      "title": "Group Anagrams",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 4,
+      "description": "Given an array of strings `strs`, group the anagrams together. You can return the answer in any order. An anagram is a word formed by rearranging the letters of another word using all the original letters exactly once.",
+      "examples": [
+        {
+          "input": "strs = [\"eat\",\"tea\",\"tan\",\"ate\",\"nat\",\"bat\"]",
+          "output": "[[\"bat\"],[\"nat\",\"tan\"],[\"ate\",\"eat\",\"tea\"]]"
+        },
+        {
+          "input": "strs = [\"\"]",
+          "output": "[[\"\"]]"
+        },
+        {
+          "input": "strs = [\"a\"]",
+          "output": "[[\"a\"]]"
+        }
+      ],
+      "constraints": [
+        "1 <= strs.length <= 10^4",
+        "0 <= strs[i].length <= 100",
+        "strs[i] consists of lowercase English letters"
+      ],
+      "starterCode": "function groupAnagrams(strs) {\n  // Your code here\n}",
+      "functionName": "groupAnagrams",
+      "testCases": [
+        {
+          "input": [
+            "eat",
+            "tea",
+            "tan",
+            "ate",
+            "nat",
+            "bat"
+          ],
+          "expected": [
+            [
+              "eat",
+              "tea",
+              "ate"
+            ],
+            [
+              "tan",
+              "nat"
+            ],
+            [
+              "bat"
+            ]
+          ]
+        },
+        {
+          "input": [
+            ""
+          ],
+          "expected": [
+            [
+              ""
+            ]
+          ]
+        },
+        {
+          "input": [
+            "a"
+          ],
+          "expected": [
+            [
+              "a"
+            ]
+          ]
+        },
+        {
+          "input": [
+            "cab",
+            "tin",
+            "pew",
+            "duh",
+            "may",
+            "ill",
+            "buy",
+            "bar",
+            "max",
+            "doc"
+          ],
+          "expected": [
+            [
+              "cab"
+            ],
+            [
+              "tin"
+            ],
+            [
+              "pew"
+            ],
+            [
+              "duh"
+            ],
+            [
+              "may"
+            ],
+            [
+              "ill"
+            ],
+            [
+              "buy"
+            ],
+            [
+              "bar"
+            ],
+            [
+              "max"
+            ],
+            [
+              "doc"
+            ]
+          ]
+        }
+      ],
+      "hints": [
+        "Two strings are anagrams if and only if their sorted versions are the same.",
+        "Use a hash map with the sorted string as the key and a list of original strings as the value.",
+        "Alternative: use a character frequency count (26 lowercase letters) as the key for O(n*k) instead of O(n*k*log(k))."
+      ],
+      "tags": [
+        "hash-map",
+        "string",
+        "sorting"
+      ]
+    },
+    {
+      "id": "implement-trie",
+      "title": "Implement Trie (Prefix Tree)",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 5,
+      "description": "A trie (pronounced \"try\") or prefix tree is a tree data structure used to efficiently store and retrieve keys in a dataset of strings. Implement the Trie class:\n\n- `Trie()` initializes the trie object.\n- `insert(word)` inserts the string `word` into the trie.\n- `search(word)` returns `true` if the string `word` is in the trie (i.e., was inserted before), and `false` otherwise.\n- `startsWith(prefix)` returns `true` if there is a previously inserted string that has the prefix `prefix`, and `false` otherwise.",
+      "examples": [
+        {
+          "input": "insert(\"apple\"), search(\"apple\"), search(\"app\"), startsWith(\"app\"), insert(\"app\"), search(\"app\")",
+          "output": "[null, true, false, true, null, true]"
+        }
+      ],
+      "constraints": [
+        "1 <= word.length, prefix.length <= 2000",
+        "word and prefix consist only of lowercase English letters",
+        "At most 3 * 10^4 calls in total will be made to insert, search, and startsWith"
+      ],
+      "starterCode": "class Trie {\n  constructor() {\n    // Your code here\n  }\n  insert(word) {}\n  search(word) {}\n  startsWith(prefix) {}\n}",
+      "functionName": "Trie",
+      "testCases": [
+        {
+          "input": {
+            "ops": [
+              "Trie",
+              "insert",
+              "search",
+              "search",
+              "startsWith",
+              "insert",
+              "search"
+            ],
+            "args": [
+              [],
+              [
+                "apple"
+              ],
+              [
+                "apple"
+              ],
+              [
+                "app"
+              ],
+              [
+                "app"
+              ],
+              [
+                "app"
+              ],
+              [
+                "app"
+              ]
+            ]
+          },
+          "expected": [
+            null,
+            null,
+            true,
+            false,
+            true,
+            null,
+            true
+          ]
+        },
+        {
+          "input": {
+            "ops": [
+              "Trie",
+              "insert",
+              "insert",
+              "search",
+              "startsWith",
+              "startsWith"
+            ],
+            "args": [
+              [],
+              [
+                "hello"
+              ],
+              [
+                "help"
+              ],
+              [
+                "hell"
+              ],
+              [
+                "hel"
+              ],
+              [
+                "ho"
+              ]
+            ]
+          },
+          "expected": [
+            null,
+            null,
+            null,
+            false,
+            true,
+            false
+          ]
+        }
+      ],
+      "hints": [
+        "Each node in the trie has up to 26 children (one for each letter). Use a Map or object for children and a boolean isEnd flag.",
+        "Insert: traverse the trie character by character, creating new nodes as needed. Mark the last node as isEnd = true.",
+        "Search: traverse character by character. Return false if any character is missing. Return node.isEnd at the end. startsWith is the same but doesn't check isEnd."
+      ],
+      "tags": [
+        "trie",
+        "design",
+        "string"
+      ]
+    },
+    {
+      "id": "jump-game",
+      "title": "Jump Game",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 6,
+      "description": "You are given an integer array `nums`. You are initially positioned at the array first index, and each element represents your maximum jump length at that position. Return `true` if you can reach the last index, or `false` otherwise.",
+      "examples": [
+        {
+          "input": "nums = [2,3,1,1,4]",
+          "output": "true",
+          "explanation": "Jump 1 step from index 0 to 1, then 3 steps to the last index."
+        },
+        {
+          "input": "nums = [3,2,1,0,4]",
+          "output": "false",
+          "explanation": "You will always arrive at index 3. Its maximum jump length is 0, so you can never reach the last index."
+        }
+      ],
+      "constraints": [
+        "1 <= nums.length <= 10^4",
+        "0 <= nums[i] <= 10^5"
+      ],
+      "starterCode": "function canJump(nums) {\n  // Your code here\n}",
+      "functionName": "canJump",
+      "testCases": [
+        {
+          "input": [
+            2,
+            3,
+            1,
+            1,
+            4
+          ],
+          "expected": true
+        },
+        {
+          "input": [
+            3,
+            2,
+            1,
+            0,
+            4
+          ],
+          "expected": false
+        },
+        {
+          "input": [
+            0
+          ],
+          "expected": true
+        },
+        {
+          "input": [
+            2,
+            0,
+            0
+          ],
+          "expected": true
+        },
+        {
+          "input": [
+            1,
+            0,
+            1,
+            0
+          ],
+          "expected": false
+        },
+        {
+          "input": [
+            5,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "expected": true
+        }
+      ],
+      "hints": [
+        "Greedy approach: track the farthest index you can reach. Iterate through the array, updating the farthest reachable position.",
+        "At each index i, if i > farthest, you are stuck. Otherwise, update farthest = max(farthest, i + nums[i]).",
+        "If farthest >= last index at any point, return true. Time: O(n), Space: O(1)."
+      ],
+      "tags": [
+        "greedy",
+        "array",
+        "dynamic-programming"
+      ]
+    },
+    {
+      "id": "longest-substring-no-repeat",
+      "title": "Longest Substring Without Repeating Characters",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 7,
+      "description": "Given a string `s`, find the length of the longest substring without repeating characters.",
+      "examples": [
+        {
+          "input": "s = \"abcabcbb\"",
+          "output": "3",
+          "explanation": "The answer is \"abc\", length 3."
+        },
+        {
+          "input": "s = \"bbbbb\"",
+          "output": "1"
+        },
+        {
+          "input": "s = \"pwwkew\"",
+          "output": "3"
+        }
+      ],
+      "constraints": [
+        "0 <= s.length <= 5 * 10^4"
+      ],
+      "starterCode": "function lengthOfLongestSubstring(s) {\n  // Your code here\n}",
+      "functionName": "lengthOfLongestSubstring",
+      "testCases": [
+        {
+          "input": "abcabcbb",
+          "expected": 3
+        },
+        {
+          "input": "bbbbb",
+          "expected": 1
+        },
+        {
+          "input": "pwwkew",
+          "expected": 3
+        },
+        {
+          "input": "",
+          "expected": 0
+        }
+      ],
+      "hints": [
+        "Sliding window with two pointers.",
+        "Maintain a set of chars in current window. Expand right; on duplicate, shrink from left until gone.",
+        "Track max window size seen."
+      ],
+      "tags": [
+        "sliding-window",
+        "hash-set",
+        "string"
+      ]
+    },
+    {
+      "id": "lru-cache",
+      "title": "LRU Cache",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 8,
+      "description": "Design a data structure for an LRU (Least Recently Used) cache. Implement `LRUCache(capacity)`, `get(key)` → value or -1, `put(key, value)` (evicts LRU when over capacity).",
+      "examples": [
+        {
+          "input": "put(1,1), put(2,2), get(1), put(3,3), get(2)",
+          "output": "1, -1 (key 2 was evicted by put(3,3))"
+        }
+      ],
+      "constraints": [
+        "1 <= capacity <= 3000",
+        "Up to 2 * 10^5 calls"
+      ],
+      "starterCode": "class LRUCache {\n  constructor(capacity) {\n    // Your code here\n  }\n  get(key) {}\n  put(key, value) {}\n}",
+      "functionName": "LRUCache",
+      "testCases": [
+        {
+          "input": {
+            "ops": [
+              "LRUCache",
+              "put",
+              "put",
+              "get",
+              "put",
+              "get",
+              "put",
+              "get",
+              "get",
+              "get"
+            ],
+            "args": [
+              [
+                2
+              ],
+              [
+                1,
+                1
+              ],
+              [
+                2,
+                2
+              ],
+              [
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                2
+              ],
+              [
+                4,
+                4
+              ],
+              [
+                1
+              ],
+              [
+                3
+              ],
+              [
+                4
+              ]
+            ]
+          },
+          "expected": [
+            null,
+            null,
+            null,
+            1,
+            null,
+            -1,
+            null,
+            -1,
+            3,
+            4
+          ]
+        }
+      ],
+      "hints": [
+        "O(1) get AND O(1) put requires combining data structures.",
+        "HashMap gives O(1) lookup. Doubly linked list gives O(1) removal from anywhere if you have a node reference.",
+        "Map: key → node. List maintains access order. On get/put, move node to front."
+      ],
+      "tags": [
+        "hash-map",
+        "linked-list",
+        "design"
+      ]
+    },
+    {
+      "id": "minimum-window-substring",
+      "title": "Minimum Window Substring",
+      "category": "arrays-hashing",
+      "difficulty": "hard",
+      "order": 9,
+      "description": "Given two strings `s` and `t` of lengths `m` and `n` respectively, return the minimum window substring of `s` such that every character in `t` (including duplicates) is included in the window. If there is no such substring, return the empty string `\"\"`.",
+      "examples": [
+        {
+          "input": "s = \"ADOBECODEBANC\", t = \"ABC\"",
+          "output": "\"BANC\"",
+          "explanation": "The minimum window substring \"BANC\" includes 'A', 'B', and 'C' from string t."
+        },
+        {
+          "input": "s = \"a\", t = \"a\"",
+          "output": "\"a\""
+        },
+        {
+          "input": "s = \"a\", t = \"aa\"",
+          "output": "\"\"",
+          "explanation": "Both 'a's from t must be included, but s only has one 'a'."
+        }
+      ],
+      "constraints": [
+        "m == s.length",
+        "n == t.length",
+        "1 <= m, n <= 10^5",
+        "s and t consist of uppercase and lowercase English letters"
+      ],
+      "starterCode": "function minWindow(s, t) {\n  // Your code here\n}",
+      "functionName": "minWindow",
+      "testCases": [
+        {
+          "input": {
+            "s": "ADOBECODEBANC",
+            "t": "ABC"
+          },
+          "expected": "BANC"
+        },
+        {
+          "input": {
+            "s": "a",
+            "t": "a"
+          },
+          "expected": "a"
+        },
+        {
+          "input": {
+            "s": "a",
+            "t": "aa"
+          },
+          "expected": ""
+        },
+        {
+          "input": {
+            "s": "ab",
+            "t": "b"
+          },
+          "expected": "b"
+        },
+        {
+          "input": {
+            "s": "cabwefgewcwaefgcf",
+            "t": "cae"
+          },
+          "expected": "cwae"
+        }
+      ],
+      "hints": [
+        "Use a sliding window with two pointers (left, right). Expand right to include characters, shrink left when all characters in t are covered.",
+        "Use a frequency map for t. Track how many unique characters are fully satisfied. When all are satisfied, try shrinking from the left.",
+        "Key optimization: use a 'formed' counter that tracks how many unique characters in t have the required frequency in the current window. When formed == required, the window is valid.",
+        "Time: O(m + n), Space: O(m + n) for the frequency maps."
+      ],
+      "tags": [
+        "sliding-window",
+        "hash-map",
+        "string",
+        "two-pointer"
+      ]
+    },
+    {
+      "id": "product-except-self",
+      "title": "Product of Array Except Self",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 10,
+      "description": "Given an integer array `nums`, return an array `answer` such that `answer[i]` is equal to the product of all the elements of `nums` except `nums[i]`. You must write an algorithm that runs in O(n) time and without using the division operator.",
+      "examples": [
+        {
+          "input": "nums = [1,2,3,4]",
+          "output": "[24,12,8,6]"
+        },
+        {
+          "input": "nums = [-1,1,0,-3,3]",
+          "output": "[0,0,9,0,0]"
+        }
+      ],
+      "constraints": [
+        "2 <= nums.length <= 10^5",
+        "-30 <= nums[i] <= 30",
+        "The product of any prefix or suffix of nums is guaranteed to fit in a 32-bit integer"
+      ],
+      "starterCode": "function productExceptSelf(nums) {\n  // Your code here\n}",
+      "functionName": "productExceptSelf",
+      "testCases": [
+        {
+          "input": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "expected": [
+            24,
+            12,
+            8,
+            6
+          ]
+        },
+        {
+          "input": [
+            -1,
+            1,
+            0,
+            -3,
+            3
+          ],
+          "expected": [
+            0,
+            0,
+            9,
+            0,
+            0
+          ]
+        },
+        {
+          "input": [
+            2,
+            3
+          ],
+          "expected": [
+            3,
+            2
+          ]
+        },
+        {
+          "input": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "expected": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "input": [
+            0,
+            0
+          ],
+          "expected": [
+            0,
+            0
+          ]
+        }
+      ],
+      "hints": [
+        "Think about prefix products and suffix products separately.",
+        "First pass: compute prefix products (product of all elements to the left). Second pass: multiply by suffix products (product of all elements to the right).",
+        "You can do this in O(1) extra space (excluding the output array) by using the output array for prefix products, then a running variable for suffix products."
+      ],
+      "tags": [
+        "array",
+        "prefix-sum"
+      ]
+    },
+    {
+      "id": "reverse-linked-list",
+      "title": "Reverse Linked List",
+      "category": "arrays-hashing",
+      "difficulty": "easy",
+      "order": 11,
+      "description": "Given the `head` of a singly linked list, reverse the list, and return the reversed list.",
+      "examples": [
+        {
+          "input": "head = [1,2,3,4,5]",
+          "output": "[5,4,3,2,1]"
+        },
+        {
+          "input": "head = [1,2]",
+          "output": "[2,1]"
+        },
+        {
+          "input": "head = []",
+          "output": "[]"
+        }
+      ],
+      "constraints": [
+        "The number of nodes in the list is in the range [0, 5000]",
+        "-5000 <= Node.val <= 5000"
+      ],
+      "starterCode": "// Definition: function ListNode(val, next) { this.val = val; this.next = next || null; }\nfunction reverseList(head) {\n  // Your code here\n}",
+      "functionName": "reverseList",
+      "testCases": [
+        {
+          "input": {
+            "list": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "expected": [
+            5,
+            4,
+            3,
+            2,
+            1
+          ]
+        },
+        {
+          "input": {
+            "list": [
+              1,
+              2
+            ]
+          },
+          "expected": [
+            2,
+            1
+          ]
+        },
+        {
+          "input": {
+            "list": []
+          },
+          "expected": []
+        },
+        {
+          "input": {
+            "list": [
+              1
+            ]
+          },
+          "expected": [
+            1
+          ]
+        }
+      ],
+      "hints": [
+        "Iterative: use three pointers — prev (starts null), curr (starts head), next (temp). In each step: save next, point curr.next to prev, advance prev and curr.",
+        "Recursive: base case is null or single node. Reverse the rest of the list, then set head.next.next = head and head.next = null.",
+        "Both approaches are O(n) time. Iterative is O(1) space, recursive is O(n) due to call stack."
+      ],
+      "tags": [
+        "linked-list",
+        "recursion"
+      ]
+    },
+    {
+      "id": "binary-search-rotated",
+      "title": "Search in Rotated Sorted Array",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 12,
+      "description": "There is an integer array `nums` sorted in ascending order (with distinct values). Prior to being passed to your function, `nums` is possibly rotated at an unknown pivot index `k`. Given the array `nums` after the possible rotation and an integer `target`, return the index of `target` if it is in `nums`, or `-1` if it is not.",
+      "examples": [
+        {
+          "input": "nums = [4,5,6,7,0,1,2], target = 0",
+          "output": "4"
+        },
+        {
+          "input": "nums = [4,5,6,7,0,1,2], target = 3",
+          "output": "-1"
+        },
+        {
+          "input": "nums = [1], target = 0",
+          "output": "-1"
+        }
+      ],
+      "constraints": [
+        "1 <= nums.length <= 5000",
+        "-10^4 <= nums[i] <= 10^4",
+        "All values of nums are unique",
+        "nums is an ascending array that is possibly rotated",
+        "-10^4 <= target <= 10^4"
+      ],
+      "starterCode": "function search(nums, target) {\n  // Your code here\n}",
+      "functionName": "search",
+      "testCases": [
+        {
+          "input": {
+            "nums": [
+              4,
+              5,
+              6,
+              7,
+              0,
+              1,
+              2
+            ],
+            "target": 0
+          },
+          "expected": 4
+        },
+        {
+          "input": {
+            "nums": [
+              4,
+              5,
+              6,
+              7,
+              0,
+              1,
+              2
+            ],
+            "target": 3
+          },
+          "expected": -1
+        },
+        {
+          "input": {
+            "nums": [
+              1
+            ],
+            "target": 0
+          },
+          "expected": -1
+        },
+        {
+          "input": {
+            "nums": [
+              1
+            ],
+            "target": 1
+          },
+          "expected": 0
+        },
+        {
+          "input": {
+            "nums": [
+              3,
+              1
+            ],
+            "target": 1
+          },
+          "expected": 1
+        }
+      ],
+      "hints": [
+        "Use binary search. At each step, one half of the array is always sorted.",
+        "Check if the left half [lo..mid] is sorted (nums[lo] <= nums[mid]). If target falls in that range, search left; otherwise search right.",
+        "If the left half isn't sorted, the right half must be sorted. Apply the same logic.",
+        "O(log n) time, O(1) space."
+      ],
+      "tags": [
+        "binary-search",
+        "array"
+      ]
+    },
+    {
+      "id": "top-k-frequent",
+      "title": "Top K Frequent Elements",
+      "category": "arrays-hashing",
+      "difficulty": "medium",
+      "order": 13,
+      "description": "Given an integer array `nums` and an integer `k`, return the `k` most frequent elements. You may return the answer in any order.",
+      "examples": [
+        {
+          "input": "nums = [1,1,1,2,2,3], k = 2",
+          "output": "[1,2]"
+        },
+        {
+          "input": "nums = [1], k = 1",
+          "output": "[1]"
+        }
+      ],
+      "constraints": [
+        "1 <= nums.length <= 10^5",
+        "-10^4 <= nums[i] <= 10^4",
+        "k is in the range [1, the number of unique elements]",
+        "It is guaranteed that the answer is unique"
+      ],
+      "starterCode": "function topKFrequent(nums, k) {\n  // Your code here\n}",
+      "functionName": "topKFrequent",
+      "testCases": [
+        {
+          "input": {
+            "nums": [
+              1,
+              1,
+              1,
+              2,
+              2,
+              3
+            ],
+            "k": 2
+          },
+          "expected": [
+            1,
+            2
+          ]
+        },
+        {
+          "input": {
+            "nums": [
+              1
+            ],
+            "k": 1
+          },
+          "expected": [
+            1
+          ]
+        },
+        {
+          "input": {
+            "nums": [
+              4,
+              4,
+              4,
+              1,
+              1,
+              2,
+              2,
+              2,
+              3
+            ],
+            "k": 2
+          },
+          "expected": [
+            4,
+            2
+          ]
+        },
+        {
+          "input": {
+            "nums": [
+              1,
+              2
+            ],
+            "k": 2
+          },
+          "expected": [
+            1,
+            2
+          ]
+        },
+        {
+          "input": {
+            "nums": [
+              3,
+              3,
+              3,
+              3,
+              1,
+              1,
+              2
+            ],
+            "k": 1
+          },
+          "expected": [
+            3
+          ]
+        }
+      ],
+      "hints": [
+        "Step 1: Build a frequency map using a hash map. Step 2: Find the top k elements by frequency.",
+        "Approach 1: Sort by frequency — O(n log n). Approach 2: Min-heap of size k — O(n log k). Approach 3: Bucket sort where index = frequency — O(n).",
+        "Bucket sort: create an array of size n+1. Index i holds all elements with frequency i. Iterate from the end to collect the top k elements."
+      ],
+      "tags": [
+        "heap",
+        "hash-map",
+        "sorting",
+        "bucket-sort"
+      ]
+    },
+    {
+      "id": "trapping-rain-water",
+      "title": "Trapping Rain Water",
+      "category": "arrays-hashing",
+      "difficulty": "hard",
+      "order": 14,
+      "description": "Given `n` non-negative integers representing an elevation map where the width of each bar is 1, compute how much water it can trap after raining.",
+      "examples": [
+        {
+          "input": "height = [0,1,0,2,1,0,1,3,2,1,2,1]",
+          "output": "6"
+        },
+        {
+          "input": "height = [4,2,0,3,2,5]",
+          "output": "9"
+        }
+      ],
+      "constraints": [
+        "n == height.length",
+        "1 <= n <= 2 * 10^4",
+        "0 <= height[i] <= 10^5"
+      ],
+      "starterCode": "function trap(height) {\n  // Your code here\n}",
+      "functionName": "trap",
+      "testCases": [
+        {
+          "input": [
+            0,
+            1,
+            0,
+            2,
+            1,
+            0,
+            1,
+            3,
+            2,
+            1,
+            2,
+            1
+          ],
+          "expected": 6
+        },
+        {
+          "input": [
+            4,
+            2,
+            0,
+            3,
+            2,
+            5
+          ],
+          "expected": 9
+        },
+        {
+          "input": [
+            1,
+            0,
+            1
+          ],
+          "expected": 1
+        },
+        {
+          "input": [
+            3,
+            0,
+            0,
+            2,
+            0,
+            4
+          ],
+          "expected": 10
+        },
+        {
+          "input": [
+            0
+          ],
+          "expected": 0
+        }
+      ],
+      "hints": [
+        "For each bar, the water above it = min(max height to its left, max height to its right) - its own height.",
+        "Precompute leftMax[] and rightMax[] arrays, then iterate once to sum water. O(n) time, O(n) space.",
+        "Optimal: two pointers from both ends. Track leftMax and rightMax. Move the pointer with the smaller max inward. Water at that position = corresponding max - height. O(n) time, O(1) space."
+      ],
+      "tags": [
+        "two-pointer",
+        "stack",
+        "dynamic-programming"
+      ]
+    },
+    {
+      "id": "two-sum",
+      "title": "Two Sum",
+      "category": "arrays-hashing",
+      "difficulty": "easy",
+      "order": 15,
+      "description": "Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`. Each input has exactly one solution, and you may not use the same element twice.",
+      "examples": [
+        {
+          "input": "nums = [2,7,11,15], target = 9",
+          "output": "[0,1]"
+        },
+        {
+          "input": "nums = [3,2,4], target = 6",
+          "output": "[1,2]"
+        }
+      ],
+      "constraints": [
+        "2 <= nums.length <= 10^4",
+        "-10^9 <= nums[i] <= 10^9",
+        "Only one valid answer exists"
+      ],
+      "starterCode": "function twoSum(nums, target) {\n  // Your code here\n}",
+      "functionName": "twoSum",
+      "testCases": [
+        {
+          "input": {
+            "nums": [
+              2,
+              7,
+              11,
+              15
+            ],
+            "target": 9
+          },
+          "expected": [
+            0,
+            1
+          ]
+        },
+        {
+          "input": {
+            "nums": [
+              3,
+              2,
+              4
+            ],
+            "target": 6
+          },
+          "expected": [
+            1,
+            2
+          ]
+        },
+        {
+          "input": {
+            "nums": [
+              3,
+              3
+            ],
+            "target": 6
+          },
+          "expected": [
+            0,
+            1
+          ]
+        }
+      ],
+      "hints": [
+        "Naive O(n^2) checks every pair. Can you do it in one pass?",
+        "Hash map for values you've seen. For each element, check if (target - element) is already stored.",
+        "When you find the complement, return [map[complement], currentIndex]."
+      ],
+      "tags": [
+        "hash-map",
+        "array"
+      ]
+    },
+    {
+      "id": "valid-parentheses",
+      "title": "Valid Parentheses",
+      "category": "arrays-hashing",
+      "difficulty": "easy",
+      "order": 16,
+      "description": "Given a string `s` containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid. Valid means: open brackets close with same type, in correct order, every close bracket has a matching open.",
+      "examples": [
+        {
+          "input": "s = \"()\"",
+          "output": "true"
+        },
+        {
+          "input": "s = \"()[]{}\"",
+          "output": "true"
+        },
+        {
+          "input": "s = \"(]\"",
+          "output": "false"
+        }
+      ],
+      "constraints": [
+        "1 <= s.length <= 10^4"
+      ],
+      "starterCode": "function isValid(s) {\n  // Your code here\n}",
+      "functionName": "isValid",
+      "testCases": [
+        {
+          "input": "()",
+          "expected": true
+        },
+        {
+          "input": "()[]{}",
+          "expected": true
+        },
+        {
+          "input": "(]",
+          "expected": false
+        },
+        {
+          "input": "([)]",
+          "expected": false
+        },
+        {
+          "input": "{[]}",
+          "expected": true
+        }
+      ],
+      "hints": [
+        "Use a stack. Push openers, pop on closers.",
+        "Use a map for bracket pairs: ')' → '(', ']' → '[', '}' → '{'.",
+        "On closer: stack must be non-empty AND top must match. If not, invalid."
+      ],
+      "tags": [
+        "stack",
+        "string"
+      ]
+    },
+    {
+      "id": "binary-tree-level-order",
+      "title": "Binary Tree Level Order Traversal",
+      "category": "graphs",
+      "difficulty": "medium",
+      "order": 17,
+      "description": "Given the `root` of a binary tree, return the level order traversal of its nodes' values (i.e., from left to right, level by level).",
+      "examples": [
+        {
+          "input": "root = [3,9,20,null,null,15,7]",
+          "output": "[[3],[9,20],[15,7]]"
+        },
+        {
+          "input": "root = [1]",
+          "output": "[[1]]"
+        },
+        {
+          "input": "root = []",
+          "output": "[]"
+        }
+      ],
+      "constraints": [
+        "0 <= number of nodes <= 2000",
+        "-1000 <= Node.val <= 1000"
+      ],
+      "starterCode": "function levelOrder(root) {\n  // Your code here\n  // TreeNode: { val, left, right }\n}",
+      "functionName": "levelOrder",
+      "testCases": [
+        {
+          "input": {
+            "tree": [
+              3,
+              9,
+              20,
+              null,
+              null,
+              15,
+              7
+            ]
+          },
+          "expected": [
+            [
+              3
+            ],
+            [
+              9,
+              20
+            ],
+            [
+              15,
+              7
+            ]
+          ]
+        },
+        {
+          "input": {
+            "tree": [
+              1
+            ]
+          },
+          "expected": [
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "input": {
+            "tree": []
+          },
+          "expected": []
+        },
+        {
+          "input": {
+            "tree": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "expected": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ],
+            [
+              4,
+              5
+            ]
+          ]
+        }
+      ],
+      "hints": [
+        "Use BFS with a queue. Process nodes level by level.",
+        "At each level, record the queue size, then process exactly that many nodes — their children become the next level.",
+        "An empty tree (null root) should return an empty array."
+      ],
+      "tags": [
+        "tree",
+        "bfs",
+        "queue"
+      ]
+    },
+    {
+      "id": "clone-graph",
+      "title": "Clone Graph",
+      "category": "graphs",
+      "difficulty": "medium",
+      "order": 18,
+      "description": "Given a reference of a node in a connected undirected graph, return a deep copy (clone) of the graph. Each node in the graph contains a value (`val`) and a list of its neighbors (`neighbors`). The graph is represented as an adjacency list. Nodes are numbered from 1 to n.",
+      "examples": [
+        {
+          "input": "adjList = [[2,4],[1,3],[2,4],[1,3]]",
+          "output": "[[2,4],[1,3],[2,4],[1,3]]",
+          "explanation": "Node 1 connects to 2,4. Node 2 connects to 1,3. etc. Return a deep copy with new node objects."
+        },
+        {
+          "input": "adjList = [[]]",
+          "output": "[[]]"
+        }
+      ],
+      "constraints": [
+        "The number of nodes in the graph is in the range [0, 100]",
+        "1 <= Node.val <= 100",
+        "Node.val is unique for each node",
+        "There are no repeated edges and no self-loops"
+      ],
+      "starterCode": "// class Node { constructor(val, neighbors) { this.val = val; this.neighbors = neighbors || []; } }\nfunction cloneGraph(node) {\n  // Your code here\n}",
+      "functionName": "cloneGraph",
+      "testCases": [
+        {
+          "input": {
+            "adjList": [
+              [
+                2,
+                4
+              ],
+              [
+                1,
+                3
+              ],
+              [
+                2,
+                4
+              ],
+              [
+                1,
+                3
+              ]
+            ]
+          },
+          "expected": [
+            [
+              2,
+              4
+            ],
+            [
+              1,
+              3
+            ],
+            [
+              2,
+              4
+            ],
+            [
+              1,
+              3
+            ]
+          ]
+        },
+        {
+          "input": {
+            "adjList": [
+              []
+            ]
+          },
+          "expected": [
+            []
+          ]
+        },
+        {
+          "input": {
+            "adjList": []
+          },
+          "expected": []
+        }
+      ],
+      "hints": [
+        "Use a hash map to track visited nodes: original node -> cloned node.",
+        "BFS or DFS traversal. For each node, create its clone, then recursively/iteratively clone its neighbors.",
+        "The map prevents infinite loops in cyclic graphs and ensures each node is cloned exactly once."
+      ],
+      "tags": [
+        "graph",
+        "bfs",
+        "dfs",
+        "hash-map"
+      ]
+    },
+    {
+      "id": "course-schedule",
+      "title": "Course Schedule",
+      "category": "graphs",
+      "difficulty": "medium",
+      "order": 19,
+      "description": "There are a total of `numCourses` courses you have to take, labeled from `0` to `numCourses - 1`. You are given an array `prerequisites` where `prerequisites[i] = [a, b]` indicates that you must take course `b` first if you want to take course `a`. Return `true` if you can finish all courses. Otherwise, return `false`.",
+      "examples": [
+        {
+          "input": "numCourses = 2, prerequisites = [[1,0]]",
+          "output": "true",
+          "explanation": "Take course 0, then course 1."
+        },
+        {
+          "input": "numCourses = 2, prerequisites = [[1,0],[0,1]]",
+          "output": "false",
+          "explanation": "Circular dependency: 0 requires 1 and 1 requires 0."
+        }
+      ],
+      "constraints": [
+        "1 <= numCourses <= 2000",
+        "0 <= prerequisites.length <= 5000",
+        "prerequisites[i].length == 2",
+        "0 <= a, b < numCourses",
+        "All pairs prerequisites[i] are unique"
+      ],
+      "starterCode": "function canFinish(numCourses, prerequisites) {\n  // Your code here\n}",
+      "functionName": "canFinish",
+      "testCases": [
+        {
+          "input": {
+            "numCourses": 2,
+            "prerequisites": [
+              [
+                1,
+                0
+              ]
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "numCourses": 2,
+            "prerequisites": [
+              [
+                1,
+                0
+              ],
+              [
+                0,
+                1
+              ]
+            ]
+          },
+          "expected": false
+        },
+        {
+          "input": {
+            "numCourses": 4,
+            "prerequisites": [
+              [
+                1,
+                0
+              ],
+              [
+                2,
+                1
+              ],
+              [
+                3,
+                2
+              ]
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "numCourses": 3,
+            "prerequisites": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                2
+              ],
+              [
+                2,
+                0
+              ]
+            ]
+          },
+          "expected": false
+        },
+        {
+          "input": {
+            "numCourses": 1,
+            "prerequisites": []
+          },
+          "expected": true
+        }
+      ],
+      "hints": [
+        "This is a cycle detection problem in a directed graph. If there's a cycle, you can't finish all courses.",
+        "Approach 1 (BFS / Kahn's algorithm): Compute in-degrees. Start with nodes that have 0 in-degree. Process them, decrement neighbors' in-degrees, and add new 0-in-degree nodes. If all nodes are processed, no cycle exists.",
+        "Approach 2 (DFS): Use three states — unvisited, visiting, visited. If you encounter a 'visiting' node during DFS, there's a cycle.",
+        "Time: O(V + E), Space: O(V + E) for the adjacency list."
+      ],
+      "tags": [
+        "graph",
+        "topological-sort",
+        "bfs",
+        "dfs"
+      ]
+    },
+    {
+      "id": "invert-binary-tree",
+      "title": "Invert Binary Tree",
+      "category": "graphs",
+      "difficulty": "easy",
+      "order": 20,
+      "description": "Given the root of a binary tree, invert the tree and return its root. Inverting means swapping the left and right children of every node in the tree.",
+      "examples": [
+        {
+          "input": "root = [4,2,7,1,3,6,9]",
+          "output": "[4,7,2,9,6,3,1]"
+        },
+        {
+          "input": "root = [2,1,3]",
+          "output": "[2,3,1]"
+        }
+      ],
+      "constraints": [
+        "The number of nodes in the tree is in the range [0, 100]",
+        "-100 <= Node.val <= 100"
+      ],
+      "starterCode": "function invertTree(root) {\n  // Your code here\n}",
+      "functionName": "invertTree",
+      "testCases": [
+        {
+          "input": {
+            "root": [
+              4,
+              2,
+              7,
+              1,
+              3,
+              6,
+              9
+            ]
+          },
+          "expected": [
+            4,
+            7,
+            2,
+            9,
+            6,
+            3,
+            1
+          ]
+        },
+        {
+          "input": {
+            "root": [
+              2,
+              1,
+              3
+            ]
+          },
+          "expected": [
+            2,
+            3,
+            1
+          ]
+        },
+        {
+          "input": {
+            "root": []
+          },
+          "expected": []
+        }
+      ],
+      "hints": [
+        "Think recursively: what does inverting a tree mean for a single node?",
+        "Swap the left and right children, then recursively invert each subtree.",
+        "Base case: a null node returns null. The recursion handles everything else."
+      ],
+      "tags": [
+        "tree",
+        "recursion",
+        "dfs"
+      ]
+    },
+    {
+      "id": "network-delay-time",
+      "title": "Network Delay Time",
+      "category": "graphs",
+      "difficulty": "medium",
+      "order": 21,
+      "description": "You are given a network of `n` nodes, labeled from `1` to `n`. You are also given `times`, a list of travel times as directed edges `times[i] = (u, v, w)`. Send a signal from a given node `k`. Return the minimum time it takes for all `n` nodes to receive the signal. If it is impossible for all nodes to receive the signal, return `-1`.",
+      "examples": [
+        {
+          "input": "times = [[2,1,1],[2,3,1],[3,4,1]], n = 4, k = 2",
+          "output": "2",
+          "explanation": "From node 2: reach 1 in 1, reach 3 in 1, reach 4 via 3 in 2."
+        },
+        {
+          "input": "times = [[1,2,1]], n = 2, k = 2",
+          "output": "-1",
+          "explanation": "Node 1 cannot be reached from node 2."
+        }
+      ],
+      "constraints": [
+        "1 <= k <= n <= 100",
+        "1 <= times.length <= 6000",
+        "0 <= w <= 100"
+      ],
+      "starterCode": "function networkDelayTime(times, n, k) {\n  // Your code here\n}",
+      "functionName": "networkDelayTime",
+      "testCases": [
+        {
+          "input": {
+            "times": [
+              [
+                2,
+                1,
+                1
+              ],
+              [
+                2,
+                3,
+                1
+              ],
+              [
+                3,
+                4,
+                1
+              ]
+            ],
+            "n": 4,
+            "k": 2
+          },
+          "expected": 2
+        },
+        {
+          "input": {
+            "times": [
+              [
+                1,
+                2,
+                1
+              ]
+            ],
+            "n": 2,
+            "k": 2
+          },
+          "expected": -1
+        },
+        {
+          "input": {
+            "times": [
+              [
+                1,
+                2,
+                1
+              ]
+            ],
+            "n": 2,
+            "k": 1
+          },
+          "expected": 1
+        },
+        {
+          "input": {
+            "times": [
+              [
+                1,
+                2,
+                1
+              ],
+              [
+                2,
+                3,
+                2
+              ],
+              [
+                1,
+                3,
+                4
+              ]
+            ],
+            "n": 3,
+            "k": 1
+          },
+          "expected": 3
+        },
+        {
+          "input": {
+            "times": [
+              [
+                1,
+                2,
+                1
+              ],
+              [
+                2,
+                1,
+                3
+              ]
+            ],
+            "n": 2,
+            "k": 2
+          },
+          "expected": 3
+        }
+      ],
+      "hints": [
+        "This is a single-source shortest path problem. Use Dijkstra's algorithm with a min-heap (priority queue).",
+        "Build an adjacency list. Start from node k with distance 0. Use a min-heap to always process the node with the smallest known distance next.",
+        "Track visited nodes. When all nodes are visited, return the maximum distance. If some nodes are unreachable, return -1.",
+        "Time: O(E log V) with a binary heap, Space: O(V + E)."
+      ],
+      "tags": [
+        "graph",
+        "dijkstra",
+        "heap",
+        "shortest-path"
+      ]
+    },
+    {
+      "id": "number-of-islands",
+      "title": "Number of Islands",
+      "category": "graphs",
+      "difficulty": "medium",
+      "order": 22,
+      "description": "Given an `m x n` 2D binary grid `grid` which represents a map of '1's (land) and '0's (water), return the number of islands. An island is surrounded by water and is formed by connecting adjacent lands horizontally or vertically. You may assume all four edges of the grid are surrounded by water.",
+      "examples": [
+        {
+          "input": "grid = [[\"1\",\"1\",\"1\",\"1\",\"0\"],[\"1\",\"1\",\"0\",\"1\",\"0\"],[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"0\",\"0\",\"0\",\"0\",\"0\"]]",
+          "output": "1"
+        },
+        {
+          "input": "grid = [[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"0\",\"0\",\"1\",\"0\",\"0\"],[\"0\",\"0\",\"0\",\"1\",\"1\"]]",
+          "output": "3"
+        }
+      ],
+      "constraints": [
+        "m == grid.length",
+        "n == grid[i].length",
+        "1 <= m, n <= 300",
+        "grid[i][j] is '0' or '1'"
+      ],
+      "starterCode": "function numIslands(grid) {\n  // Your code here\n}",
+      "functionName": "numIslands",
+      "testCases": [
+        {
+          "input": [
+            [
+              "1",
+              "1",
+              "1",
+              "1",
+              "0"
+            ],
+            [
+              "1",
+              "1",
+              "0",
+              "1",
+              "0"
+            ],
+            [
+              "1",
+              "1",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "0",
+              "0",
+              "0",
+              "0",
+              "0"
+            ]
+          ],
+          "expected": 1
+        },
+        {
+          "input": [
+            [
+              "1",
+              "1",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "1",
+              "1",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "0",
+              "0",
+              "1",
+              "0",
+              "0"
+            ],
+            [
+              "0",
+              "0",
+              "0",
+              "1",
+              "1"
+            ]
+          ],
+          "expected": 3
+        },
+        {
+          "input": [
+            [
+              "1",
+              "0",
+              "1",
+              "0",
+              "1"
+            ],
+            [
+              "0",
+              "1",
+              "0",
+              "1",
+              "0"
+            ],
+            [
+              "1",
+              "0",
+              "1",
+              "0",
+              "1"
+            ]
+          ],
+          "expected": 8
+        },
+        {
+          "input": [
+            [
+              "0"
+            ]
+          ],
+          "expected": 0
+        },
+        {
+          "input": [
+            [
+              "1"
+            ]
+          ],
+          "expected": 1
+        }
+      ],
+      "hints": [
+        "Iterate through every cell. When you find a '1', increment count and use DFS/BFS to mark all connected '1's as visited.",
+        "You can mark visited cells by changing '1' to '0' (in-place) or use a separate visited set.",
+        "For BFS: use a queue of [row, col] pairs. For DFS: recurse in 4 directions. Both are O(m*n)."
+      ],
+      "tags": [
+        "graph",
+        "bfs",
+        "dfs",
+        "matrix"
+      ]
+    },
+    {
+      "id": "serialize-deserialize-tree",
+      "title": "Serialize and Deserialize Binary Tree",
+      "category": "graphs",
+      "difficulty": "hard",
+      "order": 23,
+      "description": "Design an algorithm to serialize and deserialize a binary tree. Serialization is converting a data structure into a string. Deserialization is reconstructing the data structure from the string. There is no restriction on how your serialization/deserialization algorithm should work. You just need to ensure that a binary tree can be serialized to a string and this string can be deserialized to the original tree structure.",
+      "examples": [
+        {
+          "input": "root = [1,2,3,null,null,4,5]",
+          "output": "[1,2,3,null,null,4,5]"
+        },
+        {
+          "input": "root = []",
+          "output": "[]"
+        }
+      ],
+      "constraints": [
+        "The number of nodes in the tree is in the range [0, 10^4]",
+        "-1000 <= Node.val <= 1000"
+      ],
+      "starterCode": "class Codec {\n  serialize(root) {\n    // Your code here\n  }\n  deserialize(data) {\n    // Your code here\n  }\n}",
+      "functionName": "Codec",
+      "testCases": [
+        {
+          "input": {
+            "tree": [
+              1,
+              2,
+              3,
+              null,
+              null,
+              4,
+              5
+            ]
+          },
+          "expected": [
+            1,
+            2,
+            3,
+            null,
+            null,
+            4,
+            5
+          ]
+        },
+        {
+          "input": {
+            "tree": []
+          },
+          "expected": []
+        },
+        {
+          "input": {
+            "tree": [
+              1
+            ]
+          },
+          "expected": [
+            1
+          ]
+        },
+        {
+          "input": {
+            "tree": [
+              1,
+              2,
+              null,
+              3
+            ]
+          },
+          "expected": [
+            1,
+            2,
+            null,
+            3
+          ]
+        }
+      ],
+      "hints": [
+        "Use preorder traversal (root, left, right) for serialization. Represent null nodes with a sentinel value like \"#\" or \"null\".",
+        "Serialize: DFS preorder, join values with commas. For null children, add the sentinel. Example: \"1,2,#,#,3,4,#,#,5,#,#\"",
+        "Deserialize: split by comma, use a queue/index. Read the next value: if sentinel return null, else create node, recursively build left then right subtree.",
+        "BFS approach also works: serialize level by level, deserialize using a queue of parent nodes."
+      ],
+      "tags": [
+        "tree",
+        "dfs",
+        "bfs",
+        "design",
+        "string"
+      ]
+    },
+    {
+      "id": "subsets",
+      "title": "Subsets",
+      "category": "graphs",
+      "difficulty": "medium",
+      "order": 24,
+      "description": "Given an integer array `nums` of unique elements, return all possible subsets (the power set). The solution set must not contain duplicate subsets. Return the solution in any order.",
+      "examples": [
+        {
+          "input": "nums = [1,2,3]",
+          "output": "[[],[1],[2],[1,2],[3],[1,3],[2,3],[1,2,3]]"
+        },
+        {
+          "input": "nums = [0]",
+          "output": "[[],[0]]"
+        }
+      ],
+      "constraints": [
+        "1 <= nums.length <= 10",
+        "-10 <= nums[i] <= 10",
+        "All the numbers of nums are unique"
+      ],
+      "starterCode": "function subsets(nums) {\n  // Your code here\n}",
+      "functionName": "subsets",
+      "testCases": [
+        {
+          "input": [
+            1,
+            2,
+            3
+          ],
+          "expected": [
+            [],
+            [
+              1
+            ],
+            [
+              1,
+              2
+            ],
+            [
+              1,
+              2,
+              3
+            ],
+            [
+              1,
+              3
+            ],
+            [
+              2
+            ],
+            [
+              2,
+              3
+            ],
+            [
+              3
+            ]
+          ]
+        },
+        {
+          "input": [
+            0
+          ],
+          "expected": [
+            [],
+            [
+              0
+            ]
+          ]
+        },
+        {
+          "input": [
+            1,
+            2
+          ],
+          "expected": [
+            [],
+            [
+              1
+            ],
+            [
+              1,
+              2
+            ],
+            [
+              2
+            ]
+          ]
+        }
+      ],
+      "hints": [
+        "Use the backtracking template: choose an element, explore with it, then unchoose (backtrack).",
+        "At each step, add the current subset to the result, then try adding each remaining element.",
+        "Use a start index to avoid generating duplicate subsets. Time: O(n * 2^n), Space: O(n) for recursion depth."
+      ],
+      "tags": [
+        "backtracking",
+        "array",
+        "recursion"
+      ]
+    },
+    {
+      "id": "merge-intervals",
+      "title": "Merge Intervals",
+      "category": "intervals",
+      "difficulty": "medium",
+      "order": 25,
+      "description": "Given an array of intervals where `intervals[i] = [start_i, end_i]`, merge all overlapping intervals, and return an array of the non-overlapping intervals that cover all the intervals in the input.",
+      "examples": [
+        {
+          "input": "intervals = [[1,3],[2,6],[8,10],[15,18]]",
+          "output": "[[1,6],[8,10],[15,18]]",
+          "explanation": "[1,3] and [2,6] overlap, merge into [1,6]."
+        },
+        {
+          "input": "intervals = [[1,4],[4,5]]",
+          "output": "[[1,5]]",
+          "explanation": "[1,4] and [4,5] are considered overlapping."
+        }
+      ],
+      "constraints": [
+        "1 <= intervals.length <= 10^4",
+        "intervals[i].length == 2",
+        "0 <= start_i <= end_i <= 10^4"
+      ],
+      "starterCode": "function merge(intervals) {\n  // Your code here\n}",
+      "functionName": "merge",
+      "testCases": [
+        {
+          "input": [
+            [
+              1,
+              3
+            ],
+            [
+              2,
+              6
+            ],
+            [
+              8,
+              10
+            ],
+            [
+              15,
+              18
+            ]
+          ],
+          "expected": [
+            [
+              1,
+              6
+            ],
+            [
+              8,
+              10
+            ],
+            [
+              15,
+              18
+            ]
+          ]
+        },
+        {
+          "input": [
+            [
+              1,
+              4
+            ],
+            [
+              4,
+              5
+            ]
+          ],
+          "expected": [
+            [
+              1,
+              5
+            ]
+          ]
+        },
+        {
+          "input": [
+            [
+              1,
+              4
+            ],
+            [
+              0,
+              4
+            ]
+          ],
+          "expected": [
+            [
+              0,
+              4
+            ]
+          ]
+        },
+        {
+          "input": [
+            [
+              1,
+              4
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "expected": [
+            [
+              1,
+              4
+            ]
+          ]
+        },
+        {
+          "input": [
+            [
+              1,
+              4
+            ]
+          ],
+          "expected": [
+            [
+              1,
+              4
+            ]
+          ]
+        }
+      ],
+      "hints": [
+        "Sort the intervals by their start value first.",
+        "Iterate through sorted intervals. If the current interval overlaps with the last merged interval, extend the end. Otherwise, add it as a new interval.",
+        "Two intervals overlap if the start of the second is <= the end of the first."
+      ],
+      "tags": [
+        "sorting",
+        "array",
+        "greedy"
+      ]
+    },
+    {
+      "id": "coin-change",
+      "title": "Coin Change",
+      "category": "dynamic-programming",
+      "difficulty": "medium",
+      "order": 26,
+      "description": "You are given an integer array `coins` representing coin denominations and an integer `amount` representing a total amount of money. Return the fewest number of coins needed to make up that amount. If that amount cannot be made up by any combination of the coins, return -1. You may assume you have an infinite number of each coin.",
+      "examples": [
+        {
+          "input": "coins = [1,5,11], amount = 11",
+          "output": "1",
+          "explanation": "11 = 11"
+        },
+        {
+          "input": "coins = [2], amount = 3",
+          "output": "-1"
+        },
+        {
+          "input": "coins = [1], amount = 0",
+          "output": "0"
+        }
+      ],
+      "constraints": [
+        "1 <= coins.length <= 12",
+        "1 <= coins[i] <= 2^31 - 1",
+        "0 <= amount <= 10^4"
+      ],
+      "starterCode": "function coinChange(coins, amount) {\n  // Your code here\n}",
+      "functionName": "coinChange",
+      "testCases": [
+        {
+          "input": {
+            "coins": [
+              1,
+              5,
+              11
+            ],
+            "amount": 11
+          },
+          "expected": 1
+        },
+        {
+          "input": {
+            "coins": [
+              2
+            ],
+            "amount": 3
+          },
+          "expected": -1
+        },
+        {
+          "input": {
+            "coins": [
+              1
+            ],
+            "amount": 0
+          },
+          "expected": 0
+        },
+        {
+          "input": {
+            "coins": [
+              1,
+              2,
+              5
+            ],
+            "amount": 11
+          },
+          "expected": 3
+        },
+        {
+          "input": {
+            "coins": [
+              186,
+              419,
+              83,
+              408
+            ],
+            "amount": 6249
+          },
+          "expected": 20
+        }
+      ],
+      "hints": [
+        "This is a classic DP problem. Define dp[i] = minimum coins needed for amount i.",
+        "Base case: dp[0] = 0. For each amount from 1 to target, try each coin: dp[i] = min(dp[i], dp[i - coin] + 1).",
+        "Initialize dp array with Infinity (or amount + 1). If dp[amount] is still Infinity, return -1."
+      ],
+      "tags": [
+        "dynamic-programming",
+        "bfs"
+      ]
+    },
+    {
+      "id": "edit-distance",
+      "title": "Edit Distance",
+      "category": "dynamic-programming",
+      "difficulty": "hard",
+      "order": 27,
+      "description": "Given two strings `word1` and `word2`, return the minimum number of operations required to convert `word1` to `word2`. You have three operations permitted: insert a character, delete a character, and replace a character.",
+      "examples": [
+        {
+          "input": "word1 = \"horse\", word2 = \"ros\"",
+          "output": "3"
+        },
+        {
+          "input": "word1 = \"intention\", word2 = \"execution\"",
+          "output": "5"
+        }
+      ],
+      "constraints": [
+        "0 <= word1.length, word2.length <= 500",
+        "word1 and word2 consist of lowercase English letters"
+      ],
+      "starterCode": "function minDistance(word1, word2) {\n  // Your code here\n}",
+      "functionName": "minDistance",
+      "testCases": [
+        {
+          "input": {
+            "word1": "horse",
+            "word2": "ros"
+          },
+          "expected": 3
+        },
+        {
+          "input": {
+            "word1": "intention",
+            "word2": "execution"
+          },
+          "expected": 5
+        },
+        {
+          "input": {
+            "word1": "",
+            "word2": "abc"
+          },
+          "expected": 3
+        },
+        {
+          "input": {
+            "word1": "abc",
+            "word2": "abc"
+          },
+          "expected": 0
+        }
+      ],
+      "hints": [
+        "Define dp[i][j] as the minimum edits to convert word1[0..i-1] to word2[0..j-1].",
+        "Base cases: dp[i][0] = i (delete all), dp[0][j] = j (insert all).",
+        "If characters match, dp[i][j] = dp[i-1][j-1]. Otherwise, take the minimum of insert (dp[i][j-1]+1), delete (dp[i-1][j]+1), and replace (dp[i-1][j-1]+1)."
+      ],
+      "tags": [
+        "dynamic-programming",
+        "string"
+      ]
+    },
+    {
+      "id": "longest-common-subsequence",
+      "title": "Longest Common Subsequence",
+      "category": "dynamic-programming",
+      "difficulty": "medium",
+      "order": 28,
+      "description": "Given two strings `text1` and `text2`, return the length of their longest common subsequence. A subsequence is a sequence that can be derived from the string by deleting some (or no) characters without changing the relative order of the remaining characters.",
+      "examples": [
+        {
+          "input": "text1 = \"abcde\", text2 = \"ace\"",
+          "output": "3"
+        },
+        {
+          "input": "text1 = \"abc\", text2 = \"def\"",
+          "output": "0"
+        }
+      ],
+      "constraints": [
+        "1 <= text1.length, text2.length <= 1000",
+        "text1 and text2 consist of only lowercase English characters"
+      ],
+      "starterCode": "function longestCommonSubsequence(text1, text2) {\n  // Your code here\n}",
+      "functionName": "longestCommonSubsequence",
+      "testCases": [
+        {
+          "input": {
+            "text1": "abcde",
+            "text2": "ace"
+          },
+          "expected": 3
+        },
+        {
+          "input": {
+            "text1": "abc",
+            "text2": "abc"
+          },
+          "expected": 3
+        },
+        {
+          "input": {
+            "text1": "abc",
+            "text2": "def"
+          },
+          "expected": 0
+        },
+        {
+          "input": {
+            "text1": "bsbininm",
+            "text2": "jmjkbkjkv"
+          },
+          "expected": 1
+        }
+      ],
+      "hints": [
+        "Define dp[i][j] as the LCS length of text1[0..i-1] and text2[0..j-1].",
+        "If text1[i-1] == text2[j-1], then dp[i][j] = dp[i-1][j-1] + 1.",
+        "Otherwise, dp[i][j] = max(dp[i-1][j], dp[i][j-1]). Think about it: if the characters don't match, the LCS either doesn't include text1[i-1] or text2[j-1]."
+      ],
+      "tags": [
+        "dynamic-programming",
+        "string"
+      ]
+    },
+    {
+      "id": "max-subarray",
+      "title": "Maximum Subarray",
+      "category": "dynamic-programming",
+      "difficulty": "easy",
+      "order": 29,
+      "description": "Given an integer array `nums`, find the subarray with the largest sum, and return its sum. A subarray is a contiguous non-empty sequence of elements within an array.",
+      "examples": [
+        {
+          "input": "nums = [-2,1,-3,4,-1,2,1,-5,4]",
+          "output": "6",
+          "explanation": "The subarray [4,-1,2,1] has the largest sum 6."
+        },
+        {
+          "input": "nums = [1]",
+          "output": "1"
+        },
+        {
+          "input": "nums = [5,4,-1,7,8]",
+          "output": "23"
+        }
+      ],
+      "constraints": [
+        "1 <= nums.length <= 10^5",
+        "-10^4 <= nums[i] <= 10^4"
+      ],
+      "starterCode": "function maxSubArray(nums) {\n  // Your code here\n}",
+      "functionName": "maxSubArray",
+      "testCases": [
+        {
+          "input": [
+            -2,
+            1,
+            -3,
+            4,
+            -1,
+            2,
+            1,
+            -5,
+            4
+          ],
+          "expected": 6
+        },
+        {
+          "input": [
+            1
+          ],
+          "expected": 1
+        },
+        {
+          "input": [
+            5,
+            4,
+            -1,
+            7,
+            8
+          ],
+          "expected": 23
+        },
+        {
+          "input": [
+            -1
+          ],
+          "expected": -1
+        },
+        {
+          "input": [
+            -2,
+            -1
+          ],
+          "expected": -1
+        },
+        {
+          "input": [
+            1,
+            2,
+            -1,
+            -2,
+            2,
+            1,
+            -2,
+            1,
+            4,
+            -5,
+            4
+          ],
+          "expected": 6
+        }
+      ],
+      "hints": [
+        "Kadane's algorithm: maintain a running sum. At each element, decide: start a new subarray here, or extend the current one.",
+        "currentSum = max(nums[i], currentSum + nums[i]). If currentSum drops below nums[i], start fresh at nums[i].",
+        "Track the global maximum across all positions. Time: O(n), Space: O(1)."
+      ],
+      "tags": [
+        "dynamic-programming",
+        "greedy",
+        "array"
+      ]
+    },
+    {
+      "id": "word-break",
+      "title": "Word Break",
+      "category": "dynamic-programming",
+      "difficulty": "medium",
+      "order": 30,
+      "description": "Given a string `s` and a dictionary of strings `wordDict`, return `true` if `s` can be segmented into a space-separated sequence of one or more dictionary words. The same word in the dictionary may be reused multiple times in the segmentation.",
+      "examples": [
+        {
+          "input": "s = \"leetcode\", wordDict = [\"leet\",\"code\"]",
+          "output": "true",
+          "explanation": "\"leetcode\" can be segmented as \"leet code\"."
+        },
+        {
+          "input": "s = \"applepenapple\", wordDict = [\"apple\",\"pen\"]",
+          "output": "true"
+        },
+        {
+          "input": "s = \"catsandog\", wordDict = [\"cats\",\"dog\",\"sand\",\"and\",\"cat\"]",
+          "output": "false"
+        }
+      ],
+      "constraints": [
+        "1 <= s.length <= 300",
+        "1 <= wordDict.length <= 1000",
+        "1 <= wordDict[i].length <= 20",
+        "s and wordDict[i] consist of only lowercase English letters"
+      ],
+      "starterCode": "function wordBreak(s, wordDict) {\n  // Your code here\n}",
+      "functionName": "wordBreak",
+      "testCases": [
+        {
+          "input": {
+            "s": "leetcode",
+            "wordDict": [
+              "leet",
+              "code"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "s": "applepenapple",
+            "wordDict": [
+              "apple",
+              "pen"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "s": "catsandog",
+            "wordDict": [
+              "cats",
+              "dog",
+              "sand",
+              "and",
+              "cat"
+            ]
+          },
+          "expected": false
+        },
+        {
+          "input": {
+            "s": "a",
+            "wordDict": [
+              "a"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "s": "aaaaaaa",
+            "wordDict": [
+              "aaaa",
+              "aaa"
+            ]
+          },
+          "expected": true
+        }
+      ],
+      "hints": [
+        "Define dp[i] = true if s[0..i-1] can be segmented using the dictionary.",
+        "For each position i, check all j < i: if dp[j] is true and s[j..i] is in the dictionary, set dp[i] = true.",
+        "Use a Set for the dictionary for O(1) lookups. Time: O(n^2 * k) where k is max word length, Space: O(n)."
+      ],
+      "tags": [
+        "dynamic-programming",
+        "string",
+        "hash-set"
+      ]
+    }
+  ]
+}

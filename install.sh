@@ -127,8 +127,14 @@ for file_name in "${DATA_FILES[@]}"; do
   copy_if_missing "$LEGACY_HOME/$file_name" "$DATA_DIR/$file_name"
 done
 
-[ -f "$DATA_DIR/problems/problems.json" ] || echo '[]' > "$DATA_DIR/problems/problems.json"
-[ -f "$DATA_DIR/problems/progress.json" ] || echo '{}' > "$DATA_DIR/problems/progress.json"
+if [ ! -f "$DATA_DIR/problems/problems.json" ]; then
+  if [ -f "$APP_DIR/skill/seed/problems.json" ]; then
+    cp "$APP_DIR/skill/seed/problems.json" "$DATA_DIR/problems/problems.json"
+  else
+    echo '{"categories":[],"problems":[]}' > "$DATA_DIR/problems/problems.json"
+  fi
+fi
+[ -f "$DATA_DIR/problems/progress.json" ] || echo '{"solved":{},"bookmarked":[],"savedCode":{}}' > "$DATA_DIR/problems/progress.json"
 [ -f "$DATA_DIR/behavioral/answers.json" ] || echo '{}' > "$DATA_DIR/behavioral/answers.json"
 [ -f "$DATA_DIR/role-tracker.json" ] || echo '{}' > "$DATA_DIR/role-tracker.json"
 [ -f "$DATA_DIR/role-actions.json" ] || echo '{"saved":[],"skipped":[],"applied":[]}' > "$DATA_DIR/role-actions.json"
