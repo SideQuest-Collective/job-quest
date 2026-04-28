@@ -745,7 +745,7 @@
         "The number of nodes in the list is in the range [0, 5000]",
         "-5000 <= Node.val <= 5000"
       ],
-      "starterCode": "def reverse_list(head):\n    # Linked-list input is given as an array. Convert it to ListNode before\n    # solving, then return the result as an array (level-order).\n    pass\n",
+      "starterCode": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val, self.next = val, next\n\ndef _build_list(arr):\n    \"\"\"Build a singly linked list from a list of values.\"\"\"\n    head = ListNode(0); curr = head\n    for v in arr:\n        curr.next = ListNode(v); curr = curr.next\n    return head.next\n\ndef _list_to_array(head):\n    \"\"\"Serialize a linked list back to an array of values.\"\"\"\n    out = []\n    while head:\n        out.append(head.val); head = head.next\n    return out\n\n\ndef reverse_list(head):\n    head = _build_list(head)\n    # Your code — reverse the linked list and return the new head ListNode.\n    # The test will serialize it back to an array.\n\n    return _list_to_array(head)\n",
       "functionName": "reverse_list",
       "testCases": [
         {
@@ -1294,7 +1294,7 @@
         "0 <= number of nodes <= 2000",
         "-1000 <= Node.val <= 1000"
       ],
-      "starterCode": "def level_order(root):\n    # Tree input is given in level-order array form (None for missing nodes).\n    # Convert it to a TreeNode tree before solving, then return the answer in\n    # the format the test expects.\n    pass\n",
+      "starterCode": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\n\ndef _build_tree(arr):\n    \"\"\"Build a binary tree from level-order array (None marks missing nodes).\"\"\"\n    if not arr or arr[0] is None:\n        return None\n    root = TreeNode(arr[0])\n    queue, i = [root], 1\n    while queue and i < len(arr):\n        node = queue.pop(0)\n        if i < len(arr) and arr[i] is not None:\n            node.left = TreeNode(arr[i]); queue.append(node.left)\n        i += 1\n        if i < len(arr) and arr[i] is not None:\n            node.right = TreeNode(arr[i]); queue.append(node.right)\n        i += 1\n    return root\n\ndef _serialize_tree(root):\n    \"\"\"Serialize a binary tree to level-order array, trimming trailing Nones.\"\"\"\n    if not root: return []\n    out, queue = [], [root]\n    while queue:\n        node = queue.pop(0)\n        if node is None:\n            out.append(None)\n        else:\n            out.append(node.val)\n            queue.append(node.left)\n            queue.append(node.right)\n    while out and out[-1] is None:\n        out.pop()\n    return out\n\n\ndef level_order(root):\n    tree = _build_tree(root)\n    # Your code — return a list of lists of node values, one list per level\n    # (top to bottom, left to right).\n\n    pass\n",
       "functionName": "level_order",
       "testCases": [
         {
@@ -1401,7 +1401,7 @@
         "Node.val is unique for each node",
         "There are no repeated edges and no self-loops"
       ],
-      "starterCode": "def clone_graph(adj_list):\n    # Graph input is given as an adjacency list. Node values are 1..N.\n    # Build a Node graph if your solution needs one.\n    pass\n",
+      "starterCode": "class Node:\n    def __init__(self, val=0, neighbors=None):\n        self.val = val\n        self.neighbors = neighbors if neighbors is not None else []\n\ndef _build_graph(adj_list):\n    \"\"\"Build an undirected graph from a 1-indexed adjacency list.\"\"\"\n    if not adj_list: return None\n    nodes = [Node(i + 1) for i in range(len(adj_list))]\n    for i, neighbors in enumerate(adj_list):\n        nodes[i].neighbors = [nodes[j - 1] for j in neighbors]\n    return nodes[0]\n\ndef _graph_to_adj_list(node):\n    \"\"\"Serialize a graph (any reachable Node) back to a 1-indexed adjacency list.\"\"\"\n    if not node: return []\n    visited = {node.val: node}\n    queue = [node]\n    while queue:\n        n = queue.pop(0)\n        for nb in n.neighbors:\n            if nb.val not in visited:\n                visited[nb.val] = nb\n                queue.append(nb)\n    return [\n        sorted(nb.val for nb in visited[v].neighbors)\n        for v in sorted(visited.keys())\n    ]\n\n\ndef clone_graph(adj_list):\n    node = _build_graph(adj_list)\n    # Your code — return a deep copy of the graph rooted at `node`. The test\n    # will serialize the cloned graph back to an adjacency list.\n\n    return _graph_to_adj_list(node)\n",
       "functionName": "clone_graph",
       "testCases": [
         {
@@ -1612,7 +1612,7 @@
         "The number of nodes in the tree is in the range [0, 100]",
         "-100 <= Node.val <= 100"
       ],
-      "starterCode": "def invert_tree(root):\n    # Tree input is given in level-order array form (None for missing nodes).\n    # Convert it to a TreeNode tree before solving, then return the answer in\n    # the format the test expects.\n    pass\n",
+      "starterCode": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\n\ndef _build_tree(arr):\n    \"\"\"Build a binary tree from level-order array (None marks missing nodes).\"\"\"\n    if not arr or arr[0] is None:\n        return None\n    root = TreeNode(arr[0])\n    queue, i = [root], 1\n    while queue and i < len(arr):\n        node = queue.pop(0)\n        if i < len(arr) and arr[i] is not None:\n            node.left = TreeNode(arr[i]); queue.append(node.left)\n        i += 1\n        if i < len(arr) and arr[i] is not None:\n            node.right = TreeNode(arr[i]); queue.append(node.right)\n        i += 1\n    return root\n\ndef _serialize_tree(root):\n    \"\"\"Serialize a binary tree to level-order array, trimming trailing Nones.\"\"\"\n    if not root: return []\n    out, queue = [], [root]\n    while queue:\n        node = queue.pop(0)\n        if node is None:\n            out.append(None)\n        else:\n            out.append(node.val)\n            queue.append(node.left)\n            queue.append(node.right)\n    while out and out[-1] is None:\n        out.pop()\n    return out\n\n\ndef invert_tree(root):\n    tree = _build_tree(root)\n    # Your code — invert the binary tree in place (or build a new one) and\n    # return the root TreeNode. The test will serialize it back to an array.\n\n    return _serialize_tree(tree)\n",
       "functionName": "invert_tree",
       "testCases": [
         {
