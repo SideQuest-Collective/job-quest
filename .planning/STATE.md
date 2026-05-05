@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 06 awaiting installed Codex validation
-last_updated: "2026-05-05T18:42:00.000Z"
-last_activity: 2026-05-05 -- Quick task complete: prep-plan system design prompts now launch conversational System Design practice
+last_updated: "2026-05-05T20:42:00.000Z"
+last_activity: 2026-05-05 -- Quick task complete: generated system-design technical questions now launch conversational practice
 progress:
   total_phases: 7
   completed_phases: 5
@@ -93,6 +93,7 @@ None yet.
 
 | Date | Task | Status | Artifact |
 |------|------|--------|----------|
+| 2026-05-05 | Remove static submit-review flow for generated system design prep questions | complete | `.planning/quick/260505-n1n-remove-remaining-static-submit-review-fl/SUMMARY.md` |
 | 2026-05-05 | Conversational prep-plan system design practice | complete | `.planning/quick/260505-jvv-add-conversational-practice-for-prep-pla/SUMMARY.md` |
 
 ## Session Continuity
