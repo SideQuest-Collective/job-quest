@@ -122,3 +122,37 @@ test('fallback endpoints return the newest available artifact when today is miss
     assert.equal(tasks.date, newest);
   });
 });
+
+test('system design topics include prep-plan prompts from the role tracker', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-sd-prep-topics-'));
+  const roleKey = 'Acme|Staff Platform Engineer';
+
+  fs.writeFileSync(path.join(tempRoot, 'role-tracker.json'), JSON.stringify({
+    [roleKey]: {
+      interviewPlan: {
+        systemDesignPrompt: {
+          title: 'Design a multi-region metrics ingestion platform',
+          description: 'Handle high-volume telemetry ingestion with regional failover.',
+          keyTopics: ['partitioning', 'backpressure'],
+          evaluationCriteria: ['capacity estimates', 'failure handling'],
+        },
+      },
+    },
+  }, null, 2));
+
+  await withServer(tempRoot, async (baseUrl) => {
+    const topics = await fetch(`${baseUrl}/api/sd-topics`).then((response) => response.json());
+    const prepTopic = topics.find((topic) => topic.source === 'prep-plan' && topic.sourceRoleKey === roleKey);
+
+    assert.ok(prepTopic);
+    assert.match(prepTopic.id, /^prep-[a-f0-9]{12}$/);
+    assert.equal(prepTopic.title, 'Design a multi-region metrics ingestion platform');
+    assert.equal(prepTopic.sourceCompany, 'Acme');
+    assert.equal(prepTopic.sourceRole, 'Staff Platform Engineer');
+    assert.deepEqual(prepTopic.keyTopics, ['partitioning', 'backpressure']);
+    assert.equal(prepTopic.hasConversation, false);
+
+    const conversation = await fetch(`${baseUrl}/api/sd-conversation/${prepTopic.id}`).then((response) => response.json());
+    assert.deepEqual(conversation, { messages: [] });
+  });
+});
