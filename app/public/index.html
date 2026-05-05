@@ -639,6 +639,7 @@ function App() {
   const [roleActions, setRoleActions] = useState({ saved: [], skipped: [], applied: [] });
   const [roleTracker, setRoleTracker] = useState({});
   const [jobStatus, setJobStatus] = useState(null);
+  const [sdLaunchTopic, setSdLaunchTopic] = useState(null);
   // Lifted CodeLab session state — persists across page switches
   const codeLabSessionRef = useRef({});
   const codeLabInitialProblemRef = useRef(null);
@@ -655,6 +656,11 @@ function App() {
     api.get('/api/role-tracker').then(setRoleTracker);
     api.get('/api/job-status').then(setJobStatus);
   }, []);
+
+  const openSystemDesignTopic = (topic) => {
+    setSdLaunchTopic({ ...topic, launchAt: Date.now() });
+    setPage('sysdesign');
+  };
 
   useEffect(() => { refresh(); const i = setInterval(refresh, 30000); return () => clearInterval(i); }, [refresh]);
 
@@ -688,7 +694,7 @@ function App() {
         <div className="sidebar-brand"><h1><span>Command</span> Center</h1><div className="subtitle">Job Hunt HQ</div></div>
         <div className="nav-section">
           {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider" /> : (
-            <div key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}>
+            <div key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); }}>
               <n.icon className="nav-icon" />{n.label}
               {n.badge ? <span className="badge">{n.badge}</span> : null}
             </div>
@@ -702,11 +708,11 @@ function App() {
         {page === 'tasks' && <Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} />}
         {page === 'quiz' && <Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} />}
         {page === 'resume' && <Resume resume={resume} setResume={setResume} />}
-        {page === 'intel' && <Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} />}
-        {page === 'prepplans' && <PrepPlans allRoles={allRoles} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} />}
+        {page === 'intel' && <Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} openSystemDesignTopic={openSystemDesignTopic} />}
+        {page === 'prepplans' && <PrepPlans allRoles={allRoles} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} openSystemDesignTopic={openSystemDesignTopic} />}
         {page === 'calendar' && <Calendar progress={progress} />}
         {page === 'codelab' && <CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} />}
-        {page === 'sysdesign' && <SystemDesign />}
+        {page === 'sysdesign' && <SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} />}
         {page === 'behavioral' && <Behavioral />}
       </div>
     </div>
@@ -1775,7 +1781,7 @@ const DEFAULT_CHECKLISTS = {
   rejected: [],
 };
 
-function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage }) {
+function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage, openSystemDesignTopic }) {
   const [selectedKey, setSelectedKey] = useState(null);
   const [filter, setFilter] = useState('all');
   const [newCheckItem, setNewCheckItem] = useState('');
@@ -2242,25 +2248,11 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                             <div className="prep-q">{tracker.interviewPlan.systemDesignPrompt.title}</div>
                             <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>{tracker.interviewPlan.systemDesignPrompt.description}</div>
                             <div className="prep-actions" style={{marginBottom:10}}>
-                              <button className="btn btn-primary" onClick={() => setPage('sysdesign')}>
-                                <Icons.messageCircle style={{width:14,height:14}} /> Practice in Mock Interview
+                              <button className="btn btn-primary" onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: tracker.interviewPlan.systemDesignPrompt.title })}>
+                                <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
                               </button>
                               <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, sd: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Key Topics</button>
                             </div>
-                            {(() => { const ev = evaluations['sd']; const isEvaluating = !!evaluatingKeys['sd']; return (<>
-                              <textarea className="prep-textarea" placeholder="Or write your system design answer here..." value={practiceAnswers['sd'] || ''} onChange={e => updatePracticeAnswer('sd', e.target.value)} />
-                              <div className="prep-actions">
-                                <button className="btn btn-secondary" disabled={!(practiceAnswers['sd'] || '').trim() || isEvaluating} onClick={() => submitForReview('sd', tracker.interviewPlan.systemDesignPrompt.title + ': ' + tracker.interviewPlan.systemDesignPrompt.description, practiceAnswers['sd'], (tracker.interviewPlan.systemDesignPrompt.keyTopics || []).join(', ') + '. Criteria: ' + (tracker.interviewPlan.systemDesignPrompt.evaluationCriteria || []).join(', '), 'system-design')}>
-                                  {isEvaluating ? 'Evaluating...' : 'Submit for Review'}
-                                </button>
-                              </div>
-                              {ev && (
-                                <div className="prep-eval">
-                                  <span className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 4 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 4 ? 'var(--amber)' : 'var(--rose)'}}>{ev.score}/{ev.maxScore}</span>
-                                  <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:8}}>{ev.feedback}</div>
-                                </div>
-                              )}
-                            </>); })()}
                             {revealedAnswers['sd'] && (
                               <div className="prep-answer" style={{marginTop:10}}>
                                 <div style={{fontSize:11,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)',marginBottom:6}}>KEY TOPICS</div>
@@ -2429,7 +2421,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
 }
 
 /* ===== PREP PLANS ===== */
-function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage }) {
+function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage, openSystemDesignTopic }) {
   const [selectedKey, setSelectedKey] = useState(null);
   const [prepTab, setPrepTab] = useState('questions');
   const [revealedAnswers, setRevealedAnswers] = useState({});
@@ -2843,32 +2835,11 @@ function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage }) {
                         <div className="prep-q">{plan.systemDesignPrompt.title}</div>
                         <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>{plan.systemDesignPrompt.description}</div>
                         <div className="prep-actions">
-                          <button className="btn btn-primary" style={{fontSize:13}} onClick={() => setPage('sysdesign')}>
-                            <Icons.messageCircle style={{width:14,height:14}} /> Practice in Mock Interview
+                          <button className="btn btn-primary" style={{fontSize:13}} onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: plan.systemDesignPrompt.title })}>
+                            <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
                           </button>
                           <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, sd: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Key Topics</button>
                         </div>
-                        {/* Inline answer area */}
-                        {(() => { const ev = evaluations['sd']; const isEvaluating = !!evaluatingKeys['sd']; return (<>
-                          <textarea className="prep-textarea" style={{marginTop:10}} placeholder="Or write your system design answer here..." value={practiceAnswers['sd'] || ''} onChange={e => updatePracticeAnswer('sd', e.target.value)} />
-                          <div className="prep-actions">
-                            <button className="btn btn-secondary" disabled={!(practiceAnswers['sd'] || '').trim() || isEvaluating} onClick={() => submitForReview('sd', plan.systemDesignPrompt.title + ': ' + plan.systemDesignPrompt.description, practiceAnswers['sd'], (plan.systemDesignPrompt.keyTopics || []).join(', ') + '. Criteria: ' + (plan.systemDesignPrompt.evaluationCriteria || []).join(', '), 'system-design')}>
-                              {isEvaluating ? 'Evaluating...' : 'Submit for Review'}
-                            </button>
-                          </div>
-                          {ev && (
-                            <div className="prep-eval">
-                              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                                <div className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 5 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 5 ? 'var(--amber)' : 'var(--rose)'}}>{ev.score}/{ev.maxScore || 10}</div>
-                                <span style={{fontSize:12,color:'var(--text-secondary)'}}>{ev.feedback}</span>
-                              </div>
-                              <dl className="prep-eval-list">
-                                {(ev.strengths || []).length > 0 && <><dt style={{color:'var(--emerald)'}}>Strengths</dt>{ev.strengths.map((s, j) => <dd key={j}>• {s}</dd>)}</>}
-                                {(ev.improvements || []).length > 0 && <><dt style={{color:'var(--amber)'}}>To Improve</dt>{ev.improvements.map((s, j) => <dd key={j}>• {s}</dd>)}</>}
-                              </dl>
-                            </div>
-                          )}
-                        </>); })()}
                         {revealedAnswers['sd'] && (
                           <div className="prep-answer" style={{marginTop:10}}>
                             <div style={{fontSize:11,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)',marginBottom:6}}>KEY TOPICS</div>
@@ -3180,7 +3151,7 @@ function Calendar({ progress }) {
 }
 
 /* ===== CODE LAB ===== */
-function SystemDesign() {
+function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
   const [topics, setTopics] = useState([]);
   const [selectedTopic, setSelectedTopic] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -3205,6 +3176,17 @@ function SystemDesign() {
     const conv = await api.get(`/api/sd-conversation/${topic.id}`);
     setMessages(conv.messages || []);
   };
+
+  useEffect(() => {
+    if (!launchTopic || topics.length === 0) return;
+    const topic = topics.find(t =>
+      t.id === launchTopic.id ||
+      (launchTopic.sourceRoleKey && t.sourceRoleKey === launchTopic.sourceRoleKey && t.title === launchTopic.title)
+    );
+    if (!topic) return;
+    selectTopic(topic);
+    if (onLaunchTopicHandled) onLaunchTopicHandled();
+  }, [launchTopic?.launchAt, topics.length]);
 
   const startInterview = async () => {
     if (!selectedTopic) return;
@@ -3269,8 +3251,10 @@ function SystemDesign() {
               <div className="sd-topic-title">
                 {t.title}
                 {t.hasConversation && <span className="sd-resume-badge">in progress</span>}
+                {t.source === 'prep-plan' && <span className="sd-resume-badge">prep plan</span>}
               </div>
               <div className="sd-topic-desc">{t.description}</div>
+              {t.source === 'prep-plan' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:6}}>{t.sourceCompany}{t.sourceRole ? ` · ${t.sourceRole}` : ''}</div>}
             </div>
           ))}
         </div>
@@ -3287,12 +3271,13 @@ function SystemDesign() {
             <>
               <div className="sd-chat-header">
                 <h3>{selectedTopic.title}</h3>
+                {selectedTopic.source === 'prep-plan' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)'}}>{selectedTopic.sourceCompany}{selectedTopic.sourceRole ? ` · ${selectedTopic.sourceRole}` : ''}</span>}
               </div>
               <div className="sd-empty-state">
                 <Icons.messageCircle style={{width:48,height:48,opacity:0.3}} />
                 <p style={{fontSize:16,fontWeight:600,color:'var(--text-secondary)'}}>Ready to begin?</p>
                 <p style={{fontSize:13,maxWidth:400}}>{selectedTopic.description}</p>
-                <p style={{fontSize:12,marginTop:4}}>The interviewer will present the problem and guide you through the design process.</p>
+                <p style={{fontSize:12,marginTop:4}}>{selectedTopic.source === 'prep-plan' ? 'The interviewer will use this prep-plan prompt and role context for the discussion.' : 'The interviewer will present the problem and guide you through the design process.'}</p>
                 <button className="btn btn-primary" onClick={startInterview} disabled={starting} style={{marginTop:12,padding:'10px 28px',fontSize:14,display:'flex',alignItems:'center',gap:8}}>
                   {starting ? <><div className="dot-pulse" style={{display:'inline-flex',gap:4}}><span style={{width:5,height:5,borderRadius:'50%',background:'var(--bg-deep)',animation:'chatDot 1.2s infinite'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--bg-deep)',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--bg-deep)',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></div> Starting...</> : <><Icons.play style={{width:16,height:16}} /> Start Interview</>}
                 </button>
@@ -3301,7 +3286,10 @@ function SystemDesign() {
           ) : (
             <>
               <div className="sd-chat-header">
-                <h3>{selectedTopic.title}</h3>
+                <div>
+                  <h3>{selectedTopic.title}</h3>
+                  {selectedTopic.source === 'prep-plan' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:3}}>{selectedTopic.sourceCompany}{selectedTopic.sourceRole ? ` · ${selectedTopic.sourceRole}` : ''}</div>}
+                </div>
                 <div style={{display:'flex',alignItems:'center',gap:12}}>
                   <span className="sd-exchange-count">{exchangeCount} exchange{exchangeCount !== 1 ? 's' : ''}</span>
                   <button className="btn btn-secondary" onClick={startInterview} disabled={starting || loading} style={{padding:'6px 12px',fontSize:11}}>Restart</button>

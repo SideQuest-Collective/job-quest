@@ -897,6 +897,7 @@ Continue mentoring. Be concise and encouraging. Format with markdown.`;
 // --- System Design Mock Interview ---
 const sdConversations = {};
 const SD_CONV_DIR = path.join(DATA_DIR, 'sd-conversations');
+const ROLE_TRACKER_FILE = path.join(DATA_DIR, 'role-tracker.json');
 
 const SD_TOPICS = [
   { id: 'url-shortener', title: 'Design a URL Shortener', description: 'Design a service like bit.ly that shortens long URLs and redirects users.' },
@@ -913,9 +914,58 @@ const SD_TOPICS = [
   { id: 'social-graph', title: 'Design a Social Graph', description: 'Design the social graph and friend recommendation system for a social network.' },
 ];
 
+function getSafeSdTopicId(topicId) {
+  if (typeof topicId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(topicId)) return null;
+  return topicId;
+}
+
+function getSdConversationFile(topicId) {
+  const safeTopicId = getSafeSdTopicId(topicId);
+  if (!safeTopicId) return null;
+  return path.join(SD_CONV_DIR, `${safeTopicId}.json`);
+}
+
+function getPrepTopicId(roleKey, prompt) {
+  const hash = crypto.createHash('sha1').update(`${roleKey}|${prompt.title || ''}`).digest('hex').slice(0, 12);
+  return `prep-${hash}`;
+}
+
+function readRoleTracker() {
+  if (!fs.existsSync(ROLE_TRACKER_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(ROLE_TRACKER_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function getPrepPlanSdTopics() {
+  const tracker = readRoleTracker();
+  return Object.entries(tracker).flatMap(([roleKey, entry]) => {
+    const prompt = entry?.interviewPlan?.systemDesignPrompt;
+    if (!prompt || typeof prompt !== 'object' || !prompt.title) return [];
+    const [company = '', role = ''] = roleKey.split('|');
+    return [{
+      id: getPrepTopicId(roleKey, prompt),
+      title: prompt.title,
+      description: prompt.description || 'Practice this prep-plan system design prompt as a mock interview.',
+      source: 'prep-plan',
+      sourceRoleKey: roleKey,
+      sourceCompany: company,
+      sourceRole: role,
+      keyTopics: Array.isArray(prompt.keyTopics) ? prompt.keyTopics : [],
+      evaluationCriteria: Array.isArray(prompt.evaluationCriteria) ? prompt.evaluationCriteria : [],
+    }];
+  });
+}
+
+function getSdTopic(topicId) {
+  return SD_TOPICS.find(t => t.id === topicId) || getPrepPlanSdTopics().find(t => t.id === topicId);
+}
+
 app.get('/api/sd-topics', (req, res) => {
-  const topics = SD_TOPICS.map(t => {
-    const convFile = path.join(SD_CONV_DIR, `${t.id}.json`);
+  const topics = [...SD_TOPICS, ...getPrepPlanSdTopics()].map(t => {
+    const convFile = getSdConversationFile(t.id);
     const hasConversation = fs.existsSync(convFile);
     return { ...t, hasConversation };
   });
@@ -924,7 +974,8 @@ app.get('/api/sd-topics', (req, res) => {
 
 app.get('/api/sd-conversation/:topicId', (req, res) => {
   const { topicId } = req.params;
-  const convFile = path.join(SD_CONV_DIR, `${topicId}.json`);
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile) return res.status(400).json({ error: 'Invalid topic id' });
   if (fs.existsSync(convFile)) {
     res.json(JSON.parse(fs.readFileSync(convFile, 'utf-8')));
   } else {
@@ -935,10 +986,11 @@ app.get('/api/sd-conversation/:topicId', (req, res) => {
 app.post('/api/sd-conversation/:topicId', (req, res) => {
   const { topicId } = req.params;
   const { userMessage } = req.body;
-  const topic = SD_TOPICS.find(t => t.id === topicId);
+  const topic = getSdTopic(topicId);
   if (!topic) return res.status(404).json({ error: 'Topic not found' });
 
-  const convFile = path.join(SD_CONV_DIR, `${topicId}.json`);
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile) return res.status(400).json({ error: 'Invalid topic id' });
   if (!fs.existsSync(SD_CONV_DIR)) fs.mkdirSync(SD_CONV_DIR, { recursive: true });
 
   let conv = { messages: [] };
@@ -950,10 +1002,16 @@ app.post('/api/sd-conversation/:topicId', (req, res) => {
 
   let prompt;
   if (isFirstMessage) {
+    const prepContext = topic.source === 'prep-plan' ? `
+This prompt comes from an interview prep plan for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
+Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || 'Use standard Staff-level system design coverage.'}
+Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
+` : '';
     prompt = `You are a senior staff engineer conducting a system design mock interview. You are warm but rigorous — like a real interviewer at a top tech company (Google, Meta, etc).
 
 The candidate has chosen to design: "${topic.title}"
 Topic: ${topic.description}
+${prepContext}
 
 Start the interview naturally:
 1. Greet the candidate briefly
@@ -972,7 +1030,13 @@ IMPORTANT RULES for the entire conversation:
 - Use markdown formatting for clarity.`;
   } else {
     const history = conv.messages.map(m => `${m.role === 'user' ? 'CANDIDATE' : 'INTERVIEWER'}: ${m.content}`).join('\n\n');
+    const prepContext = topic.source === 'prep-plan' ? `
+This is a prep-plan-specific prompt for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
+Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || 'Use standard Staff-level system design coverage.'}
+Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
+` : '';
     prompt = `You are a senior staff engineer conducting a system design mock interview for: "${topic.title}".
+${prepContext}
 
 Here is the conversation so far:
 
@@ -1030,7 +1094,8 @@ Continue the interview. Remember:
 
 app.delete('/api/sd-conversation/:topicId', (req, res) => {
   const { topicId } = req.params;
-  const convFile = path.join(SD_CONV_DIR, `${topicId}.json`);
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile) return res.status(400).json({ error: 'Invalid topic id' });
   if (fs.existsSync(convFile)) fs.unlinkSync(convFile);
   res.json({ success: true });
 });
