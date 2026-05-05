@@ -716,8 +716,8 @@ app.post('/api/run-code', (req, res) => {
   const { code, functionName, testCases } = req.body;
   const tmpFile = path.join(os.tmpdir(), `codelab_${Date.now()}.py`);
 
-  const testRunner = `
-import json, sys, traceback
+const testRunner = `
+import inspect, json, sys, traceback
 
 source = ${JSON.stringify(code)}
 function_name = ${JSON.stringify(functionName)}
@@ -759,10 +759,27 @@ if not callable(fn):
     }))
     sys.exit(0)
 
+def run_test(fn, test):
+    input_data = test.get('input', {})
+    operations = input_data.get('operations')
+    if inspect.isclass(fn) and isinstance(operations, list):
+        constructor_args = {key: value for key, value in input_data.items() if key != 'operations'}
+        instance = fn(**constructor_args)
+        outputs = []
+        for operation in operations:
+            if not operation:
+                raise ValueError("Operation entries must not be empty")
+            method_name = operation[0]
+            method_args = operation[1:]
+            method = getattr(instance, method_name)
+            outputs.append(method(*method_args))
+        return outputs
+    return fn(**input_data)
+
 results = []
 for i, test in enumerate(tests):
     try:
-        result = fn(**test['input'])
+        result = run_test(fn, test)
         # Sort lists for order-insensitive comparison where needed
         expected = test['expected']
         passed = result == expected
