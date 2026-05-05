@@ -136,6 +136,21 @@ test('system design topics include prep-plan prompts from the role tracker', asy
           keyTopics: ['partitioning', 'backpressure'],
           evaluationCriteria: ['capacity estimates', 'failure handling'],
         },
+        technicalQuestions: [
+          {
+            question: 'How would you shard the metrics ingestion path?',
+            category: 'system-design',
+            difficulty: 'hard',
+            type: 'text',
+            sampleAnswer: 'Discuss tenant-aware partitioning and hot shard mitigation.',
+          },
+          {
+            question: 'Implement a retry helper',
+            category: 'coding',
+            difficulty: 'medium',
+            type: 'code',
+          },
+        ],
       },
     },
   }, null, 2));
@@ -151,6 +166,11 @@ test('system design topics include prep-plan prompts from the role tracker', asy
     assert.equal(prepTopic.sourceRole, 'Staff Platform Engineer');
     assert.deepEqual(prepTopic.keyTopics, ['partitioning', 'backpressure']);
     assert.equal(prepTopic.hasConversation, false);
+
+    const technicalTopic = topics.find((topic) => topic.source === 'prep-plan' && topic.title === 'How would you shard the metrics ingestion path?');
+    assert.ok(technicalTopic);
+    assert.equal(technicalTopic.sourceRoleKey, roleKey);
+    assert.deepEqual(technicalTopic.evaluationCriteria, ['Discuss tenant-aware partitioning and hot shard mitigation.']);
 
     const conversation = await fetch(`${baseUrl}/api/sd-conversation/${prepTopic.id}`).then((response) => response.json());
     assert.deepEqual(conversation, { messages: [] });

@@ -2161,34 +2161,49 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                     {prepTab === 'questions' && (
                       <>
                         {/* Technical Questions */}
-                        {(tracker.interviewPlan.technicalQuestions || []).map((q, i) => (
-                          <div key={'tq'+i} className="prep-card">
-                            <div className="prep-card-header">
-                              <span className={`prep-card-cat ${q.category}`}>{q.category}</span>
-                              <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{q.difficulty}</span>
-                            </div>
-                            <div className="prep-q">{q.question}</div>
-                            {(() => { const qKey = 'tq'+i; const ev = evaluations[qKey]; const isEvaluating = !!evaluatingKeys[qKey]; return (<>
-                              {q.type === 'code' ? (
-                                <button className="btn btn-primary" style={{marginBottom:8}} onClick={() => setPage('codelab')}>
-                                  <Icons.code style={{width:14,height:14}} /> Open in Code Lab
-                                </button>
-                              ) : (
-                                <textarea className="prep-textarea" placeholder="Write your answer here..." value={practiceAnswers[qKey] || ''} onChange={e => updatePracticeAnswer(qKey, e.target.value)} />
-                              )}
-                              <div className="prep-actions">
-                                <button className="btn btn-primary" disabled={!(practiceAnswers[qKey] || '').trim() || isEvaluating} onClick={() => submitForReview(qKey, q.question, practiceAnswers[qKey], q.sampleAnswer, q.category)}>
-                                  {isEvaluating ? 'Evaluating...' : <><Icons.zap style={{width:12,height:12}} /> Submit for Review</>}
-                                </button>
-                                <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
+                        {(tracker.interviewPlan.technicalQuestions || []).map((q, i) => {
+                          const qKey = 'tq'+i;
+                          const ev = evaluations[qKey];
+                          const isEvaluating = !!evaluatingKeys[qKey];
+                          const isSystemDesign = q.category === 'system-design';
+                          return (
+                            <div key={qKey} className="prep-card">
+                              <div className="prep-card-header">
+                                <span className={`prep-card-cat ${q.category}`}>{q.category}</span>
+                                <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{q.difficulty}</span>
                               </div>
-                              {ev && (
-                                <div className="prep-eval">
-                                  <span className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 4 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 4 ? 'var(--amber)' : 'var(--rose)'}}>{ev.score}/{ev.maxScore}</span>
-                                  <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:8}}>{ev.feedback}</div>
-                                  {ev.strengths?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--emerald)',fontFamily:'var(--font-mono)'}}>STRENGTHS</span><ul className="prep-eval-list">{ev.strengths.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
-                                  {ev.improvements?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)'}}>IMPROVEMENTS</span><ul className="prep-eval-list">{ev.improvements.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
+                              <div className="prep-q">{q.question}</div>
+                              {isSystemDesign ? (
+                                <div className="prep-actions">
+                                  <button className="btn btn-primary" onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: q.question })}>
+                                    <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
+                                  </button>
+                                  <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
                                 </div>
+                              ) : (
+                                <>
+                                  {q.type === 'code' ? (
+                                    <button className="btn btn-primary" style={{marginBottom:8}} onClick={() => setPage('codelab')}>
+                                      <Icons.code style={{width:14,height:14}} /> Open in Code Lab
+                                    </button>
+                                  ) : (
+                                    <textarea className="prep-textarea" placeholder="Write your answer here..." value={practiceAnswers[qKey] || ''} onChange={e => updatePracticeAnswer(qKey, e.target.value)} />
+                                  )}
+                                  <div className="prep-actions">
+                                    <button className="btn btn-primary" disabled={!(practiceAnswers[qKey] || '').trim() || isEvaluating} onClick={() => submitForReview(qKey, q.question, practiceAnswers[qKey], q.sampleAnswer, q.category)}>
+                                      {isEvaluating ? 'Evaluating...' : <><Icons.zap style={{width:12,height:12}} /> Submit for Review</>}
+                                    </button>
+                                    <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
+                                  </div>
+                                  {ev && (
+                                    <div className="prep-eval">
+                                      <span className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 4 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 4 ? 'var(--amber)' : 'var(--rose)'}}>{ev.score}/{ev.maxScore}</span>
+                                      <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:8}}>{ev.feedback}</div>
+                                      {ev.strengths?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--emerald)',fontFamily:'var(--font-mono)'}}>STRENGTHS</span><ul className="prep-eval-list">{ev.strengths.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
+                                      {ev.improvements?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)'}}>IMPROVEMENTS</span><ul className="prep-eval-list">{ev.improvements.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
+                                    </div>
+                                  )}
+                                </>
                               )}
                               {revealedAnswers[qKey] && (
                                 <div className="prep-answer">
@@ -2201,9 +2216,9 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                                   )}
                                 </div>
                               )}
-                            </>); })()}
-                          </div>
-                        ))}
+                            </div>
+                          );
+                        })}
                         {/* Behavioral Questions */}
                         {(tracker.interviewPlan.behavioralQuestions || []).map((q, i) => (
                           <div key={'bq'+i} className="prep-card">
@@ -2721,6 +2736,7 @@ function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage, openSystemD
                       const ev = evaluations[qKey];
                       const isEvaluating = !!evaluatingKeys[qKey];
                       const isCode = q.type === 'code';
+                      const isSystemDesign = q.category === 'system-design';
                       return (
                         <div key={qKey} className="prep-card">
                           <div className="prep-card-header">
@@ -2732,7 +2748,14 @@ function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage, openSystemD
                           </div>
                           <div className="prep-q">{q.question}</div>
                           {/* Answer area */}
-                          {isCode ? (
+                          {isSystemDesign ? (
+                            <div className="prep-actions">
+                              <button className="btn btn-primary" onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: q.question })}>
+                                <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
+                              </button>
+                              <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
+                            </div>
+                          ) : isCode ? (
                             <div style={{marginTop:8}}>
                               {q.starterCode && <div style={{background:'var(--bg-deep)',border:'1px solid var(--border)',borderRadius:8,padding:12,fontFamily:'var(--font-mono)',fontSize:12,color:'var(--text-secondary)',whiteSpace:'pre-wrap',marginBottom:8}}>{q.starterCode}</div>}
                               <button className="btn btn-secondary" style={{fontSize:12,padding:'8px 16px',display:'flex',alignItems:'center',gap:6}} onClick={() => setPage('codelab')}>
@@ -2751,7 +2774,7 @@ function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage, openSystemD
                             </>
                           )}
                           {/* Evaluation result */}
-                          {ev && (
+                          {!isSystemDesign && ev && (
                             <div className="prep-eval">
                               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
                                 <div className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 5 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 5 ? 'var(--amber)' : 'var(--rose)'}}>

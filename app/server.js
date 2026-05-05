@@ -942,20 +942,31 @@ function readRoleTracker() {
 function getPrepPlanSdTopics() {
   const tracker = readRoleTracker();
   return Object.entries(tracker).flatMap(([roleKey, entry]) => {
-    const prompt = entry?.interviewPlan?.systemDesignPrompt;
-    if (!prompt || typeof prompt !== 'object' || !prompt.title) return [];
+    const plan = entry?.interviewPlan;
+    if (!plan || typeof plan !== 'object') return [];
     const [company = '', role = ''] = roleKey.split('|');
-    return [{
+    const toTopic = (prompt, fallbackDescription) => ({
       id: getPrepTopicId(roleKey, prompt),
-      title: prompt.title,
-      description: prompt.description || 'Practice this prep-plan system design prompt as a mock interview.',
+      title: prompt.title || prompt.question,
+      description: prompt.description || prompt.question || fallbackDescription,
       source: 'prep-plan',
       sourceRoleKey: roleKey,
       sourceCompany: company,
       sourceRole: role,
       keyTopics: Array.isArray(prompt.keyTopics) ? prompt.keyTopics : [],
-      evaluationCriteria: Array.isArray(prompt.evaluationCriteria) ? prompt.evaluationCriteria : [],
-    }];
+      evaluationCriteria: Array.isArray(prompt.evaluationCriteria) ? prompt.evaluationCriteria : (prompt.sampleAnswer ? [prompt.sampleAnswer] : []),
+    });
+
+    const topics = [];
+    const prompt = plan.systemDesignPrompt;
+    if (prompt && typeof prompt === 'object' && prompt.title) {
+      topics.push(toTopic(prompt, 'Practice this prep-plan system design prompt as a mock interview.'));
+    }
+    (plan.technicalQuestions || []).forEach((question) => {
+      if (question?.category !== 'system-design' || !question.question) return;
+      topics.push(toTopic({ ...question, title: question.question }, 'Practice this prep-plan system design question as a mock interview.'));
+    });
+    return topics;
   });
 }
 
