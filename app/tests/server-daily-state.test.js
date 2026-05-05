@@ -100,6 +100,64 @@ test('daily endpoints use the same local-day artifacts when today exists', async
   });
 });
 
+test('code runner supports class-based operation test cases', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-code-runner-'));
+  const code = `class LRUCache:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.cache = {}
+
+    def get(self, key):
+        if key not in self.cache:
+            return -1
+        value = self.cache.pop(key)
+        self.cache[key] = value
+        return value
+
+    def put(self, key, value):
+        if key in self.cache:
+            self.cache.pop(key)
+        elif len(self.cache) >= self.capacity:
+            oldest = next(iter(self.cache))
+            self.cache.pop(oldest)
+        self.cache[key] = value
+`;
+
+  await withServer(tempRoot, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/run-code`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        functionName: 'LRUCache',
+        testCases: [
+          {
+            input: {
+              capacity: 2,
+              operations: [
+                ['put', 1, 1],
+                ['put', 2, 2],
+                ['get', 1],
+                ['put', 3, 3],
+                ['get', 2],
+                ['put', 4, 4],
+                ['get', 1],
+                ['get', 3],
+                ['get', 4],
+              ],
+            },
+            expected: [null, null, 1, null, -1, null, -1, 3, 4],
+          },
+        ],
+      }),
+    }).then((res) => res.json());
+
+    assert.equal(response.error, undefined);
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].passed, true);
+  });
+});
+
 test('fallback endpoints return the newest available artifact when today is missing', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-daily-fallback-'));
   const newest = '2026-04-22';
