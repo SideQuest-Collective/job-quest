@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 06 awaiting installed Codex validation
-last_updated: "2026-05-05T20:42:00.000Z"
-last_activity: 2026-05-05 -- Quick task complete: generated system-design technical questions now launch conversational practice
+last_updated: "2026-05-05T20:53:00.000Z"
+last_activity: 2026-05-05 -- Quick task complete: Code Lab Ask AI persists across tabs and assistant pane resizes correctly
 progress:
   total_phases: 7
   completed_phases: 5
@@ -93,6 +93,7 @@ None yet.
 
 | Date | Task | Status | Artifact |
 |------|------|--------|----------|
+| 2026-05-05 | Fix Ask AI assistant pane persistence and resizable input layout | complete | `.planning/quick/260505-na0-fix-ask-ai-assistant-pane-persistence-an/SUMMARY.md` |
 | 2026-05-05 | Remove static submit-review flow for generated system design prep questions | complete | `.planning/quick/260505-n1n-remove-remaining-static-submit-review-fl/SUMMARY.md` |
 | 2026-05-05 | Conversational prep-plan system design practice | complete | `.planning/quick/260505-jvv-add-conversational-practice-for-prep-pla/SUMMARY.md` |
 
