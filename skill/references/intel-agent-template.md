@@ -16,6 +16,14 @@ Search the web for {{TARGET_LEVEL}} Software Engineer roles across these categor
 
 For each role collect: company, role title, level, location, URL (job posting link), and a "fit" paragraph explaining why this matches {{NAME}}'s background ({{STRENGTHS}}).
 
+### URL requirements (roles are useless without a working link)
+
+- The URL must point to **one specific posting**, never a careers landing page or search page. Reject `example.com/careers`, `/jobs`, `/careers/openings`, and `?q=` search URLs — if that is the only link available, drop the role and find another.
+- **Fetch every URL before writing it** and confirm the page shows that role's title. Do not trust the HTTP status: applicant tracking systems return 200 for removed jobs. Treat a page as dead if it contains "Job not found", "no longer accepting", "no longer available", or "position has been filled".
+  - Ashby (`jobs.ashbyhq.com`) soft-404s: a dead posting returns 200 with `<title>Jobs</title>` and no `og:title` meta tag. A live one has the role title in both.
+- Strip tracking and embed parameters (`?embed=js`, `?gh_src=`, `?query=`) — they break or leak the referrer.
+- Prefer links that stay valid: a board aggregator listing that stays reachable after the role closes beats a raw ATS deep link that vanishes.
+
 {{DEAL_BREAKERS_SECTION}}
 
 ## Step 2: Interview Tips & Hacks
@@ -110,6 +118,7 @@ Each problem needs: id, title, category, difficulty, order, description, example
 
 ## Quality Checks
 - Verify all JSON is valid before writing
+- **Verify every role URL resolves to that specific posting** (see "URL requirements" above). Drop any role whose link is dead or generic — 15 roles with working links are worth more than 20 with broken ones. Report the number dropped in your summary.
 - Verify no duplicate roles (check all existing intel files)
 - Verify quiz correctIndex is valid (0-3)
 - Verify task content fields are substantial (not empty strings)
