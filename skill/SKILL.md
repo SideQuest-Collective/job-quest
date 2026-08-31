@@ -244,8 +244,8 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 The interview trainer sends the user one interview question per hour (default 9am–9pm, every day) via iMessage, tailored to the roles they have **saved, tracked, or applied to** in Job Quest. Questions are deliberately varied — quick coding exercises, targeted technical knowledge, behavioral prompts, and occasionally a tightly scoped system-design question — and sized to be answerable in a text message. The user can answer two ways, and both stay in sync:
 
-- **Reply directly in the iMessage thread.** A background poller (every 2 minutes) picks up the reply, runs the role-specific evaluation, and texts back the score and feedback. Keywords: reply `skip` to pass on the current question, `next` for a fresh one immediately. Replying again after feedback re-evaluates.
-- **The dashboard's Trainer tab**, with the full question queue and feedback history.
+- **Reply directly in the iMessage thread.** A background poller (every 2 minutes) picks up the reply and the trainer behaves like a real interviewer: scored feedback PLUS one probing follow-up question per round, for up to 3 follow-ups, then a final assessment comparing where the answer started (initial score → final score, with a progress note). Keywords: `skip` passes on the current question, `next` gets a fresh one, `done` ends the exchange with the final assessment.
+- **The dashboard's Trainer tab** shows each question as a conversation timeline (answers, per-round feedback, follow-ups) and — once an exchange completes — an "Interview result" summary with the first-answer evaluation, final-answer evaluation, and the score delta. Answering from the dashboard follows the same interviewer flow.
 
 ### Setup
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Poll the trainer iMessage thread for replies and respond with AI feedback.
+# Poll the trainer iMessage thread for replies and run interviewer-style exchanges.
 #
 # Invoked every ~2 minutes by launchd THROUGH the dedicated FDA helper binary
 # (~/.job-quest/bin/trainer-messages-reader) — the helper is the launchd
@@ -8,11 +8,12 @@
 # only if that terminal app itself has Full Disk Access.
 #
 # Behavior:
-#   - New texts from the user in the trainer thread are treated as the answer
-#     to the most recent question; the same role-specific evaluation used by
-#     the dashboard runs and the score/feedback is texted back.
-#   - Reply "skip" to skip the current question, "next" for a fresh question.
-#   - Replying again after feedback re-evaluates (iterate on your answer).
+#   - New texts from the user in the trainer thread are treated as answers to
+#     the active question. The trainer responds like an interviewer: scored
+#     feedback PLUS one probing follow-up question, for up to 3 follow-up
+#     rounds, then a final assessment comparing where the answer started.
+#   - Keywords: "skip" passes on the current question, "next" gets a fresh
+#     question, "done" ends the current exchange with a final assessment.
 #   - Messages sent by the trainer itself (marker-emoji prefixes) are ignored,
 #     which also makes the self-chat case (texting your own number) safe.
 
@@ -116,7 +117,7 @@ db_path, handle, state_file = sys.argv[1:4]
 
 # Prefixes of messages the trainer itself sends. Needed because texting your
 # own number is a self-chat where is_from_me can't distinguish directions.
-OWN_PREFIXES = ('\U0001F3AF', '\U0001F4DD', '⏭', '❓', '⚠')
+OWN_PREFIXES = ('\U0001F3AF', '\U0001F4DD', '\U0001F3C1', '⏭', '❓', '⚠')
 APPLE_EPOCH = 978307200  # 2001-01-01 in unix seconds
 DEBOUNCE_SECONDS = 75
 
@@ -266,7 +267,7 @@ try:
 except Exception:
     qs = []
 for q in reversed(qs):
-    if q.get('status') == 'pending':
+    if q.get('status') in ('pending', 'in-progress'):
         q['status'] = 'skipped'
         tmp = p + '.tmp'
         json.dump(qs, open(tmp, 'w'), indent=2)
@@ -276,10 +277,10 @@ for q in reversed(qs):
 PY
 )"
   if [ -n "$SKIPPED" ]; then
-    log "Skipped pending question ($SKIPPED)."
+    log "Skipped question ($SKIPPED)."
     send_imessage "⏭ Skipped the $SKIPPED question. Next one arrives on the hour — or text 'next' for one now."
   else
-    send_imessage "❓ Nothing to skip — no pending question. Text 'next' to get one."
+    send_imessage "❓ Nothing to skip — no active question. Text 'next' to get one."
   fi
   exit 0
 fi
@@ -292,48 +293,122 @@ if [ "$NORMALIZED" = "next" ] || [ "$NORMALIZED" = "another" ] || [ "$NORMALIZED
   exit 0
 fi
 
-# --- otherwise: treat as an answer to the most recent question ---
-TARGET_JSON="$(python3 - "$QUESTIONS_FILE" <<'PY'
-import json, sys
+# --- keyword: done (wrap up the current exchange) ---
+FORCE_COMPLETE=0
+if [ "$NORMALIZED" = "done" ] || [ "$NORMALIZED" = "wrapup" ] || [ "$NORMALIZED" = "finish" ]; then
+  FORCE_COMPLETE=1
+  ANSWER=""
+fi
+
+# --- interviewer exchange: evaluate + follow-up (or final assessment) ---
+# NOTE: python output goes to temp files, not $(...) capture — macOS bash 3.2
+# cannot parse heredocs inside command substitution when the body mixes
+# quotes and parentheses.
+PROMPT_FILE="$(mktemp)"
+META_FILE="$(mktemp)"
+FORCE_COMPLETE="$FORCE_COMPLETE" ANSWER="$ANSWER" python3 - "$QUESTIONS_FILE" "$PROMPT_FILE" > "$META_FILE" <<'PY'
+import json
+import os
+import sys
+
+questions_file, prompt_file = sys.argv[1:3]
+answer = os.environ.get('ANSWER', '')
+force_complete = os.environ.get('FORCE_COMPLETE') == '1'
+MAX_FOLLOW_UPS = 3
+
 try:
-    qs = json.load(open(sys.argv[1]))
+    qs = json.load(open(questions_file))
 except Exception:
     qs = []
-for q in reversed(qs):
-    if q.get('status') in ('pending', 'answered'):
-        print(json.dumps(q))
-        break
-PY
-)"
 
-if [ -z "$TARGET_JSON" ]; then
+target = None
+for q in reversed(qs):
+    if q.get('status') in ('pending', 'in-progress', 'answered'):
+        target = q
+        break
+
+if target is None:
+    print(json.dumps({'status': 'no-target'}))
+    sys.exit(0)
+
+if force_complete and target.get('status') != 'in-progress':
+    print(json.dumps({'status': 'nothing-in-progress'}))
+    sys.exit(0)
+
+exchanges = target.get('exchanges') or []
+# Legacy single-shot records: fold answer/evaluation into the exchange model.
+if not exchanges and target.get('answer') and target.get('evaluation'):
+    exchanges = [
+        {'role': 'candidate', 'text': target['answer']},
+        {'role': 'interviewer', 'evaluation': target['evaluation'], 'followUp': None},
+    ]
+
+rounds = sum(1 for e in exchanges if e.get('role') == 'interviewer')
+if rounds >= MAX_FOLLOW_UPS:
+    force_complete = True
+
+conversation = []
+for e in exchanges:
+    if e.get('role') == 'candidate':
+        conversation.append(f"CANDIDATE:\n{e.get('text','')}")
+    else:
+        ev = e.get('evaluation') or {}
+        line = f"YOU (interviewer, scored {ev.get('score','?')}/10): {ev.get('feedback','')}"
+        if e.get('followUp'):
+            line += f"\nYOUR FOLLOW-UP QUESTION: {e['followUp']}"
+        conversation.append(line)
+if answer:
+    conversation.append(f"CANDIDATE:\n{answer}")
+conversation_text = '\n\n'.join(conversation) if conversation else '(no answer yet)'
+
+role_kind = 'senior hiring manager' if target.get('category') == 'behavioral' else 'senior technical interviewer'
+if force_complete:
+    closing = 'This is the END of the exchange. Set "complete" to true, "followUp" to null, and give your final assessment of the candidate\'s overall performance across the whole conversation, with a "progress" sentence describing how the answer evolved from where it started.'
+else:
+    closing = f'''If the answer is now strong (9+) or fully covers what you look for, set "complete" to true, "followUp" to null, and include a "progress" sentence describing how the answer evolved.
+Otherwise set "complete" to false and ask ONE follow-up question in "followUp" — the single most revealing probe a real interviewer would ask next: dig into the biggest gap, challenge an assumption, or push one level deeper. Never re-ask something already answered. (You have {MAX_FOLLOW_UPS - rounds} follow-up(s) left in this exchange.)'''
+
+prompt = f"""You are a {role_kind} at {target.get('company','the company')} conducting a live interview for the "{target.get('role','')}" role. The candidate types answers on a phone, so judge substance, not polish.
+
+THE QUESTION YOU ASKED ({target.get('category','')}): {target.get('question','')}
+
+WHAT A STRONG ANSWER COVERS: {target.get('whatTheyLookFor') or 'Depth, structure, and specificity appropriate for the role level.'}
+
+THE CONVERSATION SO FAR:
+{conversation_text}
+
+Assess the candidate's cumulative performance on this question so far. {closing}
+
+Your entire response must be a single JSON object with no other text:
+{{"score":0,"maxScore":10,"strengths":["strength"],"improvements":["gap"],"feedback":"2-3 crisp sentences on the latest response in context","followUp":"one probing question or null","complete":false,"progress":"only when complete: one sentence on how the answer evolved"}}
+
+Score 0-10 for the overall answer as it stands now (it should move as the candidate improves). Keep everything crisp — it is read as a text message. Output ONLY the JSON."""
+
+with open(prompt_file, 'w') as fh:
+    fh.write(prompt)
+
+print(json.dumps({'status': 'ok', 'id': target.get('id'), 'company': target.get('company'),
+                  'category': target.get('category'), 'rounds': rounds,
+                  'forceComplete': force_complete}))
+PY
+
+TARGET_META="$(cat "$META_FILE")"
+rm -f "$META_FILE"
+META_STATUS="$(echo "$TARGET_META" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")"
+
+if [ "$META_STATUS" = "no-target" ]; then
+  rm -f "$PROMPT_FILE"
   send_imessage "❓ No active question to grade. Text 'next' and I'll send one."
   exit 0
 fi
+if [ "$META_STATUS" = "nothing-in-progress" ]; then
+  rm -f "$PROMPT_FILE"
+  send_imessage "❓ No exchange in progress to wrap up. Text 'next' for a new question."
+  exit 0
+fi
 
-PROMPT_FILE="$(mktemp)"
-TARGET_JSON="$TARGET_JSON" ANSWER="$ANSWER" python3 > "$PROMPT_FILE" <<'PY'
-import json, os
-
-q = json.loads(os.environ['TARGET_JSON'])
-answer = os.environ['ANSWER']
-role_kind = 'senior hiring manager' if q.get('category') == 'behavioral' else 'senior technical interviewer'
-print(f"""You are a {role_kind} at {q.get('company','the company')} evaluating a candidate's answer for the "{q.get('role','')}" role. The answer was typed on a phone, so judge substance, not polish or formatting.
-
-QUESTION ({q.get('category','')}): {q.get('question','')}
-
-WHAT A STRONG ANSWER COVERS: {q.get('whatTheyLookFor') or 'Depth, structure, and specificity appropriate for the role level.'}
-
-CANDIDATE'S ANSWER:
-{answer}
-
-Evaluate the answer as {q.get('company','the company')} would for this role. Your entire response must be a single JSON object with no other text:
-{{"score":0,"maxScore":10,"strengths":["strength 1"],"improvements":["area to improve 1"],"feedback":"2-3 sentence overall feedback referencing the company/role context"}}
-
-Score 0-10 where: 0-3=poor, 4-5=needs work, 6-7=good, 8-9=strong, 10=excellent. Keep feedback, strengths, and improvements crisp — they will be read as a text message. Output ONLY the JSON.""")
-PY
-
-log "Evaluating answer for $(echo "$TARGET_JSON" | python3 -c "import json,sys; q=json.load(sys.stdin); print(q['company'], '|', q['category'])")..."
+TARGET_ID="$(echo "$TARGET_META" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")"
+log "Interview exchange for $(echo "$TARGET_META" | python3 -c "import json,sys; m=json.load(sys.stdin); print(m['company'], '|', m['category'], '| round', m['rounds']+1)")..."
 
 set +e
 RAW_EVAL="$("$JOB_QUEST_BIN_DIR/generate-plan.sh" "$PROMPT_FILE" 2>>"$LOG_FILE")"
@@ -347,7 +422,9 @@ if [ $EVAL_EXIT -ne 0 ] || [ -z "$RAW_EVAL" ]; then
   exit 0
 fi
 
-REPLY_TEXT="$(RAW_EVAL="$RAW_EVAL" TARGET_JSON="$TARGET_JSON" ANSWER="$ANSWER" python3 - "$QUESTIONS_FILE" <<'PY'
+REPLY_FILE="$(mktemp)"
+set +e
+RAW_EVAL="$RAW_EVAL" TARGET_ID="$TARGET_ID" ANSWER="$ANSWER" FORCE_COMPLETE_META="$TARGET_META" python3 - "$QUESTIONS_FILE" > "$REPLY_FILE" <<'PY'
 import datetime
 import json
 import os
@@ -355,8 +432,9 @@ import re
 import sys
 
 raw = os.environ['RAW_EVAL'].strip()
-target = json.loads(os.environ['TARGET_JSON'])
-answer = os.environ['ANSWER']
+target_id = os.environ['TARGET_ID']
+answer = os.environ.get('ANSWER', '')
+meta = json.loads(os.environ['FORCE_COMPLETE_META'])
 questions_file = sys.argv[1]
 
 result = None
@@ -387,44 +465,98 @@ if result is None:
 if not result or result.get('error') or 'score' not in result:
     sys.exit('eval-parse-failed')
 
-# Persist onto the question record.
+now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+follow_up = (result.get('followUp') or '').strip() or None
+complete = bool(result.get('complete')) or meta.get('forceComplete') or follow_up is None
+
+eval_core = {
+    'score': result.get('score', 0),
+    'maxScore': result.get('maxScore', 10),
+    'strengths': result.get('strengths') or [],
+    'improvements': result.get('improvements') or [],
+    'feedback': result.get('feedback', ''),
+}
+
 try:
     qs = json.load(open(questions_file))
 except Exception:
     qs = []
+
+target = None
 for q in qs:
-    if q.get('id') == target.get('id'):
-        q['answer'] = answer
-        q['evaluation'] = result
-        q['status'] = 'answered'
-        q['answeredAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if q.get('id') == target_id:
+        target = q
         break
+if target is None:
+    sys.exit('question-vanished')
+
+exchanges = target.get('exchanges') or []
+if not exchanges and target.get('answer') and target.get('evaluation'):
+    exchanges = [
+        {'role': 'candidate', 'text': target['answer'], 'at': target.get('answeredAt')},
+        {'role': 'interviewer', 'evaluation': target['evaluation'], 'followUp': None, 'at': target.get('answeredAt')},
+    ]
+if answer:
+    exchanges.append({'role': 'candidate', 'text': answer, 'at': now})
+exchanges.append({'role': 'interviewer', 'evaluation': eval_core,
+                  'followUp': None if complete else follow_up, 'at': now})
+
+target['exchanges'] = exchanges
+target['evaluation'] = eval_core
+if not target.get('initialEvaluation'):
+    target['initialEvaluation'] = eval_core
+if not target.get('answer') and answer:
+    target['answer'] = answer
+
+if complete:
+    target['status'] = 'answered'
+    target['answeredAt'] = now
+    target['finalEvaluation'] = eval_core
+    if result.get('progress'):
+        target['progress'] = result['progress']
+else:
+    target['status'] = 'in-progress'
+
 tmp = questions_file + '.tmp'
 json.dump(qs, open(tmp, 'w'), indent=2)
 os.replace(tmp, questions_file)
 
-score = result.get('score', 0)
+score = eval_core['score']
 emoji = '🟢' if score >= 8 else '🟡' if score >= 6 else '🔴'
-parts = [f"📝 {score}/{result.get('maxScore', 10)} {emoji} — {target.get('company','')}"]
-if result.get('feedback'):
-    parts.append(result['feedback'])
-strengths = result.get('strengths') or []
-if strengths:
-    parts.append('✅ ' + strengths[0])
-improvements = (result.get('improvements') or [])[:2]
-for imp in improvements:
-    parts.append('▲ ' + imp)
-parts.append("Reply again to improve your score, or wait for the next question.")
+
+if complete:
+    init = (target.get('initialEvaluation') or {}).get('score')
+    header = f"🏁 Final: {score}/{eval_core['maxScore']} {emoji} — {target.get('company','')}"
+    if init is not None and init != score:
+        header += f" (started at {init}/10)"
+    parts = [header]
+    if eval_core['feedback']:
+        parts.append(eval_core['feedback'])
+    if target.get('progress'):
+        parts.append('📈 ' + target['progress'])
+    parts.append("Full breakdown on the dashboard. Next question arrives on the hour — or text 'next'.")
+else:
+    parts = [f"📝 {score}/{eval_core['maxScore']} {emoji} — {target.get('company','')}"]
+    if eval_core['feedback']:
+        parts.append(eval_core['feedback'])
+    parts.append('🎙️ Follow-up: ' + follow_up)
+    parts.append("(Reply to continue, or 'done' for the final assessment)")
+
 text = '\n\n'.join(parts)
 if len(text) > 1500:
     text = text[:1500] + '…'
 print(text)
 PY
-)" || {
+COMPOSE_EXIT=$?
+set -e
+REPLY_TEXT="$(cat "$REPLY_FILE")"
+rm -f "$REPLY_FILE"
+
+if [ $COMPOSE_EXIT -ne 0 ] || [ -z "$REPLY_TEXT" ]; then
   log "FAILED: could not parse evaluation output: $(echo "$RAW_EVAL" | head -c 200 | tr '\n' ' ')"
-  send_imessage "⚠️ Got your answer but couldn't parse the evaluation — reply again to retry, or grade it from the dashboard."
+  send_imessage "⚠️ Got your answer but couldn't parse the evaluation — reply again to retry, or answer from the dashboard."
   exit 0
-}
+fi
 
 send_imessage "$REPLY_TEXT"
-log "Feedback sent."
+log "Interviewer reply sent."

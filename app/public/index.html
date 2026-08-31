@@ -3719,9 +3719,32 @@ function Trainer() {
     setEvaluatingId(q.id);
     try {
       const result = await api.post('/api/trainer/evaluate', { id: q.id, answer });
-      setQuestions(prev => prev.map(x => x.id === q.id ? { ...x, answer, evaluation: result, status: 'answered' } : x));
+      if (result.question) {
+        setQuestions(prev => prev.map(x => x.id === q.id ? result.question : x));
+        setDrafts(prev => ({ ...prev, [q.id]: '' }));
+      }
     } catch (e) { console.error('Trainer evaluation failed:', e); }
     setEvaluatingId(null);
+  };
+
+  const wrapUpInterview = async (q) => {
+    if (evaluatingId) return;
+    setEvaluatingId(q.id);
+    try {
+      const result = await api.post('/api/trainer/evaluate', { id: q.id, wrapUp: true });
+      if (result.question) setQuestions(prev => prev.map(x => x.id === q.id ? result.question : x));
+    } catch (e) { console.error('Trainer wrap-up failed:', e); }
+    setEvaluatingId(null);
+  };
+
+  // Legacy single-shot records render through the same timeline.
+  const exchangesOf = (q) => {
+    if (q.exchanges?.length) return q.exchanges;
+    if (q.answer && q.evaluation) return [
+      { role: 'candidate', text: q.answer, at: q.answeredAt },
+      { role: 'interviewer', evaluation: q.evaluation, followUp: null, at: q.answeredAt },
+    ];
+    return [];
   };
 
   const skipQuestion = async (q) => {
@@ -3807,6 +3830,7 @@ function Trainer() {
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
                     <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:catColor(q.category),textTransform:'uppercase',letterSpacing:0.5}}>{q.category}</span>
                     {q.status==='pending' && <span style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)'}}>&#9679; new</span>}
+                    {q.status==='in-progress' && <span style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--cyan)'}}>&#9685; live</span>}
                     {ev && <span style={{marginLeft:'auto',fontSize:11,fontFamily:'var(--font-mono)',fontWeight:700,color:ev.score>=8?'var(--green,#4ade80)':ev.score>=6?'var(--amber)':'var(--red,#f87171)'}}>{ev.score}/10</span>}
                   </div>
                   <div style={{fontSize:12,fontWeight:600,color:'var(--text)',marginBottom:2}}>{q.company}</div>
@@ -3833,44 +3857,92 @@ function Trainer() {
                   </div>
                 )}
               </div>
-              <textarea
-                value={drafts[selected.id] || ''}
-                onChange={e => updateDraft(selected.id, e.target.value)}
-                placeholder="Write your answer here. Aim for the depth you'd give in a real interview — structure, tradeoffs, specifics."
-                style={{width:'100%',minHeight:220,background:'var(--bg-card,rgba(148,163,184,0.04))',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',color:'var(--text)',fontSize:13,lineHeight:1.6,fontFamily:'inherit',resize:'vertical'}}
-              />
-              <div style={{display:'flex',gap:10,marginTop:12}}>
-                <button onClick={() => submitForFeedback(selected)} disabled={!drafts[selected.id]?.trim() || evaluatingId===selected.id} style={{background:'var(--amber-dim)',border:'1px solid var(--amber)',borderRadius:8,padding:'8px 20px',color:'var(--amber)',cursor:'pointer',fontSize:13,fontWeight:600,opacity:(!drafts[selected.id]?.trim()||evaluatingId===selected.id)?0.5:1}}>
-                  {evaluatingId===selected.id ? 'Evaluating...' : selected.evaluation ? 'Re-submit for feedback' : 'Submit for feedback'}
-                </button>
-                {selected.status==='pending' && (
-                  <button onClick={() => skipQuestion(selected)} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',color:'var(--text-muted)',cursor:'pointer',fontSize:13}}>Skip</button>
-                )}
-              </div>
-              {selected.evaluation && (
-                <div className="card" style={{marginTop:20,padding:'16px 20px'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
-                    <span style={{fontSize:24,fontWeight:700,fontFamily:'var(--font-mono)',color:selected.evaluation.score>=8?'var(--green,#4ade80)':selected.evaluation.score>=6?'var(--amber)':'var(--red,#f87171)'}}>{selected.evaluation.score}/{selected.evaluation.maxScore||10}</span>
-                    <span style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.5}}>{selected.evaluation.feedback}</span>
+              {(() => {
+                const exchanges = exchangesOf(selected);
+                const scoreColor = s => s>=8?'var(--green,#4ade80)':s>=6?'var(--amber)':'var(--red,#f87171)';
+                const evalCard = (ev, label) => (
+                  <div style={{flex:1,minWidth:240,background:'var(--bg-card,rgba(148,163,184,0.04))',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                      <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1}}>{label}</span>
+                      <span style={{fontSize:16,fontWeight:700,fontFamily:'var(--font-mono)',color:scoreColor(ev.score)}}>{ev.score}/{ev.maxScore||10}</span>
+                    </div>
+                    <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>{ev.feedback}</div>
+                    {(ev.improvements||[]).length>0 && (
+                      <ul style={{margin:'8px 0 0',paddingLeft:16,fontSize:11,color:'var(--text-muted)',lineHeight:1.6}}>
+                        {ev.improvements.slice(0,3).map((s,i)=><li key={i}>{s}</li>)}
+                      </ul>
+                    )}
                   </div>
-                  {(selected.evaluation.strengths||[]).length>0 && (
-                    <div style={{marginBottom:8}}>
-                      <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--green,#4ade80)',textTransform:'uppercase',letterSpacing:1}}>Strengths</span>
-                      <ul style={{margin:'6px 0 0',paddingLeft:18,fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
-                        {selected.evaluation.strengths.map((s,i)=><li key={i}>{s}</li>)}
-                      </ul>
+                );
+                const initEv = selected.initialEvaluation;
+                const finalEv = selected.finalEvaluation;
+                const showSummary = selected.status==='answered' && initEv && finalEv && exchanges.length > 2;
+                return (
+                  <>
+                    {showSummary && (
+                      <div className="card" style={{marginBottom:20,padding:'16px 20px',border:'1px solid var(--border)'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                          <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1}}>Interview result</span>
+                          <span style={{fontSize:18,fontWeight:700,fontFamily:'var(--font-mono)'}}>
+                            <span style={{color:scoreColor(initEv.score)}}>{initEv.score}</span>
+                            <span style={{color:'var(--text-muted)'}}> &rarr; </span>
+                            <span style={{color:scoreColor(finalEv.score)}}>{finalEv.score}</span>
+                          </span>
+                          {finalEv.score !== initEv.score && (
+                            <span style={{fontSize:12,fontFamily:'var(--font-mono)',fontWeight:700,padding:'2px 8px',borderRadius:8,background:finalEv.score>initEv.score?'rgba(74,222,128,0.12)':'rgba(248,113,113,0.12)',color:finalEv.score>initEv.score?'var(--green,#4ade80)':'var(--red,#f87171)'}}>
+                              {finalEv.score>initEv.score?'+':''}{finalEv.score-initEv.score}
+                            </span>
+                          )}
+                        </div>
+                        {selected.progress && <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:12}}>📈 {selected.progress}</div>}
+                        <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                          {evalCard(initEv, 'First answer')}
+                          {evalCard(finalEv, 'Final answer')}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:16}}>
+                      {exchanges.map((e, i) => e.role === 'candidate' ? (
+                        <div key={i} style={{alignSelf:'flex-end',maxWidth:'85%',background:'var(--amber-dim)',border:'1px solid rgba(251,191,36,0.25)',borderRadius:'12px 12px 4px 12px',padding:'10px 14px',fontSize:13,color:'var(--text)',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{e.text}</div>
+                      ) : (
+                        <div key={i} style={{alignSelf:'flex-start',maxWidth:'85%',background:'var(--bg-card,rgba(148,163,184,0.04))',border:'1px solid var(--border)',borderRadius:'12px 12px 12px 4px',padding:'12px 16px'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                            <span style={{fontSize:15,fontWeight:700,fontFamily:'var(--font-mono)',color:scoreColor(e.evaluation?.score||0)}}>{e.evaluation?.score}/{e.evaluation?.maxScore||10}</span>
+                            <span style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1}}>Interviewer</span>
+                          </div>
+                          <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6}}>{e.evaluation?.feedback}</div>
+                          {e.followUp && (
+                            <div style={{marginTop:10,padding:'10px 12px',background:'rgba(34,211,238,0.06)',border:'1px solid rgba(34,211,238,0.25)',borderRadius:8,fontSize:13,color:'var(--text)',lineHeight:1.5}}>
+                              🎙️ {e.followUp}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  )}
-                  {(selected.evaluation.improvements||[]).length>0 && (
-                    <div>
-                      <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--amber)',textTransform:'uppercase',letterSpacing:1}}>To improve</span>
-                      <ul style={{margin:'6px 0 0',paddingLeft:18,fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
-                        {selected.evaluation.improvements.map((s,i)=><li key={i}>{s}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
+                    {selected.status !== 'skipped' && (
+                      <>
+                        <textarea
+                          value={drafts[selected.id] || ''}
+                          onChange={e => updateDraft(selected.id, e.target.value)}
+                          placeholder={selected.status==='in-progress' ? 'Answer the follow-up...' : exchanges.length ? 'Add to your answer or take another run at it...' : "Write your answer here. Aim for the depth you'd give in a real interview — structure, tradeoffs, specifics."}
+                          style={{width:'100%',minHeight:exchanges.length?120:220,background:'var(--bg-card,rgba(148,163,184,0.04))',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',color:'var(--text)',fontSize:13,lineHeight:1.6,fontFamily:'inherit',resize:'vertical'}}
+                        />
+                        <div style={{display:'flex',gap:10,marginTop:12}}>
+                          <button onClick={() => submitForFeedback(selected)} disabled={!drafts[selected.id]?.trim() || evaluatingId===selected.id} style={{background:'var(--amber-dim)',border:'1px solid var(--amber)',borderRadius:8,padding:'8px 20px',color:'var(--amber)',cursor:'pointer',fontSize:13,fontWeight:600,opacity:(!drafts[selected.id]?.trim()||evaluatingId===selected.id)?0.5:1}}>
+                            {evaluatingId===selected.id ? 'Interviewer thinking...' : selected.status==='in-progress' ? 'Answer follow-up' : exchanges.length ? 'Continue interview' : 'Submit answer'}
+                          </button>
+                          {selected.status==='in-progress' && (
+                            <button onClick={() => wrapUpInterview(selected)} disabled={evaluatingId===selected.id} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',color:'var(--text-muted)',cursor:'pointer',fontSize:13,opacity:evaluatingId===selected.id?0.5:1}}>Wrap up &amp; get final score</button>
+                          )}
+                          {selected.status==='pending' && (
+                            <button onClick={() => skipQuestion(selected)} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',color:'var(--text-muted)',cursor:'pointer',fontSize:13}}>Skip</button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
         </div>
