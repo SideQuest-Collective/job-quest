@@ -672,29 +672,67 @@ app.post('/api/trainer/skip', (req, res) => {
   res.json({ success: true });
 });
 
-// Evaluate an answer with role context and persist the result.
+// One interviewer exchange: evaluate the cumulative conversation, then either
+// ask a probing follow-up or (after MAX_FOLLOW_UPS rounds, on a strong answer,
+// or when the client passes wrapUp) give a final assessment with progression.
+const TRAINER_MAX_FOLLOW_UPS = 3;
+
+function trainerExchanges(q) {
+  const exchanges = q.exchanges || [];
+  if (exchanges.length === 0 && q.answer && q.evaluation) {
+    // Legacy single-shot record.
+    return [
+      { role: 'candidate', text: q.answer, at: q.answeredAt },
+      { role: 'interviewer', evaluation: q.evaluation, followUp: null, at: q.answeredAt },
+    ];
+  }
+  return exchanges;
+}
+
 app.post('/api/trainer/evaluate', (req, res) => {
-  const { id, answer } = req.body;
+  const { id, answer, wrapUp } = req.body;
   const requestId = `trainer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  if (!id || !answer?.trim()) return res.status(400).json({ error: 'id and answer required' });
+  if (!id || (!answer?.trim() && !wrapUp)) return res.status(400).json({ error: 'id and answer required' });
   const questions = readTrainerQuestions();
   const q = questions.find(x => x.id === id);
   if (!q) return res.status(404).json({ error: 'question not found' });
-  console.log(`[${requestId}] Evaluating trainer answer for ${q.company}: ${q.question.slice(0, 60)}...`);
+  if (wrapUp && q.status !== 'in-progress') return res.status(400).json({ error: 'no exchange in progress' });
+  console.log(`[${requestId}] Trainer exchange for ${q.company}: ${q.question.slice(0, 60)}...`);
 
-  const prompt = `You are a ${q.category === 'behavioral' ? 'senior hiring manager' : 'senior technical interviewer'} at ${q.company} evaluating a candidate's written answer for the "${q.role}" role.
+  const priorExchanges = trainerExchanges(q);
+  const rounds = priorExchanges.filter(e => e.role === 'interviewer').length;
+  const forceComplete = !!wrapUp || rounds >= TRAINER_MAX_FOLLOW_UPS;
 
-QUESTION (${q.category}): ${q.question}
+  const conversation = priorExchanges.map(e => {
+    if (e.role === 'candidate') return `CANDIDATE:\n${e.text || ''}`;
+    const ev = e.evaluation || {};
+    let line = `YOU (interviewer, scored ${ev.score ?? '?'}/10): ${ev.feedback || ''}`;
+    if (e.followUp) line += `\nYOUR FOLLOW-UP QUESTION: ${e.followUp}`;
+    return line;
+  });
+  if (answer?.trim()) conversation.push(`CANDIDATE:\n${answer}`);
+  const conversationText = conversation.length ? conversation.join('\n\n') : '(no answer yet)';
+
+  const closing = forceComplete
+    ? 'This is the END of the exchange. Set "complete" to true, "followUp" to null, and give your final assessment of the candidate\'s overall performance across the whole conversation, with a "progress" sentence describing how the answer evolved from where it started.'
+    : `If the answer is now strong (9+) or fully covers what you look for, set "complete" to true, "followUp" to null, and include a "progress" sentence describing how the answer evolved.
+Otherwise set "complete" to false and ask ONE follow-up question in "followUp" — the single most revealing probe a real interviewer would ask next: dig into the biggest gap, challenge an assumption, or push one level deeper. Never re-ask something already answered. (You have ${TRAINER_MAX_FOLLOW_UPS - rounds} follow-up(s) left in this exchange.)`;
+
+  const prompt = `You are a ${q.category === 'behavioral' ? 'senior hiring manager' : 'senior technical interviewer'} at ${q.company} conducting a live interview for the "${q.role}" role.
+
+THE QUESTION YOU ASKED (${q.category}): ${q.question}
 
 WHAT A STRONG ANSWER COVERS: ${q.whatTheyLookFor || 'Depth, structure, and specificity appropriate for the role level.'}
 
-CANDIDATE'S ANSWER:
-${answer}
+THE CONVERSATION SO FAR:
+${conversationText}
 
-Evaluate the answer as ${q.company} would for this role. Your entire response must be a single JSON object with no other text:
-{"score":0,"maxScore":10,"strengths":["strength 1"],"improvements":["area to improve 1"],"feedback":"2-3 sentence overall feedback referencing the company/role context"}
+Assess the candidate's cumulative performance on this question so far. ${closing}
 
-Score 0-10 where: 0-3=poor, 4-5=needs work, 6-7=good, 8-9=strong, 10=excellent. Output ONLY the JSON.`;
+Your entire response must be a single JSON object with no other text:
+{"score":0,"maxScore":10,"strengths":["strength"],"improvements":["gap"],"feedback":"2-3 crisp sentences on the latest response in context","followUp":"one probing question or null","complete":false,"progress":"only when complete: one sentence on how the answer evolved"}
+
+Score 0-10 for the overall answer as it stands now (it should move as the candidate improves). Output ONLY the JSON.`;
 
   const tmpPrompt = path.join(os.tmpdir(), `trainer_eval_${Date.now()}.txt`);
   fs.writeFileSync(tmpPrompt, prompt);
@@ -731,21 +769,45 @@ Score 0-10 where: 0-3=poor, 4-5=needs work, 6-7=good, 8-9=strong, 10=excellent. 
     }
     if (!result) {
       console.error(`[${requestId}] Trainer eval parse failed, raw: ${raw.slice(0, 300)}`);
-      result = { score: 0, maxScore: 10, feedback: raw.slice(0, 500), strengths: [], improvements: [] };
+      result = { score: 0, maxScore: 10, feedback: raw.slice(0, 500), strengths: [], improvements: [], complete: true };
     }
+
+    const now = new Date().toISOString();
+    const followUp = (result.followUp || '').trim() || null;
+    const complete = !!result.complete || forceComplete || !followUp;
+    const evalCore = {
+      score: result.score ?? 0,
+      maxScore: result.maxScore || 10,
+      strengths: result.strengths || [],
+      improvements: result.improvements || [],
+      feedback: result.feedback || '',
+    };
+
     // Re-read to avoid clobbering a question appended while the eval ran.
     const latest = readTrainerQuestions();
     const target = latest.find(x => x.id === id);
     if (target) {
-      target.answer = answer;
-      target.evaluation = result;
-      target.status = 'answered';
-      target.answeredAt = new Date().toISOString();
+      const exchanges = trainerExchanges(target).slice();
+      if (answer?.trim()) exchanges.push({ role: 'candidate', text: answer, at: now });
+      exchanges.push({ role: 'interviewer', evaluation: evalCore, followUp: complete ? null : followUp, at: now });
+      target.exchanges = exchanges;
+      target.evaluation = evalCore;
+      if (!target.initialEvaluation) target.initialEvaluation = evalCore;
+      if (!target.answer && answer?.trim()) target.answer = answer;
+      if (complete) {
+        target.status = 'answered';
+        target.answeredAt = now;
+        target.finalEvaluation = evalCore;
+        if (result.progress) target.progress = result.progress;
+      } else {
+        target.status = 'in-progress';
+      }
       writeTrainerQuestions(latest);
+      logActivity('trainer_question_answered', { company: q.company, category: q.category, score: evalCore.score });
+      console.log(`[${requestId}] Trainer exchange: score=${evalCore.score}/${evalCore.maxScore} complete=${complete}`);
+      return res.json({ evaluation: evalCore, followUp: complete ? null : followUp, complete, question: target });
     }
-    logActivity('trainer_question_answered', { company: q.company, category: q.category, score: result.score });
-    console.log(`[${requestId}] Trainer eval success: score=${result.score}/${result.maxScore}`);
-    res.json(result);
+    res.json({ evaluation: evalCore, followUp: complete ? null : followUp, complete });
   });
 });
 
