@@ -213,8 +213,9 @@ What do you want to work on?
 4. Take the daily quiz
 5. Practice coding problems
 6. System design discussion
-7. Update my profile or schedule
-8. Manage installation (reinstall / uninstall)
+7. Interview trainer (hourly questions via iMessage)
+8. Update my profile or schedule
+9. Manage installation (reinstall / uninstall)
 ```
 
 Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 options per question, split this into two questions or present it as a category chooser first ("What area?" → "Practice", "Review", "Manage setup") then drill into specifics. Then help them with whatever they chose — this skill is their ongoing job search companion, not just a one-time setup.
@@ -235,7 +236,52 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 **Update Profile:** Re-run the interview for any fields they want to change. Update profile.json and the scheduled task prompt.
 
+**Interview Trainer:** Route to the "Interview Trainer" section below — set it up if `~/.job-quest/data/trainer/config.json` is missing, otherwise review pending questions, adjust hours, pause/resume, or change the delivery handle.
+
 **Manage Installation:** Route to the "Installation Management" section below.
+
+## Interview Trainer
+
+The interview trainer sends the user one interview question per hour (default 9am–9pm, every day) via iMessage, tailored to the roles they have **saved, tracked, or applied to** in Job Quest. They answer in the dashboard's **Trainer** tab and get AI feedback scored against the specific company and role.
+
+### Setup
+
+1. Ask for the iMessage handle (phone number like `+12065551234`, or Apple ID email) and preferred hour window (default 9–21).
+2. Write `~/.job-quest/data/trainer/config.json`:
+
+```json
+{
+  "enabled": true,
+  "phone": "+12065551234",
+  "delivery": "imessage",
+  "startHour": 9,
+  "endHour": 21
+}
+```
+
+3. Install the hourly schedule:
+
+```bash
+~/.job-quest/bin/install-trainer-schedule.sh 9-21
+```
+
+4. Run one question immediately so they see it working (`--force` bypasses the hour-window guard):
+
+```bash
+~/.job-quest/bin/run-interview-trainer.sh --force
+```
+
+5. Warn them: the first iMessage send triggers a macOS Automation permission prompt (System Settings → Privacy & Security → Automation → allow the terminal/launchd process to control Messages). If the send fails with "not authorized", that's the fix.
+
+Questions accumulate in `~/.job-quest/data/trainer/questions.json`. The generator reads the profile, saved/applied roles, and the last 20 questions with scores, so it rotates roles/categories and biases toward categories where the user scores low. It needs at least one saved/tracked/applied role — if there are none, it skips and logs.
+
+### Management
+
+- **Pause/resume:** set `enabled` to `false`/`true` in `config.json` (the dashboard Trainer tab also has a toggle). The schedule keeps firing but runs exit immediately while paused.
+- **Change hours:** update `startHour`/`endHour` in config.json AND reinstall the schedule: `~/.job-quest/bin/install-trainer-schedule.sh <start>-<end>`.
+- **Change handle:** update `phone` in config.json.
+- **Remove entirely:** `~/.job-quest/bin/install-trainer-schedule.sh --uninstall`.
+- **Status:** `~/.job-quest/bin/install-trainer-schedule.sh --show`; logs at `~/.job-quest/data/logs/interview-trainer.log`.
 
 ## Schedule Management
 
@@ -370,6 +416,24 @@ Installs the daily intel schedule. Uses **launchd on macOS** (no elevated permis
 ~/.job-quest/bin/install-schedule.sh --uninstall
 ```
 
+### run-interview-trainer.sh
+Generates one interview question tailored to the user's saved/tracked/applied roles and delivers it via iMessage (see the "Interview Trainer" section). Invoked hourly by the trainer schedule; `--force` bypasses the configured hour window for manual/on-demand runs.
+
+```bash
+~/.job-quest/bin/run-interview-trainer.sh --force
+# Logs to ~/.job-quest/data/logs/interview-trainer.log
+```
+
+### install-trainer-schedule.sh
+Installs the hourly interview-trainer schedule (launchd on macOS, crontab on Linux). Takes an hour range; fires at the top of each hour in that range, every day.
+
+```bash
+~/.job-quest/bin/install-trainer-schedule.sh 9-21   # 9am-9pm daily
+~/.job-quest/bin/install-trainer-schedule.sh --show
+~/.job-quest/bin/install-trainer-schedule.sh --exists
+~/.job-quest/bin/install-trainer-schedule.sh --uninstall
+```
+
 ### uninstall.sh
 Full uninstaller. Stops the dashboard, removes the daily schedule (launchd or cron), removes the skill, data, and app directories, and cleans temp files.
 
@@ -395,3 +459,5 @@ When the user asks to practice coding, prep for an interview, or start the dashb
 - **No intel today**: Check the cron entry is installed (`~/.job-quest/bin/install-schedule.sh --show`) and check `~/.job-quest/data/logs/daily-intel.log` for errors. Re-run manually with `~/.job-quest/bin/run-daily-intel.sh`.
 - **Want to change schedule**: Run `~/.job-quest/bin/install-schedule.sh "<new-cron>"` — it replaces any existing job-quest entry.
 - **Remove the schedule entirely**: `~/.job-quest/bin/install-schedule.sh --uninstall`
+- **No hourly trainer questions**: Check `~/.job-quest/bin/install-trainer-schedule.sh --show` and `~/.job-quest/data/logs/interview-trainer.log`. Common causes: trainer paused (`enabled: false` in `~/.job-quest/data/trainer/config.json`), no saved/applied roles yet, or the runtime CLI is logged out.
+- **Trainer question saved but no iMessage arrives**: The log will show a "not authorized" AppleScript error — grant Automation permission for Messages in System Settings → Privacy & Security → Automation, and confirm Messages.app is signed in.

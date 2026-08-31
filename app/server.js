@@ -617,6 +617,159 @@ Output ONLY the JSON object.`;
   });
 });
 
+// --- Interview Trainer ---
+const TRAINER_DIR = path.join(DATA_DIR, 'trainer');
+const TRAINER_QUESTIONS_FILE = path.join(TRAINER_DIR, 'questions.json');
+const TRAINER_CONFIG_FILE = path.join(TRAINER_DIR, 'config.json');
+
+function readTrainerQuestions() {
+  if (!fs.existsSync(TRAINER_QUESTIONS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(TRAINER_QUESTIONS_FILE, 'utf-8')); } catch { return []; }
+}
+
+function writeTrainerQuestions(questions) {
+  if (!fs.existsSync(TRAINER_DIR)) fs.mkdirSync(TRAINER_DIR, { recursive: true });
+  fs.writeFileSync(TRAINER_QUESTIONS_FILE, JSON.stringify(questions, null, 2));
+}
+
+function readTrainerConfig() {
+  if (!fs.existsSync(TRAINER_CONFIG_FILE)) return null;
+  try { return JSON.parse(fs.readFileSync(TRAINER_CONFIG_FILE, 'utf-8')); } catch { return null; }
+}
+
+app.get('/api/trainer/questions', (req, res) => {
+  res.json({ questions: readTrainerQuestions(), config: readTrainerConfig() });
+});
+
+app.post('/api/trainer/config', (req, res) => {
+  if (!fs.existsSync(TRAINER_DIR)) fs.mkdirSync(TRAINER_DIR, { recursive: true });
+  const existing = readTrainerConfig() || {};
+  const updated = { ...existing, ...req.body };
+  fs.writeFileSync(TRAINER_CONFIG_FILE, JSON.stringify(updated, null, 2));
+  res.json({ success: true, config: updated });
+});
+
+// Save a draft answer without evaluating.
+app.post('/api/trainer/answer', (req, res) => {
+  const { id, answer } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const questions = readTrainerQuestions();
+  const q = questions.find(x => x.id === id);
+  if (!q) return res.status(404).json({ error: 'question not found' });
+  q.answer = answer || '';
+  writeTrainerQuestions(questions);
+  res.json({ success: true });
+});
+
+app.post('/api/trainer/skip', (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const questions = readTrainerQuestions();
+  const q = questions.find(x => x.id === id);
+  if (!q) return res.status(404).json({ error: 'question not found' });
+  q.status = 'skipped';
+  writeTrainerQuestions(questions);
+  res.json({ success: true });
+});
+
+// Evaluate an answer with role context and persist the result.
+app.post('/api/trainer/evaluate', (req, res) => {
+  const { id, answer } = req.body;
+  const requestId = `trainer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  if (!id || !answer?.trim()) return res.status(400).json({ error: 'id and answer required' });
+  const questions = readTrainerQuestions();
+  const q = questions.find(x => x.id === id);
+  if (!q) return res.status(404).json({ error: 'question not found' });
+  console.log(`[${requestId}] Evaluating trainer answer for ${q.company}: ${q.question.slice(0, 60)}...`);
+
+  const prompt = `You are a ${q.category === 'behavioral' ? 'senior hiring manager' : 'senior technical interviewer'} at ${q.company} evaluating a candidate's written answer for the "${q.role}" role.
+
+QUESTION (${q.category}): ${q.question}
+
+WHAT A STRONG ANSWER COVERS: ${q.whatTheyLookFor || 'Depth, structure, and specificity appropriate for the role level.'}
+
+CANDIDATE'S ANSWER:
+${answer}
+
+Evaluate the answer as ${q.company} would for this role. Your entire response must be a single JSON object with no other text:
+{"score":0,"maxScore":10,"strengths":["strength 1"],"improvements":["area to improve 1"],"feedback":"2-3 sentence overall feedback referencing the company/role context"}
+
+Score 0-10 where: 0-3=poor, 4-5=needs work, 6-7=good, 8-9=strong, 10=excellent. Output ONLY the JSON.`;
+
+  const tmpPrompt = path.join(os.tmpdir(), `trainer_eval_${Date.now()}.txt`);
+  fs.writeFileSync(tmpPrompt, prompt);
+  const scriptPath = path.join(__dirname, 'scripts', 'generate-plan.sh');
+
+  const { exec } = require('child_process');
+  exec(`bash "${scriptPath}" "${tmpPrompt}"`, {
+    encoding: 'utf-8',
+    timeout: 120000,
+    maxBuffer: 2 * 1024 * 1024,
+    env: { ...process.env, HOME: os.homedir() },
+  }, (err, stdout) => {
+    try { fs.unlinkSync(tmpPrompt); } catch {}
+    if (err) {
+      console.error(`[${requestId}] Trainer eval failed: ${err.message?.slice(0, 200)}`);
+      return res.json({ score: 0, maxScore: 10, feedback: 'Evaluation failed. Please try again.', strengths: [], improvements: [] });
+    }
+    let raw = (stdout || '').trim();
+    let result = null;
+    try { result = JSON.parse(raw); } catch {}
+    if (!result) {
+      const jsonFence = raw.match(/```json\s*([\s\S]*?)```/);
+      if (jsonFence) try { result = JSON.parse(jsonFence[1].trim()); } catch {}
+    }
+    if (!result) {
+      const jsonStart = raw.indexOf('{"');
+      if (jsonStart >= 0) {
+        let depth = 0, jsonEnd = -1;
+        for (let i = jsonStart; i < raw.length; i++) {
+          if (raw[i] === '{') depth++; else if (raw[i] === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
+        }
+        if (jsonEnd > jsonStart) try { result = JSON.parse(raw.slice(jsonStart, jsonEnd)); } catch {}
+      }
+    }
+    if (!result) {
+      console.error(`[${requestId}] Trainer eval parse failed, raw: ${raw.slice(0, 300)}`);
+      result = { score: 0, maxScore: 10, feedback: raw.slice(0, 500), strengths: [], improvements: [] };
+    }
+    // Re-read to avoid clobbering a question appended while the eval ran.
+    const latest = readTrainerQuestions();
+    const target = latest.find(x => x.id === id);
+    if (target) {
+      target.answer = answer;
+      target.evaluation = result;
+      target.status = 'answered';
+      target.answeredAt = new Date().toISOString();
+      writeTrainerQuestions(latest);
+    }
+    logActivity('trainer_question_answered', { company: q.company, category: q.category, score: result.score });
+    console.log(`[${requestId}] Trainer eval success: score=${result.score}/${result.maxScore}`);
+    res.json(result);
+  });
+});
+
+// Trigger an on-demand question generation (same script the hourly schedule runs).
+app.post('/api/trainer/generate-now', (req, res) => {
+  const runner = path.join(expandHome(runtimeState.binDir), 'run-interview-trainer.sh');
+  if (!fs.existsSync(runner)) return res.status(404).json({ error: 'run-interview-trainer.sh not installed' });
+  const before = readTrainerQuestions().length;
+  const { exec } = require('child_process');
+  exec(`bash "${runner}" --force`, {
+    encoding: 'utf-8',
+    timeout: 180000,
+    maxBuffer: 2 * 1024 * 1024,
+    env: { ...process.env, HOME: os.homedir() },
+  }, (err) => {
+    const questions = readTrainerQuestions();
+    if (err && questions.length <= before) {
+      console.error(`Trainer generate-now failed: ${err.message?.slice(0, 200)}`);
+      return res.json({ error: true, message: 'Question generation failed. Check logs/interview-trainer.log.' });
+    }
+    res.json({ success: true, questions });
+  });
+});
+
 // --- Activity Calendar ---
 app.get('/api/activity', (req, res) => {
   const activity = {};
