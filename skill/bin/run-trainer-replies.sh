@@ -1,7 +1,7 @@
 #!/bin/bash
 # Poll the trainer iMessage thread for replies and run interviewer-style exchanges.
 #
-# Invoked every ~2 minutes by launchd THROUGH the dedicated FDA helper binary
+# Invoked every minute by launchd THROUGH the dedicated FDA helper binary
 # (~/.job-quest/bin/trainer-messages-reader) — the helper is the launchd
 # program, so the Messages-database read below is attributed to it and only it
 # needs Full Disk Access. Running this script directly from a terminal works
@@ -104,8 +104,11 @@ OSA
 }
 
 # Read new incoming texts. Prints JSON: {"status": "...", "rowId": N, "texts": [...]}
-#   status: no-db | no-access | initialized | quiet | empty | ok
-POLL_RESULT="$(python3 - "$CHAT_DB" "$PHONE" "$STATE_FILE" <<'PY'
+#   status: no-db | no-access | initialized | quiet | empty | empty-unparsed | ok
+# (temp-file output, not $(...) capture — macOS bash 3.2 mis-parses heredocs
+# inside command substitution when the body has stray quotes or parens)
+POLL_FILE="$(mktemp)"
+python3 - "$CHAT_DB" "$PHONE" "$STATE_FILE" > "$POLL_FILE" <<'PY'
 import datetime
 import json
 import os
@@ -119,7 +122,7 @@ db_path, handle, state_file = sys.argv[1:4]
 # own number is a self-chat where is_from_me can't distinguish directions.
 OWN_PREFIXES = ('\U0001F3AF', '\U0001F4DD', '\U0001F3C1', '⏭', '❓', '⚠')
 APPLE_EPOCH = 978307200  # 2001-01-01 in unix seconds
-DEBOUNCE_SECONDS = 75
+DEBOUNCE_SECONDS = 45
 
 def out(status, row_id=0, texts=None):
     print(json.dumps({'status': status, 'rowId': row_id, 'texts': texts or []}))
@@ -194,11 +197,14 @@ now = datetime.datetime.now(datetime.timezone.utc).timestamp()
 
 fresh = []
 newest_age = None
+unparsed = 0
 for row_id, text, body, date_ns in rows:
     if row_id <= last:
         continue
     content = text or parse_attributed_body(body)
     if not content or not content.strip():
+        if body:
+            unparsed += 1
         continue
     content = content.strip()
     if content.startswith(OWN_PREFIXES):
@@ -214,7 +220,9 @@ if not fresh:
     # Advance past trainer-sent/empty rows so they aren't rescanned forever.
     with open(state_file, 'w') as fh:
         json.dump({'lastRowId': max_row}, fh)
-    out('empty', max_row)
+    # unparsed rows had an attributedBody we could not extract text from -
+    # surfaced so a swallowed reply is visible in the log.
+    out('empty-unparsed' if unparsed else 'empty', max_row)
 
 # Debounce: if the newest text just arrived, wait a cycle so multi-text
 # answers arrive as one batch. State is NOT advanced.
@@ -225,8 +233,9 @@ with open(state_file, 'w') as fh:
     json.dump({'lastRowId': max_row}, fh)
 out('ok', max_row, fresh)
 PY
-)"
 
+POLL_RESULT="$(cat "$POLL_FILE")"
+rm -f "$POLL_FILE"
 STATUS="$(echo "$POLL_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")"
 
 case "$STATUS" in
@@ -243,6 +252,10 @@ case "$STATUS" in
     exit 0
     ;;
   quiet|empty)
+    exit 0
+    ;;
+  empty-unparsed)
+    log "WARNING: skipped message(s) whose text could not be extracted from attributedBody. If a reply got no feedback, this is why — send it again as plain text."
     exit 0
     ;;
 esac

@@ -40,7 +40,7 @@ REPLIES_HELPER="$JOB_QUEST_BIN_DIR/trainer-messages-reader"
 REPLIES_MARKER="# job-quest-trainer-replies"
 REPLIES_LABEL="com.sidequest.job-quest.trainer-replies"
 REPLIES_PLIST_PATH="$HOME/Library/LaunchAgents/${REPLIES_LABEL}.plist"
-REPLIES_INTERVAL=120
+REPLIES_INTERVAL=60
 
 is_macos() { [[ "$OSTYPE" == darwin* ]]; }
 
