@@ -42,9 +42,30 @@ job_quest_apply_runtime_env() {
   fi
 }
 
+# launchd/cron jobs run with a minimal PATH that misses node and the runtime
+# CLIs (Homebrew, nvm, ~/.local/bin). Extend PATH so scheduled runs behave
+# like interactive ones.
+job_quest_ensure_tool_path() {
+  local extra="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin"
+  case ":$PATH:" in
+    *":/opt/homebrew/bin:"*) ;;
+    *) export PATH="$extra:$PATH" ;;
+  esac
+  if ! command -v node >/dev/null 2>&1 && [ -d "$HOME/.nvm/versions/node" ]; then
+    local latest
+    latest="$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)"
+    [ -n "$latest" ] && export PATH="$HOME/.nvm/versions/node/$latest/bin:$PATH"
+  fi
+}
+
 job_quest_load_runtime() {
   local repo_root
   repo_root="${JOB_QUEST_REPO_ROOT:-$(job_quest_repo_root)}"
+  job_quest_ensure_tool_path
+  if ! command -v node >/dev/null 2>&1; then
+    echo "Error: node not found on PATH (required by Job Quest runtime helpers)." >&2
+    return 1
+  fi
   # shellcheck disable=SC1090
   eval "$(node "$repo_root/lib/runtime.js" shell --require-runner "$@")"
   job_quest_apply_runtime_env
