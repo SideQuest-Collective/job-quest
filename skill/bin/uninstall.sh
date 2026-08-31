@@ -74,8 +74,11 @@ else
   TRAINER_PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.interview-trainer.plist"
   [ -f "$TRAINER_PLIST" ] && launchctl unload "$TRAINER_PLIST" 2>/dev/null || true
   [ -f "$TRAINER_PLIST" ] && rm -f "$TRAINER_PLIST"
-  if crontab -l 2>/dev/null | grep -q "# job-quest-interview-trainer"; then
-    crontab -l 2>/dev/null | grep -v "# job-quest-interview-trainer" | crontab - 2>/dev/null || true
+  REPLIES_PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.trainer-replies.plist"
+  [ -f "$REPLIES_PLIST" ] && launchctl unload "$REPLIES_PLIST" 2>/dev/null || true
+  [ -f "$REPLIES_PLIST" ] && rm -f "$REPLIES_PLIST"
+  if crontab -l 2>/dev/null | grep -qe "# job-quest-interview-trainer" -e "# job-quest-trainer-replies"; then
+    crontab -l 2>/dev/null | grep -v "# job-quest-interview-trainer" | grep -v "# job-quest-trainer-replies" | crontab - 2>/dev/null || true
   fi
 fi
 

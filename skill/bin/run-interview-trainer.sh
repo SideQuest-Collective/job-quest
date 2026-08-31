@@ -164,9 +164,15 @@ EOF
   cat <<'EOF'
 
 ## Rules
-- Pick ONE role from "roles" above, favoring stage "applied", then tracked stages, then "saved". Rotate across roles and categories relative to recentQuestions — never repeat or closely paraphrase a recent question.
-- Choose the category (system-design, coding, technical, or behavioral) that best probes a weak spot given recent scores: low or missing scores in a category mean it needs more reps.
-- The question must be SPECIFIC to the chosen company and role (its product, scale, or stack), phrased the way a real interviewer at that company would ask it, and answerable in writing in 10-20 minutes.
+- Pick ONE role from "roles" above, favoring stage "applied", then tracked stages, then "saved". Rotate across roles relative to recentQuestions — never repeat or closely paraphrase a recent question.
+- VARIETY IS MANDATORY. Rotate the category so it differs from the previous 1-2 questions, keeping a rough mix over a day of:
+  - coding — a small, concrete exercise: implement/sketch a short function, explain the approach and complexity, spot the bug, or compare two implementations. Answerable in prose + a short code snippet.
+  - technical — a targeted knowledge question on the role's stack or fundamentals (e.g. React rendering, API design, SQL indexing, caching, concurrency). One focused topic, not a survey.
+  - behavioral — one STAR-style prompt tied to what that company values.
+  - system-design — AT MOST 1 in 4 questions, and it must be SCOPED to a single component or decision (e.g. "how would you paginate this feed" or "design the schema for X"), never an entire platform or multi-part epic.
+- Mix specificity too: alternate between questions anchored in the chosen company's product/stack and general interview staples asked at this level. Both kinds still set roleKey/company to the chosen role.
+- SIZE LIMIT: the question must be answerable well in a text message — 3-10 minutes of typing, one clear ask. One or two sentences of setup, ONE question. No numbered multi-part prompts, no "be concrete about (1)...(2)...(3)".
+- The candidate answers over iMessage, so phrase the question conversationally, the way an interviewer would say it out loud.
 - "whatTheyLookFor" is 2-3 sentences on what a strong answer covers.
 
 ## Output
@@ -286,7 +292,7 @@ q = json.loads(os.environ['QUESTION_JSON'])
 text = q['question']
 if len(text) > 700:
     text = text[:700] + '…'
-print(f"🎯 Interview Trainer — {q.get('company','')} ({q.get('category','')})\n\n{text}\n\nAnswer at http://localhost:3847 → Trainer")
+print(f"🎯 Interview Trainer — {q.get('company','')} ({q.get('category','')})\n\n{text}\n\nReply here with your answer ('skip' to pass, 'next' for a new question), or use http://localhost:3847 → Trainer")
 PY
 )"
   set +e

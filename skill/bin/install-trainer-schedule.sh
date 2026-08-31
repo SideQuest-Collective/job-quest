@@ -34,6 +34,14 @@ MARKER="# job-quest-interview-trainer"
 PLIST_LABEL="com.sidequest.job-quest.interview-trainer"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 
+# Reply poller: watches the iMessage thread for answers and texts back feedback.
+# Runs through the dedicated FDA helper binary (see skill/helpers/).
+REPLIES_HELPER="$JOB_QUEST_BIN_DIR/trainer-messages-reader"
+REPLIES_MARKER="# job-quest-trainer-replies"
+REPLIES_LABEL="com.sidequest.job-quest.trainer-replies"
+REPLIES_PLIST_PATH="$HOME/Library/LaunchAgents/${REPLIES_LABEL}.plist"
+REPLIES_INTERVAL=120
+
 is_macos() { [[ "$OSTYPE" == darwin* ]]; }
 
 current_range_from_launchd() {
@@ -154,6 +162,60 @@ uninstall_launchd() {
   return 0
 }
 
+install_replies_launchd() {
+  if [ ! -x "$REPLIES_HELPER" ]; then
+    echo "Reply poller not installed: $REPLIES_HELPER missing (needs clang at install time)."
+    return 0
+  fi
+  mkdir -p "$(dirname "$REPLIES_PLIST_PATH")" "$LOG_DIR"
+  if launchctl list 2>/dev/null | grep -q "$REPLIES_LABEL"; then
+    launchctl unload "$REPLIES_PLIST_PATH" 2>/dev/null || true
+  fi
+  cat > "$REPLIES_PLIST_PATH" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${REPLIES_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${REPLIES_HELPER}</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>${REPLIES_INTERVAL}</integer>
+  <key>StandardOutPath</key>
+  <string>${LOG_DIR}/trainer-replies.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>${LOG_DIR}/trainer-replies.launchd.err.log</string>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+  if ! launchctl load "$REPLIES_PLIST_PATH" 2>/dev/null; then
+    echo "Error: launchctl load failed for $REPLIES_PLIST_PATH" >&2
+    return 1
+  fi
+  echo "Installed reply poller:"
+  echo "  Label: $REPLIES_LABEL (every ${REPLIES_INTERVAL}s)"
+  echo "  Requires Full Disk Access for: $REPLIES_HELPER"
+}
+
+uninstall_replies_launchd() {
+  local removed=0
+  if launchctl list 2>/dev/null | grep -q "$REPLIES_LABEL"; then
+    launchctl unload "$REPLIES_PLIST_PATH" 2>/dev/null || true
+    removed=1
+  fi
+  if [ -f "$REPLIES_PLIST_PATH" ]; then
+    rm -f "$REPLIES_PLIST_PATH"
+    removed=1
+  fi
+  [ $removed -eq 1 ] && echo "Removed launchd agent: $REPLIES_LABEL"
+  return 0
+}
+
 show_schedule() {
   local found=0
   if is_macos && [ -f "$PLIST_PATH" ]; then
@@ -168,9 +230,24 @@ show_schedule() {
     fi
     found=1
   fi
+  if is_macos && [ -f "$REPLIES_PLIST_PATH" ]; then
+    echo "reply poller:"
+    echo "  Label: $REPLIES_LABEL (every ${REPLIES_INTERVAL}s)"
+    if launchctl list 2>/dev/null | grep -q "$REPLIES_LABEL"; then
+      echo "  Status: loaded"
+    else
+      echo "  Status: not loaded"
+    fi
+    found=1
+  fi
   if crontab -l 2>/dev/null | grep -q "$MARKER"; then
     echo "crontab entry:"
     crontab -l 2>/dev/null | grep "$MARKER"
+    found=1
+  fi
+  if crontab -l 2>/dev/null | grep -q "$REPLIES_MARKER"; then
+    echo "reply poller crontab entry:"
+    crontab -l 2>/dev/null | grep "$REPLIES_MARKER"
     found=1
   fi
   [ $found -eq 0 ] && echo "No interview-trainer schedule installed."
@@ -185,10 +262,11 @@ case "${1:-}" in
     removed=0
     if is_macos; then
       uninstall_launchd && removed=1
+      uninstall_replies_launchd && removed=1
     fi
-    if crontab -l 2>/dev/null | grep -q "$MARKER"; then
-      crontab -l 2>/dev/null | grep -v "$MARKER" | crontab - 2>/dev/null \
-        && { echo "Removed interview-trainer entry from crontab."; removed=1; }
+    if crontab -l 2>/dev/null | grep -qe "$MARKER" -e "$REPLIES_MARKER"; then
+      crontab -l 2>/dev/null | grep -v "$MARKER" | grep -v "$REPLIES_MARKER" | crontab - 2>/dev/null \
+        && { echo "Removed interview-trainer entries from crontab."; removed=1; }
     fi
     [ $removed -eq 0 ] && echo "No interview-trainer schedule to remove."
     exit 0
@@ -211,16 +289,19 @@ mkdir -p "$LOG_DIR"
 
 if is_macos; then
   install_launchd "$RANGE" || exit 1
+  install_replies_launchd || exit 1
 else
   NEW_ENTRY="0 $RANGE * * * $RUNNER $MARKER"
-  EXISTING=$(crontab -l 2>/dev/null | grep -v "$MARKER" || true)
+  REPLIES_ENTRY="*/2 * * * * $JOB_QUEST_BIN_DIR/run-trainer-replies.sh $REPLIES_MARKER"
+  EXISTING=$(crontab -l 2>/dev/null | grep -v "$MARKER" | grep -v "$REPLIES_MARKER" || true)
   if [ -n "$EXISTING" ]; then
-    printf '%s\n%s\n' "$EXISTING" "$NEW_ENTRY" | crontab -
+    printf '%s\n%s\n%s\n' "$EXISTING" "$NEW_ENTRY" "$REPLIES_ENTRY" | crontab -
   else
-    printf '%s\n' "$NEW_ENTRY" | crontab -
+    printf '%s\n%s\n' "$NEW_ENTRY" "$REPLIES_ENTRY" | crontab -
   fi
-  echo "Installed crontab entry:"
+  echo "Installed crontab entries:"
   echo "  $NEW_ENTRY"
+  echo "  $REPLIES_ENTRY"
 fi
 
 echo ""
