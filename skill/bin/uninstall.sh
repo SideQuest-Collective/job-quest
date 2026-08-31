@@ -67,6 +67,18 @@ else
   fi
 fi
 
+TRAINER_SCHEDULE_REMOVER="$BIN_DIR/install-trainer-schedule.sh"
+if [ -x "$TRAINER_SCHEDULE_REMOVER" ]; then
+  "$TRAINER_SCHEDULE_REMOVER" --uninstall || true
+else
+  TRAINER_PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.interview-trainer.plist"
+  [ -f "$TRAINER_PLIST" ] && launchctl unload "$TRAINER_PLIST" 2>/dev/null || true
+  [ -f "$TRAINER_PLIST" ] && rm -f "$TRAINER_PLIST"
+  if crontab -l 2>/dev/null | grep -q "# job-quest-interview-trainer"; then
+    crontab -l 2>/dev/null | grep -v "# job-quest-interview-trainer" | crontab - 2>/dev/null || true
+  fi
+fi
+
 rm -rf "$CLAUDE_SKILL_DIR" "$CODEX_SKILL_DIR"
 if [ -L "$LEGACY_HOME" ]; then
   rm -f "$LEGACY_HOME"

@@ -686,6 +686,7 @@ function App() {
     { id: 'codelab', icon: Icons.code, label: 'Code Lab' },
     { id: 'sysdesign', icon: Icons.target, label: 'System Design' },
     { id: 'behavioral', icon: Icons.messageCircle, label: 'Behavioral' },
+    { id: 'trainer', icon: Icons.zap, label: 'Trainer' },
   ];
 
   return (
@@ -702,7 +703,7 @@ function App() {
         </div>
         <div className="sidebar-footer"><div className="status"><div className="status-dot" /><span>System active</span></div></div>
       </div>
-      <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'prepplans' || page === 'behavioral' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
+      <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'prepplans' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
         {page === 'dashboard' && <Dashboard progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} />}
         {page === 'discover' && <Discover allRoles={allRoles} roleActions={roleActions} setRoleActions={setRoleActions} resume={resume} setPage={setPage} />}
         {page === 'tasks' && <Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} />}
@@ -714,6 +715,7 @@ function App() {
         {page === 'codelab' && <CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} />}
         {page === 'sysdesign' && <SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} />}
         {page === 'behavioral' && <Behavioral />}
+        {page === 'trainer' && <Trainer />}
       </div>
     </div>
   );
@@ -3674,6 +3676,203 @@ function Behavioral() {
               </div>
             );
           })()}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Trainer() {
+  const [questions, setQuestions] = useState([]);
+  const [config, setConfig] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [evaluatingId, setEvaluatingId] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const saveTimer = useRef(null);
+
+  const load = () => api.get('/api/trainer/questions').then(({ questions: qs, config: cfg }) => {
+    const sorted = [...(qs || [])].reverse();
+    setQuestions(sorted);
+    setConfig(cfg);
+    setDrafts(prev => {
+      const next = { ...prev };
+      sorted.forEach(q => { if (q.answer && next[q.id] === undefined) next[q.id] = q.answer; });
+      return next;
+    });
+    setSelectedId(prev => prev || (sorted.find(q => q.status === 'pending') || sorted[0])?.id || null);
+    setLoading(false);
+  });
+
+  useEffect(() => { load(); }, []);
+
+  const updateDraft = (id, value) => {
+    setDrafts(prev => ({ ...prev, [id]: value }));
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => api.post('/api/trainer/answer', { id, answer: value }), 1000);
+  };
+
+  const submitForFeedback = async (q) => {
+    const answer = drafts[q.id];
+    if (!answer?.trim() || evaluatingId) return;
+    setEvaluatingId(q.id);
+    try {
+      const result = await api.post('/api/trainer/evaluate', { id: q.id, answer });
+      setQuestions(prev => prev.map(x => x.id === q.id ? { ...x, answer, evaluation: result, status: 'answered' } : x));
+    } catch (e) { console.error('Trainer evaluation failed:', e); }
+    setEvaluatingId(null);
+  };
+
+  const skipQuestion = async (q) => {
+    await api.post('/api/trainer/skip', { id: q.id });
+    setQuestions(prev => prev.map(x => x.id === q.id ? { ...x, status: 'skipped' } : x));
+  };
+
+  const askNow = async () => {
+    if (generating) return;
+    setGenerating(true);
+    try {
+      const result = await api.post('/api/trainer/generate-now', {});
+      if (result.questions) {
+        const sorted = [...result.questions].reverse();
+        setQuestions(sorted);
+        if (sorted[0]) setSelectedId(sorted[0].id);
+      }
+    } catch (e) { console.error('Generate-now failed:', e); }
+    setGenerating(false);
+  };
+
+  const togglePause = async () => {
+    const result = await api.post('/api/trainer/config', { enabled: !(config?.enabled) });
+    setConfig(result.config);
+  };
+
+  const catColor = (c) => c === 'behavioral' ? 'var(--violet, #a78bfa)' : c === 'system-design' ? 'var(--cyan)' : 'var(--amber)';
+  const selected = questions.find(q => q.id === selectedId);
+  const answeredCount = questions.filter(q => q.status === 'answered').length;
+  const pendingCount = questions.filter(q => q.status === 'pending').length;
+
+  if (loading) return <div className="page-header anim-enter"><h2>Interview Trainer</h2><p style={{color:'var(--text-muted)',marginTop:8}}>Loading...</p></div>;
+
+  if (questions.length === 0) return (
+    <div className="page-header anim-enter">
+      <h2>Interview Trainer</h2>
+      <div className="card" style={{marginTop:20,textAlign:'center',padding:'60px 40px'}}>
+        <Icons.zap style={{width:48,height:48,color:'var(--text-muted)',marginBottom:16}} />
+        <h3 style={{color:'var(--text-secondary)',fontSize:16,fontWeight:500,marginBottom:8,textTransform:'none',letterSpacing:0}}>No trainer questions yet</h3>
+        <p style={{color:'var(--text-muted)',fontSize:13,marginBottom:20}}>
+          {config ? 'Your hourly trainer will text you questions based on your saved and applied roles.' : 'Ask Job Quest to set up the interview trainer to get hourly questions via iMessage.'}
+        </p>
+        {config && (
+          <button onClick={askNow} disabled={generating} style={{background:'var(--amber-dim)',border:'1px solid var(--amber)',borderRadius:8,padding:'8px 20px',color:'var(--amber)',cursor:'pointer',fontSize:13,fontWeight:600,opacity:generating?0.5:1}}>
+            {generating ? 'Generating...' : 'Ask me one now'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="page-header anim-enter" style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between'}}>
+        <div>
+          <h2>Interview Trainer</h2>
+          <div className="greeting-sub">
+            {answeredCount}/{questions.length} answered &middot; {pendingCount} waiting
+            {config && ` · hourly ${config.startHour ?? 9}:00–${config.endHour ?? 21}:00${config.phone ? ' → ' + config.phone : ''}`}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {config && (
+            <button onClick={togglePause} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'6px 14px',color:config.enabled?'var(--text-secondary)':'var(--amber)',cursor:'pointer',fontSize:12,fontWeight:600}}>
+              {config.enabled ? 'Pause hourly' : 'Resume hourly'}
+            </button>
+          )}
+          <button onClick={askNow} disabled={generating} style={{background:'var(--amber-dim)',border:'1px solid var(--amber)',borderRadius:8,padding:'6px 14px',color:'var(--amber)',cursor:'pointer',fontSize:12,fontWeight:600,opacity:generating?0.5:1}}>
+            {generating ? 'Generating...' : 'Ask me one now'}
+          </button>
+        </div>
+      </div>
+      <div className="intel-split anim-enter anim-delay-1" style={{display:'flex',gap:0,height:'calc(100vh - 160px)',overflow:'hidden'}}>
+        <div className="intel-left" style={{width:320,minWidth:280,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column'}}>
+          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)'}}>
+            <span style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',letterSpacing:1}}>Questions ({questions.length})</span>
+          </div>
+          <div style={{flex:1,overflowY:'auto'}}>
+            {questions.map(q => {
+              const ev = q.evaluation;
+              return (
+                <div key={q.id} onClick={() => setSelectedId(q.id)} style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',cursor:'pointer',background:q.id===selectedId?'rgba(148,163,184,0.06)':'none',opacity:q.status==='skipped'?0.45:1}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                    <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:catColor(q.category),textTransform:'uppercase',letterSpacing:0.5}}>{q.category}</span>
+                    {q.status==='pending' && <span style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)'}}>&#9679; new</span>}
+                    {ev && <span style={{marginLeft:'auto',fontSize:11,fontFamily:'var(--font-mono)',fontWeight:700,color:ev.score>=8?'var(--green,#4ade80)':ev.score>=6?'var(--amber)':'var(--red,#f87171)'}}>{ev.score}/10</span>}
+                  </div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--text)',marginBottom:2}}>{q.company}</div>
+                  <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{q.question}</div>
+                  <div style={{fontSize:10,color:'var(--text-muted)',marginTop:4,fontFamily:'var(--font-mono)'}}>{new Date(q.askedAt).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'20px 28px'}}>
+          {selected && (
+            <>
+              <div style={{marginBottom:16}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                  <span style={{fontSize:11,fontFamily:'var(--font-mono)',fontWeight:700,color:catColor(selected.category),textTransform:'uppercase',letterSpacing:1}}>{selected.category}</span>
+                  <span style={{fontSize:12,color:'var(--text-muted)'}}>{selected.company} &middot; {selected.role}</span>
+                </div>
+                <div style={{fontSize:16,fontWeight:600,color:'var(--text)',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{selected.question}</div>
+                {selected.whatTheyLookFor && (
+                  <div className="card" style={{marginTop:12,padding:'12px 16px',fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
+                    <span style={{color:'var(--text-muted)',fontFamily:'var(--font-mono)',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:4}}>What they look for</span>
+                    {selected.whatTheyLookFor}
+                  </div>
+                )}
+              </div>
+              <textarea
+                value={drafts[selected.id] || ''}
+                onChange={e => updateDraft(selected.id, e.target.value)}
+                placeholder="Write your answer here. Aim for the depth you'd give in a real interview — structure, tradeoffs, specifics."
+                style={{width:'100%',minHeight:220,background:'var(--bg-card,rgba(148,163,184,0.04))',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',color:'var(--text)',fontSize:13,lineHeight:1.6,fontFamily:'inherit',resize:'vertical'}}
+              />
+              <div style={{display:'flex',gap:10,marginTop:12}}>
+                <button onClick={() => submitForFeedback(selected)} disabled={!drafts[selected.id]?.trim() || evaluatingId===selected.id} style={{background:'var(--amber-dim)',border:'1px solid var(--amber)',borderRadius:8,padding:'8px 20px',color:'var(--amber)',cursor:'pointer',fontSize:13,fontWeight:600,opacity:(!drafts[selected.id]?.trim()||evaluatingId===selected.id)?0.5:1}}>
+                  {evaluatingId===selected.id ? 'Evaluating...' : selected.evaluation ? 'Re-submit for feedback' : 'Submit for feedback'}
+                </button>
+                {selected.status==='pending' && (
+                  <button onClick={() => skipQuestion(selected)} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',color:'var(--text-muted)',cursor:'pointer',fontSize:13}}>Skip</button>
+                )}
+              </div>
+              {selected.evaluation && (
+                <div className="card" style={{marginTop:20,padding:'16px 20px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                    <span style={{fontSize:24,fontWeight:700,fontFamily:'var(--font-mono)',color:selected.evaluation.score>=8?'var(--green,#4ade80)':selected.evaluation.score>=6?'var(--amber)':'var(--red,#f87171)'}}>{selected.evaluation.score}/{selected.evaluation.maxScore||10}</span>
+                    <span style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.5}}>{selected.evaluation.feedback}</span>
+                  </div>
+                  {(selected.evaluation.strengths||[]).length>0 && (
+                    <div style={{marginBottom:8}}>
+                      <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--green,#4ade80)',textTransform:'uppercase',letterSpacing:1}}>Strengths</span>
+                      <ul style={{margin:'6px 0 0',paddingLeft:18,fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
+                        {selected.evaluation.strengths.map((s,i)=><li key={i}>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {(selected.evaluation.improvements||[]).length>0 && (
+                    <div>
+                      <span style={{fontSize:10,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--amber)',textTransform:'uppercase',letterSpacing:1}}>To improve</span>
+                      <ul style={{margin:'6px 0 0',paddingLeft:18,fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
+                        {selected.evaluation.improvements.map((s,i)=><li key={i}>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </>
