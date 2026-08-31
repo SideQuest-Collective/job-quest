@@ -202,6 +202,9 @@ for row_id, text, body, date_ns in rows:
     content = content.strip()
     if content.startswith(OWN_PREFIXES):
         continue
+    # Self-chat: each text is stored twice (sent + received copy) — drop the dup.
+    if fresh and fresh[-1]['text'] == content:
+        continue
     age = now - (date_ns / 1e9 + APPLE_EPOCH) if date_ns else 9999
     newest_age = age
     fresh.append({'rowId': row_id, 'text': content})
