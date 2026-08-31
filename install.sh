@@ -151,6 +151,14 @@ cp "$APP_DIR/skill/bin/run-daily-intel.sh" "$BIN_DIR/run-daily-intel.sh"
 cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
 cp "$APP_DIR/skill/bin/run-interview-trainer.sh" "$BIN_DIR/run-interview-trainer.sh"
 cp "$APP_DIR/skill/bin/install-trainer-schedule.sh" "$BIN_DIR/install-trainer-schedule.sh"
+cp "$APP_DIR/skill/bin/run-trainer-replies.sh" "$BIN_DIR/run-trainer-replies.sh"
+
+# Dedicated Full Disk Access entry point for the trainer reply poller (macOS).
+# Compiled per-machine so the user grants FDA to one single-purpose binary.
+if [ "$(uname)" = "Darwin" ] && command -v clang >/dev/null 2>&1; then
+  clang -O2 -o "$BIN_DIR/trainer-messages-reader" "$APP_DIR/skill/helpers/trainer-messages-reader.c" \
+    || echo "Warning: could not compile trainer-messages-reader; iMessage reply polling unavailable."
+fi
 cp "$APP_DIR/skill/bin/update.sh" "$BIN_DIR/update.sh"
 cp "$APP_DIR/skill/bin/uninstall.sh" "$BIN_DIR/uninstall.sh"
 cp "$APP_DIR/skill/bin/reinstall.sh" "$BIN_DIR/reinstall.sh"

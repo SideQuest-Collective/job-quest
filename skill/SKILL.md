@@ -242,7 +242,10 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 ## Interview Trainer
 
-The interview trainer sends the user one interview question per hour (default 9am–9pm, every day) via iMessage, tailored to the roles they have **saved, tracked, or applied to** in Job Quest. They answer in the dashboard's **Trainer** tab and get AI feedback scored against the specific company and role.
+The interview trainer sends the user one interview question per hour (default 9am–9pm, every day) via iMessage, tailored to the roles they have **saved, tracked, or applied to** in Job Quest. Questions are deliberately varied — quick coding exercises, targeted technical knowledge, behavioral prompts, and occasionally a tightly scoped system-design question — and sized to be answerable in a text message. The user can answer two ways, and both stay in sync:
+
+- **Reply directly in the iMessage thread.** A background poller (every 2 minutes) picks up the reply, runs the role-specific evaluation, and texts back the score and feedback. Keywords: reply `skip` to pass on the current question, `next` for a fresh one immediately. Replying again after feedback re-evaluates.
+- **The dashboard's Trainer tab**, with the full question queue and feedback history.
 
 ### Setup
 
@@ -272,6 +275,8 @@ The interview trainer sends the user one interview question per hour (default 9a
 ```
 
 5. Warn them: the first iMessage send triggers a macOS Automation permission prompt (System Settings → Privacy & Security → Automation → allow the terminal/launchd process to control Messages). If the send fails with "not authorized", that's the fix.
+
+6. For **reply-by-iMessage**, the user must grant Full Disk Access to the dedicated helper binary — this is a one-time manual step only they can do, and it is scoped to that single-purpose program (never suggest granting FDA to /bin/bash or a terminal): System Settings → Privacy & Security → Full Disk Access → "+" → press Cmd+Shift+G → enter `~/.job-quest/bin/trainer-messages-reader` → Open → toggle on. Until granted, the poller logs "BLOCKED: no Full Disk Access" in `~/.job-quest/data/logs/trainer-replies.log` and questions can only be answered from the dashboard. The helper is compiled from `skill/helpers/trainer-messages-reader.c` by install.sh (requires clang from the Xcode Command Line Tools).
 
 Questions accumulate in `~/.job-quest/data/trainer/questions.json`. The generator reads the profile, saved/applied roles, and the last 20 questions with scores, so it rotates roles/categories and biases toward categories where the user scores low. It needs at least one saved/tracked/applied role — if there are none, it skips and logs.
 
@@ -461,3 +466,4 @@ When the user asks to practice coding, prep for an interview, or start the dashb
 - **Remove the schedule entirely**: `~/.job-quest/bin/install-schedule.sh --uninstall`
 - **No hourly trainer questions**: Check `~/.job-quest/bin/install-trainer-schedule.sh --show` and `~/.job-quest/data/logs/interview-trainer.log`. Common causes: trainer paused (`enabled: false` in `~/.job-quest/data/trainer/config.json`), no saved/applied roles yet, or the runtime CLI is logged out.
 - **Trainer question saved but no iMessage arrives**: The log will show a "not authorized" AppleScript error — grant Automation permission for Messages in System Settings → Privacy & Security → Automation, and confirm Messages.app is signed in.
+- **iMessage replies get no feedback**: Check `~/.job-quest/data/logs/trainer-replies.log`. "BLOCKED: no Full Disk Access" → grant FDA to `~/.job-quest/bin/trainer-messages-reader` (see Interview Trainer setup step 6). No log entries at all → the reply poller isn't scheduled; re-run `~/.job-quest/bin/install-trainer-schedule.sh <start>-<end>`. Also note feedback takes up to ~2 minutes of polling plus ~1 minute of evaluation.
