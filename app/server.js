@@ -1393,7 +1393,12 @@ app.get('/api/resume/file/{*filepath}', (req, res) => {
     return res.status(403).json({ error: 'Access denied' });
   }
   if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
-  res.sendFile(filepath);
+  if (!fs.statSync(filepath).isFile()) return res.status(404).json({ error: 'Not a file' });
+  // Send relative to RESUME_DIR: an absolute path would make `send` treat the
+  // whole chain as a dotfile (DATA_DIR lives under ~/.job-quest) and 404 everything.
+  res.sendFile(filename, { root: RESUME_DIR }, (err) => {
+    if (err && !res.headersSent) res.status(err.status || 500).json({ error: 'Could not read file' });
+  });
 });
 
 // Save file content (direct editor save)
