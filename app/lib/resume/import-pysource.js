@@ -95,6 +95,34 @@ function projectFrom(tuple) {
   return { id, name: tuple[0], tech: splitTopLevel(tuple[1]), bullets: tuple[2].map((text, i) => ({ id: `${id}.${i + 1}`, text })) };
 }
 
+function mergeProjects(tuples) {
+  const groups = new Map();
+  for (const tuple of tuples) {
+    const key = tuple[0].trim().toLowerCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(tuple);
+  }
+  return Array.from(groups.values(), (group) => {
+    const project = projectFrom(group[0]);
+    if (group.length === 1) return project;
+    const tech = new Map();
+    const bullets = new Map();
+    for (const tuple of group) {
+      for (const item of splitTopLevel(tuple[1])) {
+        const key = item.toLowerCase();
+        if (!tech.has(key)) tech.set(key, item);
+      }
+      for (const text of tuple[2]) {
+        const key = text.replace(/\s+/g, ' ').trim();
+        if (!bullets.has(key)) bullets.set(key, text);
+      }
+    }
+    project.tech = [...tech.values()];
+    project.bullets = Array.from(bullets.values(), (text, i) => ({ id: `${project.id}.${i + 1}`, text }));
+    return project;
+  });
+}
+
 function importPySource({ contentSrc, buildSrc, texSrc, educationSrc = '', summarySrc = null, skillsSrc = null, variant = null, onSelection = () => {} }) {
   const env = parseAssignments(contentSrc);
   for (const k of ['EXP', 'V']) if (!env[k]) throw new Error(`content.py is missing ${k}`);
@@ -127,7 +155,7 @@ function importPySource({ contentSrc, buildSrc, texSrc, educationSrc = '', summa
         return { id: r.key, title: r.title, team: r.team, start: r.start, end: r.end, bullets: bullets.map((text, i) => ({ id: `exp.${r.key}.${i + 1}`, text })) };
       }),
     }],
-    projects: Object.values(env).filter(isProjectTuple).map(projectFrom),
+    projects: mergeProjects(Object.values(env).filter(isProjectTuple)),
     skills: !variant && skillsSrc !== null
       ? Array.from(skillsSrc.matchAll(/\\cvskill\{([^}]*)\}\s*\{([^}]*)\}/g), ([, group, items]) => ({ group: stripTex(group), items: splitTopLevel(stripTex(items)) }))
       : (v.skills || []).map(([group, items]) => ({ group, items: splitTopLevel(items) })),

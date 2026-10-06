@@ -69,6 +69,43 @@ test('resume source fixture uses synthetic project names and IDs', () => {
   ]);
 });
 
+test('Python source importer merges project variants by normalized name in first-seen order', () => {
+  const source = {
+    ...inputs(),
+    contentSrc: String.raw`
+EXP = {"sr": [], "ii": [], "i": []}
+PANTRY = ("Pantry", "TypeScript, AWS (Lambda, S3)",
+ ["Built  a recipe planner.", "Added shopping lists."])
+RELAY = ("Relay", "Go", ["Forwarded messages."])
+PANTRY_SRE = (" pantry ", "typescript, Docker, aws (lambda, s3), DOCKER, SQLite",
+ ["  Built a\t recipe planner.\n", "Added health checks.",
+  "Added shopping lists.", "Added  health checks.", "Documented recovery steps."])
+V = {"Base": {}}
+`,
+  };
+  const master = importPySource(source);
+  assert.deepEqual(master.projects, [
+    {
+      id: 'proj.pantry', name: 'Pantry',
+      tech: ['TypeScript', 'AWS (Lambda, S3)', 'Docker', 'SQLite'],
+      bullets: [
+        { id: 'proj.pantry.1', text: 'Built  a recipe planner.' },
+        { id: 'proj.pantry.2', text: 'Added shopping lists.' },
+        { id: 'proj.pantry.3', text: 'Added health checks.' },
+        { id: 'proj.pantry.4', text: 'Documented recovery steps.' },
+      ],
+    },
+    {
+      id: 'proj.relay', name: 'Relay', tech: ['Go'],
+      bullets: [{ id: 'proj.relay.1', text: 'Forwarded messages.' }],
+    },
+  ]);
+  assert.equal(master.meta.nextIds['proj.pantry'], 5);
+  assert.equal(master.meta.nextIds['proj.relay'], 2);
+  assert.equal(validateMaster(master).ok, true);
+  assert.deepEqual(importPySource(source), master);
+});
+
 test('importPySource honors --variant and reports bad input clearly', () => {
   assert.equal(importPySource({ ...inputs(), variant: 'Other' }).headline, 'Platform Engineer | AWS');
   assert.throws(() => importPySource({ ...inputs(), variant: 'Nope' }), /variant "Nope" not found in V \(have: Base, Other\)/);
