@@ -295,3 +295,15 @@ test('unlinked list keeps pending/failed links visible and preserves the tailore
   const workbooks = html.slice(html.indexOf('function Workbooks('));
   assert.match(workbooks, /<\/button>\s*<\/div>\s*<UnlinkedSessions \/>/);
 });
+
+test('unlinked sessions collapse behind a remembered toggle and rows can be hidden and restored', () => {
+  assert.match(unlinked, /aria-expanded=\{open\} onClick=\{\(\) => setOpen\(!open\)\}/);
+  assert.match(unlinked, /localStorage\.getItem\('jq\.unlinkedOpen'\) === '1'/);
+  assert.match(unlinked, /try \{ localStorage\.setItem\('jq\.unlinkedOpen'/);
+  assert.match(unlinked, /\{open && <>/);
+  assert.match(unlinked, /aria-label="Hide session"/);
+  assert.match(unlinked, /\/\$\{hide \? 'dismiss' : 'restore'\}/);
+  assert.match(unlinked, /dismissedSessions = allSessions\.filter\(s => s\.dismissed && s\.status === 'unlinked'\)/);
+  assert.match(unlinked, /sessions = allSessions\.filter\(s => !s\.dismissed &&/);
+  assert.match(unlinked, /\{showDismissed \? 'Hide' : 'Show'\} \{dismissedSessions\.length\} hidden session/);
+});

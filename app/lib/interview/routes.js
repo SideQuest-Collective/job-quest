@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { CONTRACT, INTERVIEW_REPO, ROUNDS, InputError, NotFoundError, assertFolderName, interviewInstalled } = require('./contract');
 const records = require('./records');
-const { ingestSession, setLink, resolveFolder } = require('./ingest');
+const { ingestSession, setLink, setDismissed, resolveFolder } = require('./ingest');
 const { writeInterviewContext } = require('./context');
 
 function httpStatus(err) {
@@ -22,6 +22,7 @@ function summary(r, inflight) {
     roleKey: r.roleKey || null,
     round: r.round || null,
     practice: !!r.practice,
+    dismissed: !!r.dismissed,
     startedAt: r.startedAt || null,
     durationMin: r.durationMin == null ? null : r.durationMin,
     interviewer: r.interviewer || null,
@@ -78,7 +79,8 @@ function registerInterviewRoutes(app, { dataDir, interviewHome, now = () => new 
     const all = records.listRecords(dataDir);
     return {
       installed: interviewInstalled(interviewHome), interviewHome, contract: CONTRACT, repo: INTERVIEW_REPO,
-      sessions: all.length, unlinked: all.filter((r) => r.status === 'unlinked').length,
+      sessions: all.length, unlinked: all.filter((r) => r.status === 'unlinked' && !r.dismissed).length,
+      dismissed: all.filter((r) => r.status === 'unlinked' && r.dismissed).length,
     };
   }));
 
@@ -111,6 +113,12 @@ function registerInterviewRoutes(app, { dataDir, interviewHome, now = () => new 
     const p = startIngest(folder);
     return wait(req) ? p : { status: 'linking', folder, roleKey };
   }));
+
+  app.post('/api/interview/sessions/:folder/dismiss', handle(async (req) =>
+    setDismissed({ dataDir, interviewHome, folder: assertFolderName(req.params.folder), dismissed: true, now })));
+
+  app.post('/api/interview/sessions/:folder/restore', handle(async (req) =>
+    setDismissed({ dataDir, interviewHome, folder: assertFolderName(req.params.folder), dismissed: false, now })));
 
   app.post('/api/interview/sessions/:folder/ingest', handle(async (req) => {
     const folder = assertFolderName(req.params.folder);

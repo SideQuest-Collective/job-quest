@@ -242,6 +242,7 @@ async function ingestLocked({ dataDir, interviewHome, dir, name, now, runAgentFn
     startedAt: parsed.startedAt, durationMin: parsed.durationMin, interviewer: parsed.interviewer,
     questions: parsed.questions, phases: parsed.phases, scorecard: parsed.scorecard,
     contractVersion: parsed.contractVersion, link,
+    dismissed: (prev && !link && prev.dismissed) || null,
   };
 
   if (!roleKey) {
@@ -343,7 +344,7 @@ async function setLink({ dataDir, interviewHome, folder, roleKey, now = () => ne
   const name = path.basename(dir);
   await records.withLock(dataDir, name, async () => {
     const prev = records.readRecord(dataDir, name) || { folder: name, roleKey: null, effects: emptyEffects(), applied: false };
-    records.writeRecord(dataDir, { ...prev, folder: name, status: 'linking', link: { roleKey, at: now().toISOString() } });
+    records.writeRecord(dataDir, { ...prev, folder: name, status: 'linking', link: { roleKey, at: now().toISOString() }, dismissed: null });
   });
   return dir;
 }
@@ -353,4 +354,19 @@ async function linkSession({ dataDir, interviewHome, folder, roleKey, now = () =
   return ingestSession({ dataDir, interviewHome, folder: dir, now, runAgentFn, lockWaitMs });
 }
 
-module.exports = { emptyEffects, resolveFolder, ingestSession, setLink, linkSession, rebuildInterviewChapter, isApplied };
+// Hide an unlinked session (solo practice, a test run) from the Unlinked list, or bring it back.
+// Only the Job Quest record changes; the session folder is never touched.
+async function setDismissed({ dataDir, interviewHome, folder, dismissed, now = () => new Date() }) {
+  const dir = resolveFolder(interviewHome, folder);
+  const name = path.basename(dir);
+  return records.withLock(dataDir, name, async () => {
+    const prev = records.readRecord(dataDir, name);
+    if (!prev) throw new NotFoundError(`no record for session ${name}; wait for the next scan`);
+    if (dismissed && prev.status !== 'unlinked') throw new InputError(`${name} is ${prev.status}; only unlinked sessions can be dismissed`);
+    const next = { ...prev, dismissed: dismissed ? { at: now().toISOString() } : null };
+    records.writeRecord(dataDir, next);
+    return { folder: name, dismissed: !!next.dismissed };
+  });
+}
+
+module.exports = { emptyEffects, resolveFolder, ingestSession, setLink, linkSession, setDismissed, rebuildInterviewChapter, isApplied };

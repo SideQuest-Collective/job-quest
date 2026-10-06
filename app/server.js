@@ -317,7 +317,7 @@ app.get('/api/status', (req, res) => {
 
   const roleActions = read(() => JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'role-actions.json'), 'utf-8')), null);
   const unlinked = read(() => interviewInstalled(INTERVIEW_HOME)
-    ? interviewRecords.listRecords(DATA_DIR).filter(record => record.status === 'unlinked').length
+    ? interviewRecords.listRecords(DATA_DIR).filter(record => record.status === 'unlinked' && !record.dismissed).length
     : 0, 0);
 
   res.json({

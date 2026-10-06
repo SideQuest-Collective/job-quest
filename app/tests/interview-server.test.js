@@ -345,3 +345,41 @@ test('link route accepts a role containing another separator', async (t) => {
   assert.equal(record.roleKey, roleKey);
   assert.equal(record.link.roleKey, roleKey);
 });
+
+test('dismiss hides an unlinked session from the counts, survives a changed rescan, and restore or link brings it back', async (t) => {
+  const env = setup(t);
+  await withServer(env, async (base) => {
+    await until(async () => (await get(`${base}/api/interview/sessions?status=unlinked`)).body.length);
+    const hidden = await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/dismiss`);
+    assert.deepEqual(hidden.body, { folder: FIXTURE_FOLDER, dismissed: true });
+    let row = (await get(`${base}/api/interview/sessions`)).body[0];
+    assert.equal(row.dismissed, true);
+    assert.equal(row.status, 'unlinked');
+    let s = (await get(`${base}/api/interview/status`)).body;
+    assert.equal(s.unlinked, 0);
+    assert.equal(s.dismissed, 1);
+    assert.equal((await get(`${base}/api/status`)).body.interview.unlinked, 0);
+
+    // The session changing on disk re-records it but keeps it hidden.
+    const dir = path.join(env.interviewHome, 'sessions', FIXTURE_FOLDER);
+    fs.appendFileSync(path.join(dir, 'debrief.md'), '\nEdited later.\n');
+    assert.equal((await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/ingest?wait=1`)).body.status, 'unlinked');
+    assert.equal((await get(`${base}/api/interview/sessions`)).body[0].dismissed, true);
+
+    assert.deepEqual((await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/restore`)).body, { folder: FIXTURE_FOLDER, dismissed: false });
+    s = (await get(`${base}/api/interview/status`)).body;
+    assert.equal(s.unlinked, 1);
+    assert.equal(s.dismissed, 0);
+
+    // Linking a hidden session clears the flag, and a linked session cannot be dismissed.
+    await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/dismiss`);
+    assert.equal((await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/link?wait=1`, { roleKey: ROLE_KEY })).body.status, 'ingested');
+    row = (await get(`${base}/api/interview/sessions`)).body[0];
+    assert.equal(row.dismissed, false);
+    const refused = await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/dismiss`);
+    assert.equal(refused.code, 400);
+    assert.match(refused.body.error, /only unlinked sessions can be dismissed/);
+    assert.equal((await post(`${base}/api/interview/sessions/..%2Fx/dismiss`)).code, 400);
+    assert.ok(fs.existsSync(path.join(dir, 'session.json')), 'the session folder is never touched');
+  });
+});

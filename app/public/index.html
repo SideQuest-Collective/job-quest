@@ -977,9 +977,13 @@ function UnlinkedSessions() {
   const [busy, setBusy] = useState({});
   const [errors, setErrors] = useState({});
   const [roleError, setRoleError] = useState('');
+  const [open, setOpenState] = useState(() => { try { return localStorage.getItem('jq.unlinkedOpen') === '1'; } catch { return false; } });
+  const [showDismissed, setShowDismissed] = useState(false);
   const mounted = useRef(false);
-  const sessions = allSessions.filter(s => s.status === 'unlinked' || !s.roleKey ||
-    (picks[s.folder] && (interviewIsActive(s) || s.status === 'failed' || errors[s.folder])));
+  const sessions = allSessions.filter(s => !s.dismissed && (s.status === 'unlinked' || !s.roleKey ||
+    (picks[s.folder] && (interviewIsActive(s) || s.status === 'failed' || errors[s.folder]))));
+  const dismissedSessions = allSessions.filter(s => s.dismissed && s.status === 'unlinked');
+  const setOpen = (v) => { setOpenState(v); try { localStorage.setItem('jq.unlinkedOpen', v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
 
   useEffect(() => {
     let alive = true;
@@ -1012,12 +1016,32 @@ function UnlinkedSessions() {
     }
   };
 
+  // Hide a solo-practice or test session from this list (or bring it back). Nothing is deleted.
+  const setHidden = async (folder, hide) => {
+    if (busy[folder]) return;
+    setBusy(b => ({ ...b, [folder]: true }));
+    setErrors(e => ({ ...e, [folder]: null }));
+    try {
+      await interviewRequest(api.post(`/api/interview/sessions/${encodeURIComponent(folder)}/${hide ? 'dismiss' : 'restore'}`, {}));
+    } catch (e) { if (mounted.current) setErrors(errors => ({ ...errors, [folder]: e.message })); }
+    finally {
+      if (mounted.current) { setBusy(b => ({ ...b, [folder]: false })); load(); }
+    }
+  };
+
   if (!status) return null;
   if (!status.installed && !status.error && sessions.length === 0 && !listError && !roleError) return <InterviewNotInstalled status={status} />;
-  if (sessions.length === 0 && status.installed && !status.error && !listError && !roleError) return null;
+  if (sessions.length === 0 && dismissedSessions.length === 0 && status.installed && !status.error && !listError && !roleError) return null;
   return (
     <div className="mc-section anim-enter" style={{margin:'0 0 16px',border:'1px solid var(--border)',borderRadius:10,padding:12}}>
-      <div className="mc-section-title"><Icons.messageCircle style={{width:14,height:14,color:'var(--amber)'}} /> Unlinked /interview sessions ({sessions.length})</div>
+      <button type="button" className="mc-section-title" aria-expanded={open} onClick={() => setOpen(!open)}
+        style={{display:'flex',alignItems:'center',gap:6,width:'100%',background:'none',border:'none',padding:0,margin:open ? undefined : 0,cursor:'pointer',color:'inherit',font:'inherit',textAlign:'left'}}>
+        <Icons.chevRight style={{width:14,height:14,transition:'transform .15s',transform:open ? 'rotate(90deg)' : 'none'}} />
+        <Icons.messageCircle style={{width:14,height:14,color:'var(--amber)'}} /> Unlinked /interview sessions ({sessions.length})
+        {dismissedSessions.length > 0 && <span style={{fontSize:11,fontWeight:400,color:'var(--text-muted)'}}>· {dismissedSessions.length} hidden</span>}
+        {!open && <span style={{marginLeft:'auto',fontSize:11,fontWeight:400,color:'var(--text-muted)'}}>Show</span>}
+      </button>
+      {open && <>
       {status.error ? <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{status.error}</div> : !status.installed && <InterviewNotInstalled status={status} />}
       {listError && <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{listError}</div>}
       {roleError && <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{roleError}</div>}
@@ -1038,8 +1062,32 @@ function UnlinkedSessions() {
           {errors[s.folder] && <span role="alert" style={{fontSize:11,color:'var(--rose)'}}>{errors[s.folder]}</span>}
           {s.status === 'failed' && s.lastError && <span role="alert" style={{fontSize:11,color:'var(--rose)'}}>{s.lastError}</span>}
           {s.analysisError && <span style={{fontSize:11,color:'var(--rose)'}}>debrief analysis failed: {s.analysisError}</span>}
+          {s.status === 'unlinked' && !interviewIsActive(s) && (
+            <button type="button" className="btn btn-secondary" aria-label="Hide session" title="Hide this session (solo practice or a test run). Nothing is deleted; you can restore it below."
+              disabled={busy[s.folder]} onClick={() => setHidden(s.folder, true)} style={{padding:'4px 6px',lineHeight:0}}>
+              <Icons.x style={{width:14,height:14}} />
+            </button>
+          )}
         </div>
       ))}
+      {dismissedSessions.length > 0 && (
+        <button type="button" onClick={() => setShowDismissed(!showDismissed)}
+          style={{background:'none',border:'none',padding:0,marginTop:4,fontSize:12,color:'var(--text-muted)',cursor:'pointer',textDecoration:'underline'}}>
+          {showDismissed ? 'Hide' : 'Show'} {dismissedSessions.length} hidden session{dismissedSessions.length === 1 ? '' : 's'}
+        </button>
+      )}
+      {showDismissed && dismissedSessions.map(s => (
+        <div key={s.folder} style={{display:'flex',gap:8,alignItems:'center',fontSize:13,marginTop:6,flexWrap:'wrap',opacity:0.6}}>
+          <span style={{fontFamily:'var(--font-mono)',color:'var(--text-muted)'}}>{interviewDate(s.startedAt)}</span>
+          <span style={{fontWeight:600}}>{INTERVIEW_ROUND_LABELS[s.round] || s.round}</span>
+          <span style={{flex:1,minWidth:160,color:'var(--text-secondary)'}}>{s.firstQuestion || 'No question recorded'}</span>
+          <button type="button" className="btn btn-secondary" style={{padding:'4px 10px',fontSize:12}} disabled={busy[s.folder]} onClick={() => setHidden(s.folder, false)}>
+            {busy[s.folder] ? 'Restoring…' : 'Restore'}
+          </button>
+          {errors[s.folder] && <span role="alert" style={{fontSize:11,color:'var(--rose)'}}>{errors[s.folder]}</span>}
+        </div>
+      ))}
+      </>}
     </div>
   );
 }
