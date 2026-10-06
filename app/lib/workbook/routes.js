@@ -138,7 +138,10 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir }) {
   app.get('/workbooks/:id', (req, res) => {
     const id = String(req.params.id || '');
     if (!store.isValidId(id) || !store.readMeta(dataDir, id)) { res.status(404).send('Workbook not found'); return; }
-    res.sendFile(viewerFile);
+    // Relative path + root: `send` 404s absolute paths that pass through a dot directory (~/.job-quest).
+    res.sendFile(path.basename(viewerFile), { root: path.dirname(viewerFile) }, (err) => {
+      if (err && !res.headersSent) res.status(err.status || 500).send('Could not load the workbook viewer');
+    });
   });
 }
 

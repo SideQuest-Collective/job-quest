@@ -330,3 +330,24 @@ for (const status of ['queued', 'deferred']) {
     }
   });
 }
+
+test('workbook viewer page loads when the app lives under a dot directory like ~/.job-quest', async (t) => {
+  const express = require('express');
+  const { registerWorkbookRoutes } = require('../lib/workbook/routes');
+  const dir = tmp();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const publicDir = path.join(dir, '.job-quest', 'app', 'public');
+  fs.mkdirSync(publicDir, { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'public', 'workbook.html'), path.join(publicDir, 'workbook.html'));
+  const meta = seedReady(dir);
+  const app = express();
+  registerWorkbookRoutes(app, { dataDir: dir, queue: { list: () => [] }, autoBuild: {}, publicDir });
+  const server = app.listen(0);
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const ok = await fetch(`${base}/workbooks/${meta.id}`);
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers.get('content-type'), /text\/html/);
+  assert.match(await ok.text(), /<html/i);
+  assert.equal((await fetch(`${base}/workbooks/missing-id`)).status, 404);
+});
