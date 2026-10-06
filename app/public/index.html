@@ -2484,6 +2484,12 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
   const [viewDate, setViewDate] = useState(null);
   const [expandedTask, setExpandedTask] = useState(null);
   const viewing = viewDate ? allTasks.find(t => t.date === viewDate) : todayTasks;
+  // Upcoming days first (a prep plan can run weeks ahead), then the most recent past days.
+  const todayStamp = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const taskTabs = [
+    ...allTasks.filter(t => t.date > todayStamp).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 7),
+    ...allTasks.filter(t => t.date < todayStamp).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4),
+  ];
 
   const toggleTask = async (idx, e) => {
     e.stopPropagation();
@@ -2529,7 +2535,7 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
   return (
     <>
       <div className="page-header anim-enter"><h2>Daily Tasks</h2></div>
-      {allTasks.length > 1 && <div className="tab-bar anim-enter anim-delay-1"><div className={`tab ${!viewDate?'active':''}`} onClick={() => setViewDate(null)}>Today</div>{allTasks.slice(0,7).map(t => <div key={t.date} className={`tab ${viewDate===t.date?'active':''}`} onClick={() => setViewDate(t.date)}>{t.date}</div>)}</div>}
+      {allTasks.length > 1 && <div className="tab-bar anim-enter anim-delay-1"><div className={`tab ${!viewDate?'active':''}`} onClick={() => setViewDate(null)}>Today</div>{taskTabs.map(t => <div key={t.date} className={`tab ${viewDate===t.date?'active':''}`} onClick={() => setViewDate(t.date)}>{t.date > todayStamp ? `▸ ${t.date}` : t.date}</div>)}</div>}
       {viewing?.tasks ? (
         <div className="anim-enter anim-delay-2">
           <div className="card">

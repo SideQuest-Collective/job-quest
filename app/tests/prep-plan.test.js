@@ -145,3 +145,11 @@ test('Tasks page opens plan links and shows their details', () => {
   assert.match(tasks, /Open workbook &rarr;/);
   assert.match(tasks, /\{linkKind && hasContent && \(/);
 });
+
+test('Tasks tabs list upcoming plan days first, then recent past days', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
+  const tasks = html.slice(html.indexOf('function Tasks('), html.indexOf('/* ===== QUIZ ===== */'));
+  assert.match(tasks, /allTasks\.filter\(t => t\.date > todayStamp\)\.sort\(\(a, b\) => a\.date\.localeCompare\(b\.date\)\)\.slice\(0, 7\)/);
+  assert.match(tasks, /allTasks\.filter\(t => t\.date < todayStamp\)\.sort\(\(a, b\) => b\.date\.localeCompare\(a\.date\)\)\.slice\(0, 4\)/);
+  assert.doesNotMatch(tasks, /allTasks\.slice\(0,7\)/);
+});
