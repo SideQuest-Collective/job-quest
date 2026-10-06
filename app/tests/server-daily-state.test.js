@@ -34,13 +34,15 @@ async function waitForServer(port, child) {
 }
 
 async function withServer(dataDir, runAssertions) {
-  const port = 3900 + Math.floor(Math.random() * 500);
+  let port;
+  do { port = 3900 + Math.floor(Math.random() * 500); } while ([4045, 4190].includes(port));
   const appDir = path.resolve(__dirname, '..');
   const child = spawn(process.execPath, ['server.js'], {
     cwd: appDir,
     env: {
       ...process.env,
       DATA_DIR: dataDir,
+      INTERVIEW_HOME: path.join(dataDir, 'no-interview'),
       PORT: String(port),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -68,6 +70,31 @@ async function withServer(dataDir, runAssertions) {
     });
   }
 }
+
+test('profile endpoint returns only a null-safe display name from DATA_DIR', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-profile-'));
+  const profileFile = path.join(tempRoot, 'profile.json');
+
+  await withServer(tempRoot, async (baseUrl) => {
+    const profile = async () => {
+      const response = await fetch(`${baseUrl}/api/profile`);
+      assert.equal(response.status, 200);
+      return response.json();
+    };
+
+    assert.deepEqual(await profile(), { name: null });
+    for (const value of [null, {}, { name: null }, { name: 42 }, { name: '   ' }]) {
+      fs.writeFileSync(profileFile, JSON.stringify(value));
+      assert.deepEqual(await profile(), { name: null });
+    }
+    fs.writeFileSync(profileFile, '{invalid json');
+    assert.deepEqual(await profile(), { name: null });
+    fs.writeFileSync(profileFile, JSON.stringify({
+      name: '  Alex Example  ', email: 'alex@example.test', targetCompanies: ['Acme Capital'],
+    }));
+    assert.deepEqual(await profile(), { name: 'Alex Example' });
+  });
+});
 
 test('daily endpoints use the same local-day artifacts when today exists', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-daily-state-'));
@@ -158,6 +185,30 @@ test('code runner supports class-based operation test cases', async () => {
   });
 });
 
+test('code runner reports hung submissions as timeouts', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-code-timeout-'));
+  const code = `def hangs():
+    while True:
+        pass
+`;
+
+  await withServer(tempRoot, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/run-code`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        functionName: 'hangs',
+        testCases: [{ input: {}, expected: null }],
+      }),
+    }).then((res) => res.json());
+
+    assert.equal(response.error, 'Execution timed out after 10 seconds');
+    assert.equal(response.errorSource, 'runtime');
+    assert.deepEqual(response.results, []);
+  });
+});
+
 test('fallback endpoints return the newest available artifact when today is missing', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-daily-fallback-'));
   const newest = '2026-04-22';
@@ -181,56 +232,35 @@ test('fallback endpoints return the newest available artifact when today is miss
   });
 });
 
-test('system design topics include prep-plan prompts from the role tracker', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-sd-prep-topics-'));
+test('system design topics come from workbook questions, not prep plans', async () => {
+  const store = require('../lib/workbook/store');
+  const { writeKit } = require('./helpers/workbook-fixture');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'job-quest-sd-workbook-topics-'));
   const roleKey = 'Acme|Staff Platform Engineer';
-
   fs.writeFileSync(path.join(tempRoot, 'role-tracker.json'), JSON.stringify({
-    [roleKey]: {
-      interviewPlan: {
-        systemDesignPrompt: {
-          title: 'Design a multi-region metrics ingestion platform',
-          description: 'Handle high-volume telemetry ingestion with regional failover.',
-          keyTopics: ['partitioning', 'backpressure'],
-          evaluationCriteria: ['capacity estimates', 'failure handling'],
-        },
-        technicalQuestions: [
-          {
-            question: 'How would you shard the metrics ingestion path?',
-            category: 'system-design',
-            difficulty: 'hard',
-            type: 'text',
-            sampleAnswer: 'Discuss tenant-aware partitioning and hot shard mitigation.',
-          },
-          {
-            question: 'Implement a retry helper',
-            category: 'coding',
-            difficulty: 'medium',
-            type: 'code',
-          },
-        ],
-      },
-    },
+    [roleKey]: { interviewPlan: { systemDesignPrompt: { title: 'Design a multi-region metrics ingestion platform' } } },
   }, null, 2));
+  const meta = store.createWorkbook(tempRoot, { roleKeys: [roleKey], status: 'ready' });
+  writeKit(store.wbDir(tempRoot, meta.id));
 
   await withServer(tempRoot, async (baseUrl) => {
     const topics = await fetch(`${baseUrl}/api/sd-topics`).then((response) => response.json());
-    const prepTopic = topics.find((topic) => topic.source === 'prep-plan' && topic.sourceRoleKey === roleKey);
+    assert.equal(topics.some((topic) => topic.source === 'prep-plan'), false);
+    const wbTopic = topics.find((topic) => topic.source === 'workbook');
+    assert.ok(wbTopic);
+    assert.equal(wbTopic.id, store.sdTopicId(meta.id, 'intro-2'));
+    assert.match(wbTopic.id, /^wb-[a-f0-9]{12}$/);
+    assert.equal(wbTopic.title, 'Design a widget feed.');
+    assert.equal(wbTopic.workbookId, meta.id);
+    assert.equal(wbTopic.sourceRoleKey, roleKey);
+    assert.equal(wbTopic.sourceCompany, 'Acme');
+    assert.deepEqual(wbTopic.evaluationCriteria, ['Mentions fan-out on write.']);
+    assert.equal(wbTopic.hasConversation, false);
 
-    assert.ok(prepTopic);
-    assert.match(prepTopic.id, /^prep-[a-f0-9]{12}$/);
-    assert.equal(prepTopic.title, 'Design a multi-region metrics ingestion platform');
-    assert.equal(prepTopic.sourceCompany, 'Acme');
-    assert.equal(prepTopic.sourceRole, 'Staff Platform Engineer');
-    assert.deepEqual(prepTopic.keyTopics, ['partitioning', 'backpressure']);
-    assert.equal(prepTopic.hasConversation, false);
-
-    const technicalTopic = topics.find((topic) => topic.source === 'prep-plan' && topic.title === 'How would you shard the metrics ingestion path?');
-    assert.ok(technicalTopic);
-    assert.equal(technicalTopic.sourceRoleKey, roleKey);
-    assert.deepEqual(technicalTopic.evaluationCriteria, ['Discuss tenant-aware partitioning and hot shard mitigation.']);
-
-    const conversation = await fetch(`${baseUrl}/api/sd-conversation/${prepTopic.id}`).then((response) => response.json());
+    const conversation = await fetch(`${baseUrl}/api/sd-conversation/${wbTopic.id}`).then((response) => response.json());
     assert.deepEqual(conversation, { messages: [] });
+
+    const removed = await fetch(`${baseUrl}/api/interview-plan`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(removed.status, 404);
   });
 });

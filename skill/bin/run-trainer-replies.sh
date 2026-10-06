@@ -313,6 +313,19 @@ if [ "$NORMALIZED" = "done" ] || [ "$NORMALIZED" = "wrapup" ] || [ "$NORMALIZED"
   ANSWER=""
 fi
 
+# --- workbook multiple-choice questions are graded by code, never by the agent ---
+if [ -n "$ANSWER" ]; then
+  WB_ANSWER_FILE="$(mktemp)"
+  printf '%s' "$ANSWER" > "$WB_ANSWER_FILE"
+  WB_MCQ="$(node "$REPO_ROOT/skill/bin/trainer-pick.js" mcq --data-dir "$JOB_QUEST_DATA_DIR" --answer-file "$WB_ANSWER_FILE" 2>>"$LOG_FILE")" || WB_MCQ='{"handled":false}'
+  rm -f "$WB_ANSWER_FILE"
+  if [ "$(echo "$WB_MCQ" | python3 -c "import json,sys; print(json.load(sys.stdin).get('handled', False))" 2>/dev/null)" = "True" ]; then
+    send_imessage "$(echo "$WB_MCQ" | python3 -c "import json,sys; print(json.load(sys.stdin)['text'])")"
+    log "Workbook multiple-choice reply graded by code."
+    exit 0
+  fi
+fi
+
 # --- interviewer exchange: evaluate + follow-up (or final assessment) ---
 # NOTE: python output goes to temp files, not $(...) capture — macOS bash 3.2
 # cannot parse heredocs inside command substitution when the body mixes
@@ -375,6 +388,21 @@ if answer:
 conversation_text = '\n\n'.join(conversation) if conversation else '(no answer yet)'
 
 role_kind = 'senior hiring manager' if target.get('category') == 'behavioral' else 'senior technical interviewer'
+workbook_block = ''
+grade_field = ''
+if target.get('source') == 'workbook':
+    workbook_block = f"""
+THIS QUESTION COMES FROM THE CANDIDATE'S STUDY WORKBOOK. Judge it against the workbook's rubric and answer key.
+
+RUBRIC:
+{target.get('rubric') or '(none)'}
+
+ANSWER KEY:
+{target.get('answerKey') or '(none)'}
+
+Also set "grade" to exactly one of "got", "partial", or "missed" for the candidate's FIRST answer in this conversation: "got" if it covers every rubric point, "partial" if it covers some, "missed" if it covers none or is wrong.
+"""
+    grade_field = ',"grade":"got|partial|missed"'
 if force_complete:
     closing = 'This is the END of the exchange. Set "complete" to true, "followUp" to null, and give your final assessment of the candidate\'s overall performance across the whole conversation, with a "progress" sentence describing how the answer evolved from where it started.'
 else:
@@ -386,6 +414,7 @@ prompt = f"""You are a {role_kind} at {target.get('company','the company')} cond
 THE QUESTION YOU ASKED ({target.get('category','')}): {target.get('question','')}
 
 WHAT A STRONG ANSWER COVERS: {target.get('whatTheyLookFor') or 'Depth, structure, and specificity appropriate for the role level.'}
+{workbook_block}
 
 THE CONVERSATION SO FAR:
 {conversation_text}
@@ -393,7 +422,7 @@ THE CONVERSATION SO FAR:
 Assess the candidate's cumulative performance on this question so far. {closing}
 
 Your entire response must be a single JSON object with no other text:
-{{"score":0,"maxScore":10,"strengths":["strength"],"improvements":["gap"],"feedback":"2-3 crisp sentences on the latest response in context","followUp":"one probing question or null","complete":false,"progress":"only when complete: one sentence on how the answer evolved"}}
+{{"score":0,"maxScore":10,"strengths":["strength"],"improvements":["gap"],"feedback":"2-3 crisp sentences on the latest response in context","followUp":"one probing question or null","complete":false,"progress":"only when complete: one sentence on how the answer evolved"{grade_field}}}
 
 Score 0-10 for the overall answer as it stands now (it should move as the candidate improves). Keep everything crisp — it is read as a text message. Output ONLY the JSON."""
 
@@ -489,6 +518,8 @@ eval_core = {
     'improvements': result.get('improvements') or [],
     'feedback': result.get('feedback', ''),
 }
+if result.get('grade') in ('got', 'partial', 'missed'):
+    eval_core['grade'] = result['grade']
 
 try:
     qs = json.load(open(questions_file))
@@ -573,3 +604,6 @@ fi
 
 send_imessage "$REPLY_TEXT"
 log "Interviewer reply sent."
+
+# Workbook questions: write the first answer's grade into the workbook (code; no-op for other questions).
+node "$REPO_ROOT/skill/bin/trainer-pick.js" record --data-dir "$JOB_QUEST_DATA_DIR" --id "$TARGET_ID" >>"$LOG_FILE" 2>&1 || log "WARNING: could not record the workbook grade for $TARGET_ID"

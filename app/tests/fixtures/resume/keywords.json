@@ -1,0 +1,20 @@
+{
+  "title": "Senior Software Engineer",
+  "required": [
+    { "term": "Python", "alts": [] },
+    { "term": "PostgreSQL", "alts": ["Postgres"] },
+    { "term": "AWS", "alts": ["Amazon Web Services"] },
+    { "term": "Kafka", "alts": [] },
+    { "term": "Kubernetes", "alts": ["K8s"] },
+    { "term": "Docker", "alts": [] },
+    { "term": "Redis", "alts": [] },
+    { "term": "CI/CD", "alts": ["continuous integration"] },
+    { "term": "on-call", "alts": ["on call"] },
+    { "term": "Redshift", "alts": [] }
+  ],
+  "preferred": [
+    { "term": "GitHub Actions", "alts": [] },
+    { "term": "Java", "alts": [] },
+    { "term": "Terraform", "alts": [] }
+  ]
+}

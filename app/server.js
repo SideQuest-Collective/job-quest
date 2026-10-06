@@ -7,6 +7,14 @@ const os = require('os');
 const AdmZip = require('adm-zip');
 const { ensureRuntime, expandHome } = require('../lib/runtime');
 const { findRecordByDate, getLocalDateStamp, preferTodayOrLatest } = require('./lib/local-date');
+const { createQueue } = require('./lib/jobs/queue');
+const { readSettings, writeSettings } = require('./lib/jobs/settings');
+const { diffRoleActions, diffTracker, createRoleEventBus } = require('./lib/jobs/role-events');
+const { registerWorkbookRoutes, getWorkbookSdTopics } = require('./lib/workbook/routes');
+const { createWorkbookHandler } = require('./lib/workbook/orchestrator');
+const { createAutoBuild } = require('./lib/workbook/autobuild');
+const { createResumeService } = require('./lib/resume/pipeline');
+const { readMaster, writeMaster } = require('./lib/resume/master');
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '.env');
@@ -26,7 +34,6 @@ const app = express();
 const PORT = process.env.PORT || 3847;
 
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
 
 const runtimeState = ensureRuntime({ write: true });
 const runtimeDisplayName = runtimeState.runtimeDisplayName;
@@ -40,6 +47,32 @@ const DATA_DIR = process.env.DATA_DIR
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
+
+// --- Shared job queue (workbooks, resume tailoring) ---
+const jobHandlers = {};
+const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers });
+const roleEvents = createRoleEventBus();
+
+app.get('/api/jobs', (req, res) => res.json(jobQueue.list()));
+app.get('/api/settings', (req, res) => res.json(readSettings(DATA_DIR)));
+app.put('/api/settings', (req, res) => res.json(writeSettings(DATA_DIR, req.body || {})));
+
+// --- /interview integration (contract jq-interview/1; see CONTRACT.md) ---
+const { registerInterviewRoutes } = require('./lib/interview/routes');
+const { startScanner: startInterviewScanner } = require('./lib/interview/scanner');
+const { interviewHome: resolveInterviewHome } = require('./lib/interview/contract');
+const INTERVIEW_HOME = resolveInterviewHome(process.env);
+registerInterviewRoutes(app, { dataDir: DATA_DIR, interviewHome: INTERVIEW_HOME });
+
+// --- Workbooks (handler registered before jobQueue.start() at the bottom of this file) ---
+jobHandlers.workbook = createWorkbookHandler({ dataDir: DATA_DIR });
+const workbookAutoBuild = createAutoBuild({ dataDir: DATA_DIR, queue: jobQueue });
+roleEvents.on('saved', (roleKey) => workbookAutoBuild.onRoleEvent('saved', roleKey));
+roleEvents.on('applied', (roleKey) => workbookAutoBuild.onRoleEvent('applied', roleKey));
+registerWorkbookRoutes(app, { dataDir: DATA_DIR, queue: jobQueue, autoBuild: workbookAutoBuild, publicDir: path.join(__dirname, 'public') });
+
+// Validate workbook IDs before static middleware can normalize or redirect them.
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper: read all JSON files from a directory, sorted by date desc
 function readDataDir(subdir) {
@@ -104,6 +137,15 @@ function autoCompleteDailyTask(matchFn) {
 }
 
 // --- API Routes ---
+
+app.get('/api/profile', (req, res) => {
+  let name = null;
+  try {
+    const profile = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'profile.json'), 'utf-8'));
+    if (typeof profile?.name === 'string') name = profile.name.trim() || null;
+  } catch {}
+  res.json({ name });
+});
 
 app.get('/api/runtime', (req, res) => {
   const freshRuntime = ensureRuntime({ write: true });
@@ -292,6 +334,9 @@ app.post('/api/role-actions', (req, res) => {
   if (newSaved.length) logActivity('role_saved', { roles: newSaved });
   if (newSkipped.length) logActivity('role_skipped', { roles: newSkipped });
   if (newApplied.length) logActivity('role_applied', { roles: newApplied });
+  const roleDiff = diffRoleActions(prev, req.body);
+  roleDiff.saved.forEach((k) => roleEvents.emit('saved', k));
+  roleDiff.applied.forEach((k) => roleEvents.emit('applied', k));
   res.json({ success: true });
 });
 
@@ -316,136 +361,8 @@ app.post('/api/role-tracker', (req, res) => {
       logActivity('role_stage_change', { role: key, from: prev[key].stage, to: req.body[key].stage });
     }
   });
+  diffTracker(prev, req.body).applied.forEach((k) => roleEvents.emit('applied', k));
   res.json({ success: true });
-});
-
-// Generate interview prep plan for a role
-app.post('/api/interview-plan', (req, res) => {
-  const { roleKey, company, role, level, location, fit, tips, resumeSummary, resumeSkills } = req.body;
-  const requestId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-
-  console.log(`[${requestId}] Interview plan generation started for: ${company} | ${role}`);
-
-  const prompt = `You are a Staff/L6 interview coach. Generate a STRUCTURED interview prep package as a single JSON object.
-
-ROLE: ${role} at ${company}
-LEVEL: ${level}
-LOCATION: ${location}
-
-WHY THIS FITS THE CANDIDATE:
-${fit || 'No fit analysis available.'}
-
-INTERVIEW TIPS FROM RESEARCH:
-${(tips || []).map(t => `- ${t.text} (Source: ${t.source})`).join('\n') || 'No tips available.'}
-
-CANDIDATE BACKGROUND:
-${resumeSummary || 'Senior software engineer preparing for Staff/L6 roles.'}
-Skills: ${(resumeSkills || []).join(', ') || 'Not specified'}
-
-CRITICAL: Your entire response must be a single valid JSON object. No text before or after. No code fences. No markdown. Just the JSON object starting with { and ending with }.
-
-The JSON must have this exact structure:
-
-{"technicalQuestions":[{"question":"the interview question","category":"system-design or coding or architecture","difficulty":"medium or hard","type":"text or code","starterCode":"only if type is code - provide Python starter code","testCases":"only if type is code - describe test cases","sampleAnswer":"reference answer for evaluation","followUps":["follow-up question 1","follow-up question 2"]}],"behavioralQuestions":[{"question":"behavioral question","starFramework":{"situation":"what situation to describe","task":"the task","action":"what action to take","result":"expected result"},"whatTheyLookFor":"what interviewers evaluate"}],"quiz":[{"question":"quiz question","options":["A) option","B) option","C) option","D) option"],"correctIndex":0,"explanation":"why this is correct"}],"systemDesignPrompt":{"title":"system name to design","description":"detailed problem statement","keyTopics":["topic1","topic2"],"evaluationCriteria":["criteria1","criteria2"]},"readinessChecklist":[{"item":"checklist item","category":"technical or behavioral or company-research or logistics"}],"companyInsights":{"culture":"description","techStack":"description","interviewProcess":"description","recentNews":"description"}}
-
-REQUIREMENTS:
-- Generate exactly 5 technical questions for ${company}'s ${role} role. For coding questions, set type to "code" and provide Python starterCode with function signature and testCases description. For non-coding questions, set type to "text".
-- At least 2 technical questions must have type "code" with working Python starter code
-- Generate exactly 4 behavioral questions tailored to ${company}'s values
-- Generate exactly 8 quiz questions mixing system design, coding concepts, and ${company}-specific knowledge
-- System design prompt must be realistic for ${level} at ${company}
-- Readiness checklist: 8-10 items across all categories
-- All content specific to this role, no generic advice
-- All sampleAnswer fields must contain substantive reference answers for evaluation
-- REMEMBER: Output ONLY the JSON object. No other text.`;
-
-  const tmpPrompt = path.join(os.tmpdir(), `interview_plan_${Date.now()}.txt`);
-  fs.writeFileSync(tmpPrompt, prompt);
-  const scriptPath = path.join(__dirname, 'scripts', 'generate-plan.sh');
-
-  console.log(`[${requestId}] Prompt written to: ${tmpPrompt} (${prompt.length} chars)`);
-  console.log(`[${requestId}] Script: ${scriptPath}`);
-
-  const { exec } = require('child_process');
-  const startTime = Date.now();
-  exec(`bash "${scriptPath}" "${tmpPrompt}"`, {
-    encoding: 'utf-8',
-    timeout: 300000,
-    maxBuffer: 5 * 1024 * 1024,
-    env: { ...process.env, HOME: os.homedir() },
-  }, (err, stdout, stderr) => {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    try { fs.unlinkSync(tmpPrompt); } catch {}
-
-    if (err) {
-      console.error(`[${requestId}] FAILED after ${elapsed}s`);
-      console.error(`[${requestId}] Error: ${err.message?.slice(0, 300)}`);
-      console.error(`[${requestId}] stderr: ${(stderr || '').slice(0, 300)}`);
-      console.error(`[${requestId}] stdout (first 300): ${(stdout || '').slice(0, 300)}`);
-      res.json({ error: true, message: `Plan generation failed after ${elapsed}s.\n\nError: ${(stderr || err.message || '').slice(0, 200)}` });
-      return;
-    }
-
-    console.log(`[${requestId}] ${runtimeDisplayName} responded in ${elapsed}s (${(stdout || '').length} bytes)`);
-    console.log(`[${requestId}] stdout preview: ${(stdout || '').slice(0, 200)}`);
-    if (stderr) console.log(`[${requestId}] stderr: ${stderr.slice(0, 200)}`);
-
-    // Try to parse JSON from response - multiple strategies
-    let raw = (stdout || '').trim();
-    let plan = null;
-    let parseError = null;
-
-    // Strategy 1: Direct parse (response is pure JSON)
-    try {
-      plan = JSON.parse(raw);
-    } catch (e) { parseError = e; }
-
-    // Strategy 2: Find JSON code fence
-    if (!plan) {
-      const jsonFence = raw.match(/```json\s*([\s\S]*?)```/);
-      if (jsonFence) {
-        console.log(`[${requestId}] Trying JSON code fence extraction`);
-        try { plan = JSON.parse(jsonFence[1].trim()); } catch (e) { parseError = e; }
-      }
-    }
-
-    // Strategy 3: Find the largest { ... } block (the JSON object)
-    if (!plan) {
-      const jsonStart = raw.indexOf('{"');
-      if (jsonStart >= 0) {
-        console.log(`[${requestId}] Trying brace extraction from index ${jsonStart}`);
-        // Find matching closing brace by counting braces
-        let depth = 0;
-        let jsonEnd = -1;
-        for (let i = jsonStart; i < raw.length; i++) {
-          if (raw[i] === '{') depth++;
-          else if (raw[i] === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
-        }
-        if (jsonEnd > jsonStart) {
-          const jsonStr = raw.slice(jsonStart, jsonEnd);
-          console.log(`[${requestId}] Extracted JSON block: ${jsonStr.length} chars`);
-          try { plan = JSON.parse(jsonStr); } catch (e) { parseError = e; }
-        }
-      }
-    }
-
-    if (plan && typeof plan === 'object') {
-      const keys = Object.keys(plan);
-      console.log(`[${requestId}] SUCCESS: Parsed JSON with keys: ${keys.join(', ')}`);
-      logActivity('interview_plan_generated', { role: roleKey });
-      res.json({ plan });
-    } else {
-      console.error(`[${requestId}] All JSON parse strategies failed: ${parseError?.message}`);
-      console.error(`[${requestId}] Raw (first 500): ${raw.slice(0, 500)}`);
-      if (raw.length > 50) {
-        logActivity('interview_plan_generated', { role: roleKey, format: 'markdown' });
-        res.json({ plan: null, fallbackMarkdown: stdout.trim() });
-      } else {
-        console.error(`[${requestId}] Response too short or empty, treating as failure`);
-        res.json({ error: true, message: `${runtimeDisplayName} returned empty or invalid output after ${elapsed}s` });
-      }
-    }
-  });
 });
 
 // --- Evaluate Practice Answer ---
@@ -1022,7 +939,9 @@ print(json.dumps({"results": results}))
   } catch (err) {
     try { fs.unlinkSync(tmpFile); } catch {}
     const stderr = String(err.stderr || err.message || '').trim();
-    const runtimeError = /timed out/i.test(stderr)
+    const errorText = [err.stderr, err.message, err.code, err.signal].filter(Boolean).join('\n');
+    const timedOut = /timed out|timeout|ETIMEDOUT|SIGTERM/i.test(errorText);
+    const runtimeError = timedOut
       ? 'Execution timed out after 10 seconds'
       : 'Code Lab could not start the Python runner';
     res.json({
@@ -1129,7 +1048,6 @@ Continue mentoring. Be concise and encouraging. Format with markdown.`;
 // --- System Design Mock Interview ---
 const sdConversations = {};
 const SD_CONV_DIR = path.join(DATA_DIR, 'sd-conversations');
-const ROLE_TRACKER_FILE = path.join(DATA_DIR, 'role-tracker.json');
 
 const SD_TOPICS = [
   { id: 'url-shortener', title: 'Design a URL Shortener', description: 'Design a service like bit.ly that shortens long URLs and redirects users.' },
@@ -1157,57 +1075,12 @@ function getSdConversationFile(topicId) {
   return path.join(SD_CONV_DIR, `${safeTopicId}.json`);
 }
 
-function getPrepTopicId(roleKey, prompt) {
-  const hash = crypto.createHash('sha1').update(`${roleKey}|${prompt.title || ''}`).digest('hex').slice(0, 12);
-  return `prep-${hash}`;
-}
-
-function readRoleTracker() {
-  if (!fs.existsSync(ROLE_TRACKER_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(ROLE_TRACKER_FILE, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function getPrepPlanSdTopics() {
-  const tracker = readRoleTracker();
-  return Object.entries(tracker).flatMap(([roleKey, entry]) => {
-    const plan = entry?.interviewPlan;
-    if (!plan || typeof plan !== 'object') return [];
-    const [company = '', role = ''] = roleKey.split('|');
-    const toTopic = (prompt, fallbackDescription) => ({
-      id: getPrepTopicId(roleKey, prompt),
-      title: prompt.title || prompt.question,
-      description: prompt.description || prompt.question || fallbackDescription,
-      source: 'prep-plan',
-      sourceRoleKey: roleKey,
-      sourceCompany: company,
-      sourceRole: role,
-      keyTopics: Array.isArray(prompt.keyTopics) ? prompt.keyTopics : [],
-      evaluationCriteria: Array.isArray(prompt.evaluationCriteria) ? prompt.evaluationCriteria : (prompt.sampleAnswer ? [prompt.sampleAnswer] : []),
-    });
-
-    const topics = [];
-    const prompt = plan.systemDesignPrompt;
-    if (prompt && typeof prompt === 'object' && prompt.title) {
-      topics.push(toTopic(prompt, 'Practice this prep-plan system design prompt as a mock interview.'));
-    }
-    (plan.technicalQuestions || []).forEach((question) => {
-      if (question?.category !== 'system-design' || !question.question) return;
-      topics.push(toTopic({ ...question, title: question.question }, 'Practice this prep-plan system design question as a mock interview.'));
-    });
-    return topics;
-  });
-}
-
 function getSdTopic(topicId) {
-  return SD_TOPICS.find(t => t.id === topicId) || getPrepPlanSdTopics().find(t => t.id === topicId);
+  return SD_TOPICS.find(t => t.id === topicId) || getWorkbookSdTopics(DATA_DIR).find(t => t.id === topicId);
 }
 
 app.get('/api/sd-topics', (req, res) => {
-  const topics = [...SD_TOPICS, ...getPrepPlanSdTopics()].map(t => {
+  const topics = [...SD_TOPICS, ...getWorkbookSdTopics(DATA_DIR)].map(t => {
     const convFile = getSdConversationFile(t.id);
     const hasConversation = fs.existsSync(convFile);
     return { ...t, hasConversation };
@@ -1245,8 +1118,8 @@ app.post('/api/sd-conversation/:topicId', (req, res) => {
 
   let prompt;
   if (isFirstMessage) {
-    const prepContext = topic.source === 'prep-plan' ? `
-This prompt comes from an interview prep plan for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
+    const prepContext = topic.source === 'workbook' ? `
+This prompt comes from the study workbook for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
 Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || 'Use standard Staff-level system design coverage.'}
 Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
 ` : '';
@@ -1273,8 +1146,8 @@ IMPORTANT RULES for the entire conversation:
 - Use markdown formatting for clarity.`;
   } else {
     const history = conv.messages.map(m => `${m.role === 'user' ? 'CANDIDATE' : 'INTERVIEWER'}: ${m.content}`).join('\n\n');
-    const prepContext = topic.source === 'prep-plan' ? `
-This is a prep-plan-specific prompt for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
+    const prepContext = topic.source === 'workbook' ? `
+This is a workbook question for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
 Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || 'Use standard Staff-level system design coverage.'}
 Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
 ` : '';
@@ -1474,13 +1347,20 @@ app.get('/api/job-status', (req, res) => {
 // --- Resume File Upload ---
 const RESUME_DIR = path.join(DATA_DIR, 'resume-files');
 
+function safeResumePath(name) {
+  if (typeof name !== 'string' || !name || name.includes('\0')) return null;
+  const resolved = path.resolve(RESUME_DIR, name);
+  return resolved.startsWith(path.resolve(RESUME_DIR) + path.sep) ? resolved : null;
+}
+
 app.post('/api/resume/upload', (req, res) => {
   // Expects base64-encoded file data
   const { filename, data, type } = req.body;
   if (!filename || !data) return res.status(400).json({ error: 'Missing filename or data' });
   if (!fs.existsSync(RESUME_DIR)) fs.mkdirSync(RESUME_DIR, { recursive: true });
   const buffer = Buffer.from(data, 'base64');
-  const filepath = path.join(RESUME_DIR, filename);
+  const filepath = safeResumePath(filename);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
   fs.writeFileSync(filepath, buffer);
   logActivity('resume_file_upload', { filename, type, size: buffer.length });
   res.json({ success: true, filename, size: buffer.length });
@@ -1496,6 +1376,9 @@ app.post('/api/resume/upload-zip', (req, res) => {
     const buffer = Buffer.from(data, 'base64');
     const zip = new AdmZip(buffer);
     const entries = zip.getEntries();
+    if (entries.some(entry => !entry.isDirectory && !safeResumePath(entry.entryName))) {
+      return res.status(400).json({ error: 'Invalid resume path' });
+    }
     const ALLOWED_EXT = ['.tex', '.cls', '.sty', '.bst', '.bib', '.pdf', '.png', '.jpg', '.jpeg', '.eps', '.svg', '.ttf', '.otf'];
     const SKIP_DIRS = ['__MACOSX', '.git', 'node_modules'];
     const uploaded = [];
@@ -1523,10 +1406,11 @@ app.post('/api/resume/upload-zip', (req, res) => {
       }
 
       // Create subdirectories if needed
-      const targetDir = path.join(RESUME_DIR, path.dirname(relativePath));
+      const targetPath = safeResumePath(relativePath);
+      if (!targetPath) return res.status(400).json({ error: 'Invalid resume path' });
+      const targetDir = path.dirname(targetPath);
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
-      const targetPath = path.join(RESUME_DIR, relativePath);
       fs.writeFileSync(targetPath, entry.getData());
       uploaded.push({ name: relativePath, size: entry.getData().length });
     }
@@ -1552,6 +1436,9 @@ app.post('/api/resume/upload-folder', (req, res) => {
 
   // Detect common top-level folder prefix to strip
   const paths = files.map(f => f.relativePath || f.filename);
+  if (paths.some(name => !safeResumePath(name))) {
+    return res.status(400).json({ error: 'Invalid resume path' });
+  }
   const topDirs = new Set(paths.map(p => p.split('/')[0]));
   const stripPrefix = topDirs.size === 1 && paths[0].includes('/') ? paths[0].split('/')[0] + '/' : '';
 
@@ -1567,11 +1454,13 @@ app.post('/api/resume/upload-folder', (req, res) => {
     // Skip hidden files
     if (relativePath.startsWith('.') || relativePath.includes('/.')) continue;
 
-    const targetDir = path.join(RESUME_DIR, path.dirname(relativePath));
+    const targetPath = safeResumePath(relativePath);
+    if (!targetPath) return res.status(400).json({ error: 'Invalid resume path' });
+    const targetDir = path.dirname(targetPath);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
     const buffer = Buffer.from(file.data, 'base64');
-    fs.writeFileSync(path.join(RESUME_DIR, relativePath), buffer);
+    fs.writeFileSync(targetPath, buffer);
     uploaded.push({ name: relativePath, size: buffer.length });
   }
 
@@ -1602,11 +1491,8 @@ app.get('/api/resume/files', (req, res) => {
 // Support path segments for files in subdirectories (e.g., /api/resume/file/images/photo.png)
 app.get('/api/resume/file/{*filepath}', (req, res) => {
   const filename = Array.isArray(req.params.filepath) ? req.params.filepath.join('/') : req.params.filepath;
-  const filepath = path.join(RESUME_DIR, filename);
-  // Security: ensure resolved path is within RESUME_DIR
-  if (!path.resolve(filepath).startsWith(path.resolve(RESUME_DIR))) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
+  const filepath = safeResumePath(filename);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
   if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
   if (!fs.statSync(filepath).isFile()) return res.status(404).json({ error: 'Not a file' });
   // Send relative to RESUME_DIR: an absolute path would make `send` treat the
@@ -1620,10 +1506,8 @@ app.get('/api/resume/file/{*filepath}', (req, res) => {
 app.post('/api/resume/save-file', (req, res) => {
   const { filename, content } = req.body;
   if (!filename || content === undefined) return res.status(400).json({ error: 'Missing filename or content' });
-  const filepath = path.join(RESUME_DIR, filename);
-  if (!path.resolve(filepath).startsWith(path.resolve(RESUME_DIR))) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
+  const filepath = safeResumePath(filename);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
   // Create parent dirs if needed
   const dir = path.dirname(filepath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1636,10 +1520,8 @@ app.post('/api/resume/save-file', (req, res) => {
 app.post('/api/resume/create-file', (req, res) => {
   const { filename, content } = req.body;
   if (!filename) return res.status(400).json({ error: 'Missing filename' });
-  const filepath = path.join(RESUME_DIR, filename);
-  if (!path.resolve(filepath).startsWith(path.resolve(RESUME_DIR))) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
+  const filepath = safeResumePath(filename);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
   if (fs.existsSync(filepath)) return res.status(409).json({ error: 'File already exists' });
   const dir = path.dirname(filepath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1652,7 +1534,8 @@ app.post('/api/resume/create-file', (req, res) => {
 app.post('/api/resume/compile', (req, res) => {
   const { mainFile } = req.body;
   const texFile = mainFile || 'main.tex';
-  const filepath = path.join(RESUME_DIR, texFile);
+  const filepath = safeResumePath(texFile);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
 
   if (!fs.existsSync(filepath)) {
     // Try to find a .tex file that contains \documentclass
@@ -1745,7 +1628,8 @@ function doCompile(filepath, res) {
 app.post('/api/resume/edit', (req, res) => {
   const { instruction, filename } = req.body;
   if (!instruction || !filename) return res.status(400).json({ error: 'Missing instruction or filename' });
-  const filepath = path.join(RESUME_DIR, filename);
+  const filepath = safeResumePath(filename);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
   if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
 
   const prompt = `You are a LaTeX resume editor. The user wants to edit their resume file "${filename}" located at "${filepath}".
@@ -1778,10 +1662,8 @@ Read the file, make the requested changes, and write the updated file back. Only
 
 app.delete('/api/resume/file/{*filepath}', (req, res) => {
   const filename = Array.isArray(req.params.filepath) ? req.params.filepath.join('/') : req.params.filepath;
-  const filepath = path.join(RESUME_DIR, filename);
-  if (!path.resolve(filepath).startsWith(path.resolve(RESUME_DIR))) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
+  const filepath = safeResumePath(filename);
+  if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
   if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
   try {
     fs.unlinkSync(filepath);
@@ -1808,6 +1690,71 @@ app.post('/api/data/:type', (req, res) => {
   writeData(type, filename, data);
   res.json({ success: true });
 });
+
+// --- Resume tailoring (P2) ---
+const resumeService = createResumeService({ dataDir: DATA_DIR, queue: jobQueue });
+jobHandlers.resume = (job, ctx) => resumeService.runJob(job, ctx);
+roleEvents.on('saved', (roleKey) => resumeService.autoTailor(roleKey, 'auto-saved'));
+roleEvents.on('applied', (roleKey) => resumeService.autoTailor(roleKey, 'auto-applied'));
+
+function sendResumeError(res, err) {
+  if (err && err.validation) return res.status(400).json({ error: 'invalid master resume', errors: err.validation });
+  if (err && err.status) return res.status(err.status).json({ error: err.message });
+  console.error('[resume]', err);
+  return res.status(500).json({ error: String((err && err.message) || err) });
+}
+const resumeRoute = (fn) => async (req, res) => {
+  try { await fn(req, res); } catch (err) { if (!res.headersSent) sendResumeError(res, err); }
+};
+
+app.get('/api/resume/master', resumeRoute((req, res) => res.json(readMaster(DATA_DIR))));
+app.put('/api/resume/master', resumeRoute((req, res) => {
+  const saved = writeMaster(DATA_DIR, req.body || {});
+  logActivity('resume_master_update', { roles: saved.experience.reduce((n, e) => n + e.roles.length, 0) });
+  res.json(saved);
+}));
+app.get('/api/resume/tailored', resumeRoute((req, res) => res.json(resumeService.listMeta())));
+app.post('/api/resume/tailored', resumeRoute((req, res) => {
+  const roleKey = req.body && req.body.roleKey;
+  const result = resumeService.requestTailor(roleKey, { trigger: 'manual' });
+  if (result.created) logActivity('resume_tailor_requested', { roleKey, id: result.meta.id });
+  res.status(result.created ? 201 : 200).json(result);
+}));
+app.get('/api/resume/tailored/:id', resumeRoute((req, res) => res.json(resumeService.getRecord(req.params.id))));
+app.put('/api/resume/tailored/:id/jd', resumeRoute((req, res) => res.json(resumeService.setJd(req.params.id, req.body && req.body.text))));
+app.post('/api/resume/tailored/:id/retry', resumeRoute((req, res) => res.json(resumeService.retry(req.params.id))));
+app.post('/api/resume/tailored/:id/accept', resumeRoute((req, res) => {
+  const meta = resumeService.accept(req.params.id);
+  logActivity('resume_tailored_accepted', { id: meta.id, score: meta.bestScore });
+  res.json(meta);
+}));
+app.get('/api/resume/tailored/:id/pdf', resumeRoute((req, res) => {
+  const file = resumeService.pdfPath(req.params.id, req.query.round);
+  // Relative path + root: `send` 404s absolute paths that pass through a dot directory (~/.job-quest).
+  res.sendFile(path.relative(resumeService.tailoredDir, file), { root: resumeService.tailoredDir }, (err) => {
+    if (err && !res.headersSent) res.status(err.status || 500).json({ error: 'could not read PDF' });
+  });
+}));
+app.get('/api/resume/tailored/:id/diff', resumeRoute((req, res) => res.json(resumeService.diff(req.params.id))));
+app.delete('/api/resume/tailored/:id', resumeRoute((req, res) => {
+  resumeService.remove(req.params.id);
+  res.json({ success: true });
+}));
+
+app.post('/api/resume/master/import-latex', resumeRoute(async (req, res) => {
+  const name = (req.body && req.body.filename) || 'resume_cv.tex';
+  const file = path.resolve(RESUME_DIR, name);
+  if (!file.startsWith(path.resolve(RESUME_DIR) + path.sep)) return res.status(403).json({ error: 'Access denied' });
+  const result = await resumeService.importLatex(file);
+  logActivity('resume_master_import_proposed', { filename: name, errors: result.errors.length });
+  return res.json(result);
+}));
+
+jobQueue.start();
+jobQueue.tick();
+setInterval(() => { jobQueue.tick(); }, 60000).unref();
+
+startInterviewScanner({ dataDir: DATA_DIR, interviewHome: INTERVIEW_HOME });
 
 app.listen(PORT, () => {
   console.log(`\n  Job Hunt Command Center running at:\n`);

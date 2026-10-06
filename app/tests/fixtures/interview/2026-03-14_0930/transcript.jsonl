@@ -1,0 +1,10 @@
+{"ts": "2026-03-14T14:30:00Z", "speaker": "system", "text": "capture started", "end": "system"}
+{"ts": "2026-03-14T14:30:20Z", "speaker": "interviewer", "text": "Welcome. We will work through two small platform coding exercises.", "end": "pause"}
+{"ts": "2026-03-14T14:31:00Z", "speaker": "system", "text": "question: Rate limiter: sliding window", "end": "system"}
+{"ts": "2026-03-14T14:31:10Z", "speaker": "interviewer", "text": "Accept at most three requests in any ten-second window. Requests arrive in timestamp order.", "end": "pause"}
+{"ts": "2026-03-14T14:42:00Z", "speaker": "you", "text": "The queue contains only accepted requests inside the active window.", "end": "pause"}
+{"ts": "2026-03-14T14:50:00Z", "speaker": "system", "text": "question: Merge overlapping intervals", "end": "system"}
+{"ts": "2026-03-14T14:50:10Z", "speaker": "interviewer", "text": "Given a list of closed intervals, return their merged ranges, including intervals that touch.", "end": "pause"}
+{"ts": "2026-03-14T15:01:00Z", "speaker": "you", "text": "I will sort by start time and extend the last interval when the ranges overlap.", "end": "pause"}
+{"ts": "2026-03-14T15:14:00Z", "speaker": "interviewer", "text": "Thanks. Both approaches are clear; add a nested-interval example to your tests.", "end": "pause"}
+{"ts": "2026-03-14T15:15:00Z", "speaker": "system", "text": "capture stopped", "end": "system"}

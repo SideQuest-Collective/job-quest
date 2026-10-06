@@ -662,6 +662,15 @@ function App() {
     setPage('sysdesign');
   };
 
+  // The workbook viewer links to /?sd=<topicId> for "Practice as mock interview".
+  useEffect(() => {
+    const sd = new URLSearchParams(window.location.search).get('sd');
+    if (sd) {
+      openSystemDesignTopic({ id: sd });
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
   useEffect(() => { refresh(); const i = setInterval(refresh, 30000); return () => clearInterval(i); }, [refresh]);
 
   const allRoles = allIntel.flatMap(r => (r.roles || []).map(role => ({ ...role, intelDate: r.date })));
@@ -680,7 +689,7 @@ function App() {
     { id: 'divider1' },
     { id: 'resume', icon: Icons.fileText, label: 'Resume' },
     { id: 'intel', icon: Icons.radar, label: 'Intel' },
-    { id: 'prepplans', icon: Icons.clipboard, label: 'Prep Plans' },
+    { id: 'workbooks', icon: Icons.clipboard, label: 'Workbooks' },
     { id: 'calendar', icon: Icons.calendarIcon, label: 'Calendar' },
     { id: 'divider2' },
     { id: 'codelab', icon: Icons.code, label: 'Code Lab' },
@@ -703,14 +712,14 @@ function App() {
         </div>
         <div className="sidebar-footer"><div className="status"><div className="status-dot" /><span>System active</span></div></div>
       </div>
-      <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'prepplans' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
+      <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
         {page === 'dashboard' && <Dashboard progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} />}
         {page === 'discover' && <Discover allRoles={allRoles} roleActions={roleActions} setRoleActions={setRoleActions} resume={resume} setPage={setPage} />}
         {page === 'tasks' && <Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} />}
         {page === 'quiz' && <Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} />}
         {page === 'resume' && <Resume resume={resume} setResume={setResume} />}
-        {page === 'intel' && <Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} openSystemDesignTopic={openSystemDesignTopic} />}
-        {page === 'prepplans' && <PrepPlans allRoles={allRoles} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} openSystemDesignTopic={openSystemDesignTopic} />}
+        {page === 'intel' && <Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} />}
+        {page === 'workbooks' && <Workbooks setPage={setPage} />}
         {page === 'calendar' && <Calendar progress={progress} />}
         {page === 'codelab' && <CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} />}
         {page === 'sysdesign' && <SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} />}
@@ -721,8 +730,296 @@ function App() {
   );
 }
 
+/* ===== INTERVIEWS (/interview integration) ===== */
+const INTERVIEW_ROUNDS = ['coding', 'system', 'behavioral', 'recruiter', 'screen'];
+const INTERVIEW_ROUND_LABELS = { coding: 'Coding', system: 'System design', behavioral: 'Behavioral', recruiter: 'Recruiter', screen: 'Screen' };
+const INTERVIEW_REPO_URL = 'https://github.com/SideQuest-Collective/interview-copilot';
+const interviewSelectStyle = { background: 'var(--bg-surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 12 };
+
+const INTERVIEW_STATUS_LABELS = { unlinked: 'Unlinked', linking: 'Linking', ingesting: 'Ingesting', failed: 'Failed', ingested: 'Ingested' };
+
+function safeMarkdown(md) {
+  // Escape third-party HTML before parsing; inspect decoded URLs in an inert template.
+  const escaped = String(md).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const template = document.createElement('template');
+  template.innerHTML = marked.parse(escaped);
+  template.content.querySelectorAll('code').forEach(el => {
+    el.textContent = el.textContent.replace(/&(lt|gt|amp);/g, (_, n) => ({lt:'<', gt:'>', amp:'&'}[n]));
+  });
+  template.content.querySelectorAll('a[href], img[src]').forEach(node => {
+    const attr = node.hasAttribute('href') ? 'href' : 'src';
+    try {
+      if (!['http:', 'https:', 'mailto:'].includes(new URL(node.getAttribute(attr)).protocol)) node.removeAttribute(attr);
+    } catch (_) { node.removeAttribute(attr); }
+  });
+  return template.innerHTML;
+}
+
+async function interviewRequest(promise) {
+  const result = await promise;
+  if (result && result.error) throw new Error(result.error);
+  return result;
+}
+
+function interviewIsActive(s) {
+  return !!s.ingesting || s.status === 'linking' || s.status === 'ingesting';
+}
+
+function useInterviewSessions(url) {
+  const [sessions, setSessions] = useState([]);
+  const [error, setError] = useState('');
+  const loader = useRef(null);
+  const load = useCallback(() => loader.current && loader.current(), []);
+  useEffect(() => {
+    let alive = true, timer = null, loading = false;
+    setSessions([]); setError('');
+    const poll = async () => {
+      if (!alive || !url || loading) return;
+      loading = true;
+      try {
+        const result = await interviewRequest(api.get(url));
+        if (!alive) return;
+        const rows = Array.isArray(result) ? result : [];
+        setSessions(rows); setError('');
+        if (rows.some(interviewIsActive)) {
+          if (timer === null) timer = setInterval(poll, 3000);
+        } else if (timer !== null) { clearInterval(timer); timer = null; }
+      } catch (e) { if (alive) setError(e.message); }
+      finally { loading = false; }
+    };
+    loader.current = poll;
+    poll();
+    return () => { alive = false; loader.current = null; if (timer !== null) clearInterval(timer); };
+  }, [url]);
+  return { sessions, error, load };
+}
+
+function useInterviewStatus() {
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    interviewRequest(api.get('/api/interview/status'))
+      .then(s => { if (alive) setStatus(s); })
+      .catch(e => { if (alive) setStatus({ error: e.message }); });
+    return () => { alive = false; };
+  }, []);
+  return status;
+}
+
+function InterviewNotInstalled({ status }) {
+  return (
+    <div style={{fontSize:12,color:'var(--text-muted)'}}>
+      /interview is not installed. Get it from <a href={INTERVIEW_REPO_URL} target="_blank" rel="noreferrer" style={{color:'var(--amber)'}}>interview-copilot</a> to prep calls and bring debriefs back here.
+    </div>
+  );
+}
+
+function interviewDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+}
+
+function interviewEffects(s) {
+  const e = s.effects || {};
+  return [
+    e.timeline ? 'timeline' : null,
+    e.stage ? `stage → ${e.stage.to}` : null,
+    e.questionsAdded ? `${e.questionsAdded} question${e.questionsAdded === 1 ? '' : 's'} added` : null,
+    s.practice && e.grades ? `${e.grades} graded` : null,
+    e.tasks ? `${e.tasks} task${e.tasks === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+function InterviewsSection({ roleKey }) {
+  const status = useInterviewStatus();
+  const { sessions, error: listError } = useInterviewSessions(roleKey ? `/api/interview/sessions?roleKey=${encodeURIComponent(roleKey)}` : null);
+  const [openFolder, setOpenFolder] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [view, setView] = useState('debrief');
+  const [round, setRound] = useState('coding');
+  const [prep, setPrep] = useState(null);
+  const [prepping, setPrepping] = useState(false);
+  const markdown = detail ? ((view === 'debrief' ? detail.debriefMarkdown : detail.transcriptMarkdown) || '_Nothing recorded._') : '';
+  const renderedMarkdown = React.useMemo(() => markdown ? safeMarkdown(markdown) : '', [markdown]);
+
+  const detailRequest = useRef(0);
+  const roleVersion = useRef(0);
+
+  useEffect(() => {
+    setOpenFolder(null); setDetail(null); setPrep(null); setPrepping(false);
+    return () => { detailRequest.current++; roleVersion.current++; };
+  }, [roleKey]);
+
+  const toggle = async (folder) => {
+    const request = ++detailRequest.current;
+    if (openFolder === folder) { setOpenFolder(null); setDetail(null); return; }
+    setOpenFolder(folder); setView('debrief'); setDetail(null);
+    const enc = encodeURIComponent(folder);
+    const [rec, tr] = await Promise.all([
+      interviewRequest(api.get(`/api/interview/sessions/${enc}`)).catch(e => ({ error: e.message })),
+      interviewRequest(api.get(`/api/interview/sessions/${enc}/transcript`)).catch(e => ({ error: e.message })),
+    ]);
+    if (request !== detailRequest.current) return;
+    setDetail({ ...rec, transcriptMarkdown: tr.markdown || null, transcriptError: tr.error || null });
+  };
+
+  const runPrep = async () => {
+    const version = roleVersion.current;
+    setPrepping(true); setPrep(null);
+    try {
+      const result = await interviewRequest(api.post('/api/interview/context', { roleKey, round }));
+      if (version === roleVersion.current) setPrep(result);
+    } catch (e) { if (version === roleVersion.current) setPrep({ error: e.message }); }
+    finally { if (version === roleVersion.current) setPrepping(false); }
+  };
+
+  if (!status) return null;
+  return (
+    <div className="mc-section">
+      <div className="mc-section-title">
+        <Icons.messageCircle style={{width:14,height:14,color:'var(--violet)'}} /> Interviews ({sessions.length})
+      </div>
+      {status.error ? <div role="alert" style={{color:'var(--rose)',fontSize:12}}>{status.error}</div> : status.installed ? (
+        <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}>
+          <select aria-label="Interview round" value={round} onChange={e => setRound(e.target.value)} style={interviewSelectStyle}>
+            {INTERVIEW_ROUNDS.map(r => <option key={r} value={r}>{INTERVIEW_ROUND_LABELS[r]}</option>)}
+          </select>
+          <button className="btn btn-secondary" style={{padding:'6px 14px',fontSize:12}} disabled={prepping} onClick={runPrep}>
+            {prepping ? 'Preparing…' : 'Prep /interview'}
+          </button>
+        </div>
+      ) : (
+        <div style={{marginBottom:12}}><InterviewNotInstalled status={status} /></div>
+      )}
+      {prep && (
+        <div style={{fontSize:12,fontFamily:'var(--font-mono)',background:'var(--bg-surface)',border:'1px solid var(--border)',borderRadius:8,padding:10,marginBottom:12,wordBreak:'break-all'}}>
+          {prep.error ? <div role="alert" style={{color:'var(--rose)'}}>{prep.error}</div> : (
+            <>
+              {(prep.written || []).map(p => <div key={p} style={{color:'var(--emerald)'}}>written {p}</div>)}
+              {(prep.skipped || []).map(s => (
+                <div key={s.path} style={{color:'var(--text-muted)'}}>skipped {s.path}: {s.reason}{s.wroteInstead ? ` (wrote ${s.wroteInstead})` : ''}</div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      {listError && <div role="alert" style={{color:'var(--rose)',fontSize:12}}>{listError}</div>}
+      {!listError && sessions.length === 0 && <div style={{fontSize:12,color:'var(--text-muted)'}}>No /interview sessions linked to this role yet.</div>}
+      {sessions.map(s => (
+        <div key={s.folder} style={{border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',marginBottom:8}}>
+          <div onClick={() => toggle(s.folder)} style={{cursor:'pointer',display:'flex',gap:8,alignItems:'center',fontSize:13,flexWrap:'wrap'}}>
+            <span style={{fontFamily:'var(--font-mono)',color:'var(--text-muted)'}}>{interviewDate(s.startedAt)}</span>
+            <span style={{fontWeight:600}}>{INTERVIEW_ROUND_LABELS[s.round] || s.round}</span>
+            {s.interviewer && <span>with {s.interviewer}</span>}
+            {s.durationMin != null && <span style={{color:'var(--text-muted)'}}>{s.durationMin} min</span>}
+            {s.practice && <span style={{background:'var(--violet-dim)',color:'var(--violet)',borderRadius:6,padding:'1px 6px',fontSize:10,fontWeight:600}}>practice</span>}
+            <span style={{fontSize:11,color:'var(--text-muted)'}}>{INTERVIEW_STATUS_LABELS[s.status] || s.status}</span>
+            {s.ingesting && <span style={{fontSize:11,color:'var(--amber)'}}>ingesting… (in flight)</span>}
+            <span style={{marginLeft:'auto',fontSize:11,color:'var(--text-muted)'}}>{interviewEffects(s)}</span>
+          </div>
+          {s.status === 'failed' && s.lastError && <div role="alert" style={{fontSize:11,color:'var(--rose)',marginTop:4}}>{s.lastError}</div>}
+          {s.analysisError && <div style={{fontSize:11,color:'var(--rose)',marginTop:4}}>debrief analysis failed: {s.analysisError}</div>}
+          {openFolder === s.folder && (
+            <div style={{marginTop:10}}>
+              <div className="prep-tabs">
+                <div className={`prep-tab ${view === 'debrief' ? 'active' : ''}`} onClick={() => setView('debrief')}>Scorecard &amp; debrief</div>
+                <div className={`prep-tab ${view === 'transcript' ? 'active' : ''}`} onClick={() => setView('transcript')}>Transcript</div>
+              </div>
+              {detail && detail.error && <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{detail.error}</div>}
+              {detail && detail.transcriptError && <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{detail.transcriptError}</div>}
+              {!detail ? <div style={{fontSize:12,color:'var(--text-muted)'}}>Loading…</div> : (
+                <div className="md-content" style={{fontSize:13,maxHeight:420,overflow:'auto'}}
+                  dangerouslySetInnerHTML={{__html: renderedMarkdown}} />
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UnlinkedSessions() {
+  const status = useInterviewStatus();
+  // Fetch all statuses so a just-linked row remains observable until ingestion settles.
+  const { sessions: allSessions, error: listError, load } = useInterviewSessions('/api/interview/sessions');
+  const [roleKeys, setRoleKeys] = useState([]);
+  const [picks, setPicks] = useState({});
+  const [busy, setBusy] = useState({});
+  const [errors, setErrors] = useState({});
+  const [roleError, setRoleError] = useState('');
+  const mounted = useRef(false);
+  const sessions = allSessions.filter(s => s.status === 'unlinked' || !s.roleKey ||
+    (picks[s.folder] && (interviewIsActive(s) || s.status === 'failed' || errors[s.folder])));
+
+  useEffect(() => {
+    let alive = true;
+    mounted.current = true;
+    Promise.all([
+      interviewRequest(api.get('/api/role-tracker')).catch(e => ({ error: e.message })),
+      interviewRequest(api.get('/api/role-actions')).catch(e => ({ error: e.message })),
+    ]).then(([tracker, actions]) => {
+      if (!alive) return;
+      setRoleError([tracker.error, actions.error].filter(Boolean).join(' · '));
+      const keys = new Set([
+        ...Object.keys(tracker.error ? {} : tracker),
+        ...(actions.error ? [] : [...(actions.saved || []), ...(actions.applied || [])]),
+      ]);
+      setRoleKeys([...keys].filter(k => k.includes('|')).sort());
+    });
+    return () => { alive = false; mounted.current = false; };
+  }, []);
+
+  const link = async (folder) => {
+    const roleKey = picks[folder];
+    if (!roleKey || busy[folder]) return;
+    setBusy(b => ({ ...b, [folder]: true }));
+    setErrors(e => ({ ...e, [folder]: null }));
+    try {
+      await interviewRequest(api.post(`/api/interview/sessions/${encodeURIComponent(folder)}/link`, { roleKey }));
+    } catch (e) { if (mounted.current) setErrors(errors => ({ ...errors, [folder]: e.message })); }
+    finally {
+      if (mounted.current) { setBusy(b => ({ ...b, [folder]: false })); load(); }
+    }
+  };
+
+  if (!status) return null;
+  if (!status.installed && !status.error && sessions.length === 0 && !listError && !roleError) return <InterviewNotInstalled status={status} />;
+  if (sessions.length === 0 && status.installed && !status.error && !listError && !roleError) return null;
+  return (
+    <div className="mc-section anim-enter" style={{margin:'0 0 16px',border:'1px solid var(--border)',borderRadius:10,padding:12}}>
+      <div className="mc-section-title"><Icons.messageCircle style={{width:14,height:14,color:'var(--amber)'}} /> Unlinked /interview sessions ({sessions.length})</div>
+      {status.error ? <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{status.error}</div> : !status.installed && <InterviewNotInstalled status={status} />}
+      {listError && <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{listError}</div>}
+      {roleError && <div role="alert" style={{fontSize:12,color:'var(--rose)'}}>{roleError}</div>}
+      {sessions.map(s => (
+        <div key={s.folder} style={{display:'flex',gap:8,alignItems:'center',fontSize:13,marginBottom:6,flexWrap:'wrap'}}>
+          <span style={{fontFamily:'var(--font-mono)',color:'var(--text-muted)'}}>{interviewDate(s.startedAt)}</span>
+          <span style={{fontWeight:600}}>{INTERVIEW_ROUND_LABELS[s.round] || s.round}</span>
+          <span style={{fontSize:11,color:'var(--text-muted)'}}>{INTERVIEW_STATUS_LABELS[s.status] || s.status}</span>
+          {s.ingesting && <span style={{fontSize:11,color:'var(--amber)'}}>ingesting… (in flight)</span>}
+          <span style={{flex:1,minWidth:160,color:'var(--text-secondary)'}}>{s.firstQuestion || 'No question recorded'}</span>
+          <select aria-label="Link session to role" value={picks[s.folder] || ''} disabled={busy[s.folder] || interviewIsActive(s)} onChange={e => { const v = e.target.value; setPicks(p => ({ ...p, [s.folder]: v })); }} style={interviewSelectStyle}>
+            <option value="">Pick a role…</option>
+            {roleKeys.map(k => <option key={k} value={k}>{k.replace('|', ' — ')}</option>)}
+          </select>
+          <button className="btn btn-primary" style={{padding:'6px 14px',fontSize:12}} disabled={!picks[s.folder] || busy[s.folder] || interviewIsActive(s)} onClick={() => link(s.folder)}>
+            {busy[s.folder] ? 'Linking…' : 'Link'}
+          </button>
+          {errors[s.folder] && <span role="alert" style={{fontSize:11,color:'var(--rose)'}}>{errors[s.folder]}</span>}
+          {s.status === 'failed' && s.lastError && <span role="alert" style={{fontSize:11,color:'var(--rose)'}}>{s.lastError}</span>}
+          {s.analysisError && <span style={{fontSize:11,color:'var(--rose)'}}>debrief analysis failed: {s.analysisError}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ===== DASHBOARD ===== */
 function Dashboard({ progress, todayTasks, todayQuiz, latestIntel, setPage, newRolesCount, jobStatus }) {
+  const [profile, setProfile] = useState(null);
+  useEffect(() => {
+    api.get('/api/profile').then(setProfile).catch(() => setProfile(null));
+  }, []);
   const tasksDone = todayTasks?.tasks?.filter(t => t.completed).length || 0;
   const tasksTotal = todayTasks?.tasks?.length || 0;
   const codingTasks = todayTasks?.tasks?.filter(t => t.category === 'coding' && !t.completed) || [];
@@ -751,7 +1048,7 @@ function Dashboard({ progress, todayTasks, todayQuiz, latestIntel, setPage, newR
 
   return (
     <>
-      <div className="page-header anim-enter"><h2>{greeting}</h2><div className="greeting-sub">Here's your mission status for today.</div></div>
+      <div className="page-header anim-enter"><h2>{greeting}{profile?.name ? `, ${profile.name}` : ''}</h2><div className="greeting-sub">Here's your mission status for today.</div></div>
 
       {/* Scheduled Job Status Banner */}
       {js && (
@@ -1137,6 +1434,7 @@ function Resume({ resume, setResume }) {
   const folderInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const [view, setView] = useState('files');
 
   const fileUrl = (name) => '/api/resume/file/' + name.split('/').map(encodeURIComponent).join('/');
   const isTextFile = (name) => /\.(tex|cls|sty|bib|bst|cfg|def|fd|dtx|ins|latexmkrc)$/i.test(name);
@@ -1371,6 +1669,8 @@ function Resume({ resume, setResume }) {
   const sortedDirs = Object.keys(tree).sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b));
   const canEdit = selectedFile && isTextFile(selectedFile);
 
+  if (view === 'master') return <MasterEditor onExit={() => setView('files')} />;
+
   // Empty state — show upload zone
   if (!hasFiles || showUpload) {
     return (
@@ -1380,6 +1680,7 @@ function Resume({ resume, setResume }) {
         onDrop={handleDrop}>
         <div style={{padding:'20px 28px 0'}}>
           <h2 style={{fontSize:22,fontWeight:700,color:'var(--text)',marginBottom:4}}>Resume</h2>
+          <button className="btn btn-secondary" onClick={() => setView('master')} style={{marginBottom:12,fontSize:12,padding:'6px 14px'}}>Master resume</button>
           <div style={{fontSize:13,color:'var(--text-muted)',marginBottom:16}}>Upload your LaTeX resume project to get started</div>
           {hasFiles && <button className="btn btn-secondary" onClick={() => setShowUpload(false)} style={{marginBottom:16,fontSize:12,padding:'6px 14px'}}>← Back to Editor</button>}
         </div>
@@ -1437,6 +1738,7 @@ function Resume({ resume, setResume }) {
       {/* Toolbar */}
       <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--bg-card)',flexShrink:0}}>
         <h2 style={{fontSize:16,fontWeight:700,color:'var(--text)',margin:0,marginRight:8}}>Resume</h2>
+        <button className="btn btn-secondary" onClick={() => setView('master')} style={{padding:'6px 14px',fontSize:12}}>Master</button>
         {selectedFile && (
           <span style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--text-muted)',background:'var(--bg-surface)',padding:'3px 10px',borderRadius:4}}>
             {selectedFile}
@@ -1605,6 +1907,489 @@ function Resume({ resume, setResume }) {
         )}
       </div>
     </div>
+  );
+}
+
+/* ===== RESUME TAILORING (P2) ===== */
+const resumeApi = {
+  async request(method, url, data) {
+    const res = await fetch(url, {
+      method,
+      headers: data === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: data === undefined ? undefined : JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { const err = new Error(body.error || `${res.status} ${res.statusText}`); err.body = body; throw err; }
+    return body;
+  },
+  get(url) { return this.request('GET', url); },
+  send(method, url, data) { return this.request(method, url, data); },
+};
+
+const rmInput = { width: '100%', boxSizing: 'border-box', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', color: 'var(--text)', fontSize: 13, outline: 'none', fontFamily: 'var(--font-display)' };
+const rmLabel = { display: 'block', fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '6px 0 3px' };
+const rmCard = { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 14 };
+const rmSmallBtn = { padding: '2px 8px', fontSize: 11 };
+const rmIdStyle = { fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', opacity: 0.6 };
+const rmNewId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+const rmMove = (list, i, delta) => {
+  const j = i + delta;
+  if (j < 0 || j >= list.length) return list;
+  const out = list.slice();
+  const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+  return out;
+};
+const rmLines = (v) => String(v).split('\n');
+const rmClean = (m) => ({
+  ...m,
+  contact: { ...m.contact, links: (m.contact.links || []).map((s) => s.trim()).filter(Boolean) },
+  projects: (m.projects || []).map((p) => ({ ...p, tech: (p.tech || []).map((s) => s.trim()).filter(Boolean) })),
+  skills: (m.skills || []).map((g) => ({ ...g, items: (g.items || []).map((s) => s.trim()).filter(Boolean) })),
+});
+
+function RmField({ label, value, onChange, placeholder, multiline, rows = 3 }) {
+  return (
+    <label style={{ display: 'block', flex: 1, minWidth: 140 }}>
+      <span style={rmLabel}>{label}</span>
+      {multiline
+        ? <textarea value={value ?? ''} rows={rows} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={{ ...rmInput, resize: 'vertical' }} />
+        : <input value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={rmInput} />}
+    </label>
+  );
+}
+
+function RmBullets({ bullets, onChange }) {
+  return (
+    <div style={{ marginTop: 6 }}>
+      {bullets.map((b, i) => (
+        <div key={b.id || `new-${i}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
+          <textarea value={b.text} rows={2} onChange={(e) => onChange(bullets.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))} style={{ ...rmInput, flex: 1, resize: 'vertical' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+            <span title="Stable bullet ID (kept when you edit the text)" style={rmIdStyle}>{b.id || 'new'}{b.variantOf ? ` ↳ ${b.variantOf}` : ''}</span>
+            <div style={{ display: 'flex', gap: 2 }}>
+              <button className="btn btn-secondary" style={rmSmallBtn} title="Move up" onClick={() => onChange(rmMove(bullets, i, -1))}>↑</button>
+              <button className="btn btn-secondary" style={rmSmallBtn} title="Move down" onClick={() => onChange(rmMove(bullets, i, 1))}>↓</button>
+              <button className="btn btn-secondary" style={rmSmallBtn} title="Delete bullet" onClick={() => onChange(bullets.filter((_, k) => k !== i))}>✕</button>
+            </div>
+          </div>
+        </div>
+      ))}
+      <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => onChange([...bullets, { text: '' }])}>+ Bullet</button>
+    </div>
+  );
+}
+
+function MasterEditor({ onExit }) {
+  const [master, setMaster] = useState(null);
+  const [savedJson, setSavedJson] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importInFlight = useRef(false);
+  const [errors, setErrors] = useState([]);
+  const [status, setStatus] = useState('');
+  const [proposal, setProposal] = useState(null);
+
+  useEffect(() => {
+    resumeApi.get('/api/resume/master')
+      .then((m) => { setMaster(m); setSavedJson(JSON.stringify(m)); })
+      .catch((err) => setErrors([err.message]));
+  }, []);
+
+  if (!master) return <div style={{ padding: 28, color: 'var(--text-muted)' }}>{errors[0] || 'Loading master resume…'}</div>;
+
+  const dirty = JSON.stringify(master) !== savedJson;
+  const patch = (p) => setMaster({ ...master, ...p });
+  const setContact = (k, v) => patch({ contact: { ...master.contact, [k]: v } });
+  const setListItem = (key, i, p) => patch({ [key]: master[key].map((x, k) => (k === i ? { ...x, ...p } : x)) });
+  const removeListItem = (key, i) => patch({ [key]: master[key].filter((_, k) => k !== i) });
+  const setRole = (ei, ri, p) => setListItem('experience', ei, { roles: master.experience[ei].roles.map((r, k) => (k === ri ? { ...r, ...p } : r)) });
+  const endOrNull = (v) => (v.trim() ? v.trim() : null);
+
+  const save = async () => {
+    if (saving) return;
+    const sentJson = JSON.stringify(master);
+    setSaving(true);
+    setStatus('Saving…');
+    setErrors([]);
+    try {
+      const m = await resumeApi.send('PUT', '/api/resume/master', rmClean(master));
+      setMaster((cur) => (JSON.stringify(cur) === sentJson ? m : cur));
+      setSavedJson(JSON.stringify(m));
+      setStatus('Saved');
+    } catch (err) {
+      setErrors((err.body && err.body.errors) || [err.message]);
+      setStatus('');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const importLatex = async () => {
+    if (importInFlight.current) return;
+    importInFlight.current = true;
+    setImporting(true);
+    setStatus('Converting your LaTeX resume (this can take a few minutes)…');
+    setErrors([]);
+    try {
+      setProposal(await resumeApi.send('POST', '/api/resume/master/import-latex', {}));
+    } catch (err) {
+      setErrors([err.message]);
+    } finally {
+      importInFlight.current = false;
+      setImporting(false);
+      setStatus('');
+    }
+  };
+  const newRole = () => ({ id: rmNewId('role-'), title: '', team: '', start: '', end: null, bullets: [] });
+
+  return (
+    <div style={{ height: '100%', overflowY: 'auto', padding: '20px 28px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Master resume</h2>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>The only source of facts for every tailored resume.</span>
+        <div style={{ flex: 1 }} />
+        {status && <span style={{ fontSize: 11, color: 'var(--amber)', fontFamily: 'var(--font-mono)' }}>{status}</span>}
+        {dirty && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>● Unsaved</span>}
+        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => { if (!dirty || window.confirm('Discard unsaved changes?')) onExit(); }}>← LaTeX files</button>
+        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} disabled={importing} onClick={importLatex}>Import from LaTeX</button>
+        <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 16px' }} disabled={!dirty || saving} onClick={save}>Save</button>
+      </div>
+
+      {errors.length > 0 && (
+        <div style={{ ...rmCard, borderColor: 'var(--rose)' }}>
+          {errors.map((e, i) => <div key={i} style={{ fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--font-mono)' }}>{e}</div>)}
+        </div>
+      )}
+
+      {proposal && (
+        <div style={rmCard}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <strong style={{ fontSize: 13 }}>Proposed master from LaTeX</strong>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Review the diff, choose "Use this", then Save.</span>
+            <div style={{ flex: 1 }} />
+            <button className="btn btn-primary" style={rmSmallBtn} onClick={() => { if (!dirty || window.confirm('Replace your unsaved edits with the imported resume?')) { setMaster(proposal.proposed); setProposal(null); } }}>Use this</button>
+            <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => setProposal(null)}>Discard</button>
+          </div>
+          {proposal.errors && proposal.errors.length > 0 && <div style={{ fontSize: 11, color: 'var(--rose)', marginBottom: 6 }}>{proposal.errors.join(' · ')}</div>}
+          <pre style={{ maxHeight: 320, overflow: 'auto', fontSize: 11, fontFamily: 'var(--font-mono)', background: 'var(--bg-surface)', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap' }}>{proposal.diff}</pre>
+        </div>
+      )}
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Contact</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {['name', 'email', 'phone', 'linkedin', 'location'].map((k) => <RmField key={k} label={k} value={master.contact[k]} onChange={(v) => setContact(k, v)} />)}
+          <RmField label="other links (one per line)" multiline rows={2} value={(master.contact.links || []).join('\n')} onChange={(v) => setContact('links', rmLines(v))} />
+        </div>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Headline and summary</div>
+        <RmField label="headline" value={master.headline} onChange={(v) => patch({ headline: v })} />
+        <RmField label="summary" multiline rows={4} value={master.summary} onChange={(v) => patch({ summary: v })} />
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Experience <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>dates as YYYY-MM; leave end empty for Present</span></div>
+        {master.experience.map((e, ei) => (
+          <div key={e.id} style={{ borderTop: ei ? '1px solid var(--border)' : 'none', paddingTop: ei ? 12 : 0, marginTop: ei ? 12 : 0 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <RmField label="employer" value={e.employer} onChange={(v) => setListItem('experience', ei, { employer: v })} />
+              <RmField label="start" value={e.start} placeholder="2019-03" onChange={(v) => setListItem('experience', ei, { start: v.trim() })} />
+              <RmField label="end" value={e.end || ''} placeholder="Present" onChange={(v) => setListItem('experience', ei, { end: endOrNull(v) })} />
+              <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ experience: rmMove(master.experience, ei, -1) })}>↑</button>
+              <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ experience: rmMove(master.experience, ei, 1) })}>↓</button>
+              <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => removeListItem('experience', ei)}>Remove employer</button>
+            </div>
+            {e.roles.map((r, ri) => (
+              <div key={r.id} style={{ marginLeft: 18, marginTop: 10, paddingLeft: 12, borderLeft: '2px solid var(--border)' }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <RmField label="title" value={r.title} onChange={(v) => setRole(ei, ri, { title: v })} />
+                  <RmField label="team" value={r.team} onChange={(v) => setRole(ei, ri, { team: v })} />
+                  <RmField label="start" value={r.start} placeholder="2022-05" onChange={(v) => setRole(ei, ri, { start: v.trim() })} />
+                  <RmField label="end" value={r.end || ''} placeholder="Present" onChange={(v) => setRole(ei, ri, { end: endOrNull(v) })} />
+                  <span style={rmIdStyle}>{r.id}</span>
+                  <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => setListItem('experience', ei, { roles: rmMove(e.roles, ri, -1) })}>↑</button>
+                  <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => setListItem('experience', ei, { roles: rmMove(e.roles, ri, 1) })}>↓</button>
+                  <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => setListItem('experience', ei, { roles: e.roles.filter((_, k) => k !== ri) })}>Remove role</button>
+                </div>
+                <RmBullets bullets={r.bullets} onChange={(b) => setRole(ei, ri, { bullets: b })} />
+              </div>
+            ))}
+            <button className="btn btn-secondary" style={{ ...rmSmallBtn, marginTop: 8, marginLeft: 18 }} onClick={() => setListItem('experience', ei, { roles: [...e.roles, newRole()] })}>+ Role</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary" style={{ ...rmSmallBtn, marginTop: 12 }} onClick={() => patch({ experience: [...master.experience, { id: rmNewId('emp-'), employer: '', start: '', end: null, roles: [newRole()] }] })}>+ Employer</button>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Projects</div>
+        {master.projects.map((p, pi) => (
+          <div key={p.id} style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <RmField label="name" value={p.name} onChange={(v) => setListItem('projects', pi, { name: v })} />
+              <RmField label="tech (one per line)" multiline rows={2} value={(p.tech || []).join('\n')} onChange={(v) => setListItem('projects', pi, { tech: rmLines(v) })} />
+              <span style={rmIdStyle}>{p.id}</span>
+              <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ projects: rmMove(master.projects, pi, -1) })}>↑</button>
+              <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ projects: rmMove(master.projects, pi, 1) })}>↓</button>
+              <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => removeListItem('projects', pi)}>Remove project</button>
+            </div>
+            <RmBullets bullets={p.bullets} onChange={(b) => setListItem('projects', pi, { bullets: b })} />
+          </div>
+        ))}
+        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ projects: [...master.projects, { id: rmNewId('proj.p'), name: '', tech: [], bullets: [] }] })}>+ Project</button>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Skills</div>
+        {master.skills.map((g, gi) => (
+          <div key={gi} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
+            <div style={{ width: 200 }}><RmField label="group" value={g.group} onChange={(v) => setListItem('skills', gi, { group: v })} /></div>
+            <RmField label="items (one per line)" multiline rows={3} value={(g.items || []).join('\n')} onChange={(v) => setListItem('skills', gi, { items: rmLines(v) })} />
+            <button className="btn btn-secondary" style={{ ...rmSmallBtn, marginTop: 22 }} onClick={() => removeListItem('skills', gi)}>✕</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ skills: [...master.skills, { group: '', items: [] }] })}>+ Skill group</button>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Education</div>
+        {master.education.map((ed, i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 6 }}>
+            <RmField label="school" value={ed.school} onChange={(v) => setListItem('education', i, { school: v })} />
+            <RmField label="degree" value={ed.degree} onChange={(v) => setListItem('education', i, { degree: v })} />
+            <RmField label="start" value={ed.start} placeholder="optional" onChange={(v) => setListItem('education', i, { start: v.trim() })} />
+            <RmField label="end" value={ed.end} placeholder="2018-12" onChange={(v) => setListItem('education', i, { end: v.trim() })} />
+            <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => removeListItem('education', i)}>✕</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ education: [...master.education, { school: '', degree: '', start: '', end: '' }] })}>+ Education</button>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Certifications</div>
+        {master.certifications.map((c, i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 6 }}>
+            <RmField label="name" value={c.name} onChange={(v) => setListItem('certifications', i, { name: v })} />
+            <RmField label="date" value={c.date} placeholder="2024" onChange={(v) => setListItem('certifications', i, { date: v })} />
+            <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => removeListItem('certifications', i)}>✕</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ certifications: [...master.certifications, { name: '', date: '' }] })}>+ Certification</button>
+      </div>
+    </div>
+  );
+}
+
+const RM_ACTIVE = ['queued', 'running'];
+const RM_STATUS = { queued: 'Queued', running: 'Tailoring…', done: 'Done', 'below-target': 'Below 90', failed: 'Failed' };
+const rmScoreColor = (s) => (s >= 90 ? 'var(--emerald)' : s >= 75 ? 'var(--amber)' : 'var(--rose)');
+const rmActionBtn = { fontSize: 12, padding: '5px 12px' };
+
+function useTailoredRecord(roleKey) {
+  const [records, setRecords] = useState(null);
+  const [error, setError] = useState('');
+  const load = useCallback(() => {
+    setError('');
+    return resumeApi.get('/api/resume/tailored').then(setRecords).catch((err) => setError(err.message));
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener('resume-tailored-updated', load);
+    return () => window.removeEventListener('resume-tailored-updated', load);
+  }, [load, roleKey]);
+  const mine = (records || []).filter((m) => (m.roleKeys || []).includes(roleKey));
+  const record = mine.find((m) => m.status !== 'failed') || mine[0] || null;
+  const active = !!record && RM_ACTIVE.includes(record.status);
+  useEffect(() => {
+    if (!active) return undefined;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [active, load]);
+  return { record, reload: load, loaded: records !== null, error };
+}
+
+function TailoredResumeCard({ roleKey, onAccepted = async () => {} }) {
+  const { record, reload, loaded, error: listError } = useTailoredRecord(roleKey);
+  const [detail, setDetail] = useState(null);
+  const [diff, setDiff] = useState(null);
+  const [showDiff, setShowDiff] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [jdText, setJdText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const id = record ? record.id : null;
+  const version = record ? `${record.status}|${record.updatedAt}` : '';
+
+  useEffect(() => {
+    setDetail(null);
+    setDiff(null);
+    setShowDiff(false);
+    if (!id) return;
+    let cancelled = false;
+    resumeApi.get(`/api/resume/tailored/${id}`)
+      .then((data) => { if (!cancelled) setDetail(data); })
+      .catch((err) => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
+  }, [id, version]);
+
+  const act = async (fn, onSuccess = async () => {}) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+      try { await onSuccess(); } finally {
+        await reload();
+        window.dispatchEvent(new Event('resume-tailored-updated'));
+      }
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const tailor = () => act(() => resumeApi.send('POST', '/api/resume/tailored', { roleKey }));
+  const retry = () => act(() => resumeApi.send('POST', `/api/resume/tailored/${id}/retry`));
+  const accept = () => act(() => resumeApi.send('POST', `/api/resume/tailored/${id}/accept`), onAccepted);
+  const remove = () => { if (window.confirm('Delete this tailored resume?')) act(() => resumeApi.send('DELETE', `/api/resume/tailored/${id}`)); };
+  const submitJd = () => act(async () => {
+    await resumeApi.send('PUT', `/api/resume/tailored/${id}/jd`, { text: jdText });
+    setPasting(false);
+    setJdText('');
+  });
+  const toggleDiff = async () => {
+    const next = !showDiff;
+    setShowDiff(next);
+    if (next && !diff) {
+      try { setDiff(await resumeApi.get(`/api/resume/tailored/${id}/diff`)); } catch (err) { setError(err.message); }
+    }
+  };
+
+  if (!loaded && !listError) return null;
+  const isActive = !!record && RM_ACTIVE.includes(record.status);
+  const best = detail && record && record.bestRound ? detail.rounds.find((r) => r.n === record.bestRound) : null;
+  const cats = best && best.scoreDetail ? best.scoreDetail.categories : null;
+  const gaps = (record && record.gaps) || { missing: [], unsupported: [] };
+  const unsupported = new Set(gaps.unsupported || []);
+  const frozen = !!(detail && detail.keywords);
+  const diffSections = diff ? [
+    ...diff.experience.flatMap((e) => e.roles.map((r) => ({ key: `${e.id}/${r.id}`, title: `${r.title} · ${e.employer}`, section: r }))),
+    ...diff.projects.filter((p) => p.included).map((p) => ({ key: p.id, title: p.name, section: p })),
+  ] : [];
+
+  return (
+    <div className="mc-section">
+      <div className="mc-section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Icons.fileText style={{ width: 14, height: 14, color: 'var(--emerald)' }} /> Tailored resume
+        {record && typeof record.bestScore === 'number' && (
+          <span style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: rmScoreColor(record.bestScore), border: `1px solid ${rmScoreColor(record.bestScore)}` }}>{record.bestScore}{cats ? ` · K ${cats.K} P ${cats.P} S ${cats.S} H ${cats.H} C ${cats.C}` : '/100'}</span>
+        )}
+        {record && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {RM_STATUS[record.status] || record.status}{record.deferred ? ' (deferred: daily cap)' : ''}{record.accepted ? ' · accepted' : ''}
+          </span>
+        )}
+        <div style={{ flex: 1 }} />
+        {loaded && !record && !listError && <button className="btn btn-primary" style={rmActionBtn} disabled={busy} onClick={tailor}>Tailor resume</button>}
+      </div>
+
+      {(error || listError) && <div style={{ fontSize: 12, color: 'var(--rose)', marginBottom: 8 }}>{error || listError}</div>}
+      {loaded && !record && !listError && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Builds a version of your master resume for this posting and grades it until it scores 90 or more (up to 3 rounds per run).</div>}
+
+      {record && (
+        <>
+          {record.error && <div style={{ fontSize: 12, color: 'var(--rose)', marginBottom: 8, whiteSpace: 'pre-wrap' }}>{record.error}</div>}
+          {isActive && <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 8 }}>Working… this card refreshes every few seconds.</div>}
+
+          {cats && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              {[['K', 'Keywords', 30], ['P', 'Parseability', 30], ['S', 'Structure', 15], ['H', 'History', 15], ['C', 'Content', 10]].map(([k, label, max]) => (
+                <div key={k} style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                  {label} <strong style={{ color: cats[k] >= max ? 'var(--emerald)' : 'var(--text)' }}>{cats[k]}</strong>/{max}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {detail && detail.rounds.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={rmLabel}>Rounds</div>
+              {detail.rounds.map((r) => (
+                <div key={r.n} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '2px 0', color: r.n === record.bestRound ? 'var(--text)' : 'var(--text-secondary)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', width: 64 }}>Round {r.n}</span>
+                  {r.status === 'scored'
+                    ? <span style={{ fontFamily: 'var(--font-mono)', color: rmScoreColor(r.score) }}>{r.score}</span>
+                    : <span style={{ color: 'var(--rose)' }}>discarded: {r.reason}</span>}
+                  {r.n === record.bestRound && <span style={{ fontSize: 10, color: 'var(--emerald)' }}>best</span>}
+                  {r.status === 'scored' && <a href={`/api/resume/tailored/${id}/pdf?round=${r.n}`} target="_blank" rel="noopener" style={{ fontSize: 11 }}>PDF</a>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(gaps.missing || []).length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={rmLabel}>Missing required keywords</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {gaps.missing.map((k) => (
+                  <span key={k} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, border: '1px solid var(--border)', color: unsupported.has(k) ? 'var(--text-muted)' : 'var(--amber)' }}>
+                    {k}{unsupported.has(k) ? ' · not supported by your master resume' : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {record.bestRound && <a className="btn btn-primary" href={`/api/resume/tailored/${id}/pdf`} target="_blank" rel="noopener" style={{ ...rmActionBtn, textDecoration: 'none' }}>Download PDF</a>}
+            {record.bestRound && <button className="btn btn-secondary" style={rmActionBtn} onClick={toggleDiff}>{showDiff ? 'Hide' : 'Show'} bullet diff</button>}
+            {!isActive && frozen && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={retry}>Retry</button>}
+            {!isActive && detail && !frozen && <button className="btn btn-secondary" style={rmActionBtn} onClick={() => setPasting(!pasting)}>Paste JD</button>}
+            {record.bestRound && !record.accepted && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={accept}>Accept</button>}
+            {!isActive && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={remove}>Delete</button>}
+            {record.status === 'failed' && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={tailor}>Start over</button>}
+          </div>
+
+          {pasting && (
+            <div style={{ marginTop: 10 }}>
+              <textarea value={jdText} onChange={(e) => setJdText(e.target.value)} rows={8} placeholder="Paste the full job description text" style={{ ...rmInput, resize: 'vertical' }} />
+              <button className="btn btn-primary" style={{ ...rmActionBtn, marginTop: 6 }} disabled={busy || jdText.trim().length < 200} onClick={submitJd}>Use this job description</button>
+            </div>
+          )}
+
+          {showDiff && diff && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Round {diff.round}: master on the left, tailored on the right.</div>
+              {diffSections.map(({ key, title, section }) => (
+                <div key={key} style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{title}</div>
+                  {section.items.map((it, i) => (
+                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11, lineHeight: 1.5, padding: '4px 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ color: 'var(--text-muted)' }}>
+                        <span style={rmIdStyle}>{it.src || 'no src'}</span>{' '}
+                        {it.status === 'unknown-source' ? <em>source deleted from master</em> : it.master}
+                      </div>
+                      <div>
+                        <span style={{ ...rmIdStyle, color: it.status === 'kept' ? 'var(--text-muted)' : 'var(--amber)' }}>{it.status}</span>{' '}
+                        {it.ops && it.ops.length
+                          ? it.ops.filter((o) => o.op !== 'del').map((o, k) => <span key={k} style={o.op === 'add' ? { background: 'var(--amber-dim)' } : null}>{o.text} </span>)
+                          : it.tailored}
+                      </div>
+                    </div>
+                  ))}
+                  {section.dropped.length > 0 && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Not used: {section.dropped.map((b) => b.id).join(', ')}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AcceptedResumeLink({ roleKey, stage }) {
+  const { record } = useTailoredRecord(roleKey);
+  if (!record || !record.accepted || !['applied', 'phone-screen', 'onsite', 'offer'].includes(stage)) return null;
+  return (
+    <a href={`/api/resume/tailored/${record.id}/pdf`} target="_blank" rel="noopener" className="btn btn-link" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+      <Icons.fileText style={{ width: 14, height: 14 }} /> Accepted resume ({record.bestScore})
+    </a>
   );
 }
 
@@ -1783,12 +2568,11 @@ const DEFAULT_CHECKLISTS = {
   rejected: [],
 };
 
-function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage, openSystemDesignTopic }) {
+function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage }) {
   const [selectedKey, setSelectedKey] = useState(null);
   const [filter, setFilter] = useState('all');
   const [newCheckItem, setNewCheckItem] = useState('');
   const [newTimelineEvent, setNewTimelineEvent] = useState('');
-  const [planLoadingKeys, setPlanLoadingKeys] = useState({});
   const saveTimer = useRef(null);
 
   // Build role list: all roles from all intel, merged with tracker data
@@ -1911,108 +2695,6 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
     setNewTimelineEvent('');
   };
 
-  const [prepTab, setPrepTab] = useState('questions');
-  const [revealedAnswers, setRevealedAnswers] = useState({});
-  const [quizAnswers, setQuizAnswers] = useState({});
-  const [quizSubmitted, setQuizSubmitted] = useState(false);
-  const [readinessChecks, setReadinessChecks] = useState({});
-  const [practiceAnswers, setPracticeAnswers] = useState({});
-  const [evaluations, setEvaluations] = useState({});
-  const [evaluatingKeys, setEvaluatingKeys] = useState({});
-
-  // Load persisted prep state when switching roles
-  useEffect(() => {
-    setRevealedAnswers(tracker?.revealedAnswers || {});
-    setQuizAnswers(tracker?.quizAnswers || {});
-    setQuizSubmitted(!!tracker?.quizSubmitted);
-    setPrepTab('questions');
-    setReadinessChecks(tracker?.readinessChecks || {});
-    setPracticeAnswers(tracker?.practiceAnswers || {});
-    setEvaluations(tracker?.evaluations || {});
-  }, [selectedKey]);
-
-  const planLoading = !!planLoadingKeys[selectedKey];
-
-  const submitForReview = async (qKey, question, userAnswer, sampleAnswer, category) => {
-    if (!userAnswer.trim() || evaluatingKeys[qKey]) return;
-    setEvaluatingKeys(prev => ({ ...prev, [qKey]: true }));
-    try {
-      const result = await api.post('/api/evaluate-answer', { question, userAnswer, sampleAnswer, category });
-      const updated = { ...evaluations, [qKey]: result };
-      setEvaluations(updated);
-      savePrepState({ evaluations: updated, practiceAnswers: { ...practiceAnswers } });
-    } catch (e) { console.error('Evaluation failed:', e); }
-    setEvaluatingKeys(prev => { const n = { ...prev }; delete n[qKey]; return n; });
-  };
-
-  const updatePracticeAnswer = (qKey, value) => {
-    const updated = { ...practiceAnswers, [qKey]: value };
-    setPracticeAnswers(updated);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { savePrepState({ practiceAnswers: updated }); }, 1000);
-  };
-
-  const generatePlan = async () => {
-    if (!selected || planLoadingKeys[selectedKey]) return;
-    const key = selectedKey;
-    setPlanLoadingKeys(prev => ({ ...prev, [key]: true }));
-    setRevealedAnswers({});
-    setQuizAnswers({});
-    setQuizSubmitted(false);
-    setPracticeAnswers({});
-    setEvaluations({});
-    const resumeFile = await api.get('/api/resume');
-    try {
-      const res = await api.post('/api/interview-plan', {
-        roleKey: key,
-        company: selected.company,
-        role: selected.role,
-        level: selected.level,
-        location: selected.location,
-        fit: selected.fit,
-        tips: companyTips,
-        resumeSummary: resumeFile?.summary || '',
-        resumeSkills: resumeFile?.skills || [],
-      });
-      if (res.plan || res.fallbackMarkdown) {
-        const t = ensureTracker();
-        const entry = { ...t[key], interviewPlan: res.plan || null, interviewPlanRaw: null, revealedAnswers: {}, quizAnswers: {}, quizSubmitted: false, readinessChecks: {}, practiceAnswers: {}, evaluations: {} };
-        if (res.fallbackMarkdown) entry.interviewPlanRaw = res.fallbackMarkdown;
-        entry.timeline = [...(entry.timeline || []), { date: new Date().toISOString(), event: 'Interview prep plan generated' }];
-        saveTracker({ ...t, [key]: entry });
-      }
-    } catch {
-      // silent fail
-    }
-    setPlanLoadingKeys(prev => { const next = { ...prev }; delete next[key]; return next; });
-  };
-
-  const quizScore = tracker?.interviewPlan?.quiz ? (() => {
-    if (!quizSubmitted) return null;
-    const quiz = tracker.interviewPlan.quiz;
-    const correct = quiz.filter((q, i) => quizAnswers[i] === q.correctIndex).length;
-    return { correct, total: quiz.length, pct: Math.round((correct / quiz.length) * 100) };
-  })() : null;
-
-  const savePrepState = (updates) => {
-    const t = ensureTracker();
-    const entry = { ...t[selectedKey], ...updates };
-    saveTracker({ ...t, [selectedKey]: entry });
-  };
-
-  const saveReadinessCheck = (idx, checked) => {
-    const updated = { ...readinessChecks, [idx]: checked };
-    setReadinessChecks(updated);
-    savePrepState({ readinessChecks: updated });
-  };
-
-  const readinessScore = tracker?.interviewPlan?.readinessChecklist ? (() => {
-    const total = tracker.interviewPlan.readinessChecklist.length;
-    const done = Object.values(readinessChecks).filter(Boolean).length;
-    return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
-  })() : null;
-
-  const isReady = quizScore && quizScore.pct >= 70 && readinessScore && readinessScore.pct >= 80;
 
   const timeAgo = (dateStr) => {
     if (!dateStr) return '';
@@ -2132,6 +2814,8 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 </div>
               </div>
 
+              <InterviewsSection roleKey={selectedKey} />
+
               {/* Interview Tips */}
               {companyTips.length > 0 && (
                 <div className="mc-section">
@@ -2142,263 +2826,10 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 </div>
               )}
 
-              {/* Interview Prep Plan */}
-              <div className="mc-section">
-                <div className="mc-section-title" style={{display:'flex',alignItems:'center'}}>
-                  <Icons.clipboard style={{width:14,height:14,color:'var(--amber)'}} /> <span style={{marginLeft:6}}>Interview Prep</span>
-                  {(tracker?.interviewPlan || tracker?.interviewPlanRaw || (tracker?.timeline || []).some(e => e.event && e.event.includes('prep plan'))) && (
-                    <button onClick={() => setPage('prepplans')} style={{marginLeft:'auto',background:'none',border:'1px solid var(--border)',borderRadius:6,padding:'3px 10px',color:'var(--amber)',cursor:'pointer',fontSize:11,fontFamily:'var(--font-mono)',fontWeight:600,display:'flex',alignItems:'center',gap:4,transition:'all 0.15s'}}>
-                      <Icons.externalLink style={{width:10,height:10}} /> View in Prep Plans
-                    </button>
-                  )}
-                </div>
-                {tracker?.interviewPlan && typeof tracker.interviewPlan === 'object' ? (
-                  <>
-                    <div className="prep-tabs">
-                      <div className={`prep-tab ${prepTab==='questions'?'active':''}`} onClick={() => setPrepTab('questions')}>Practice</div>
-                      <div className={`prep-tab ${prepTab==='quiz'?'active':''}`} onClick={() => setPrepTab('quiz')}>Quiz{quizScore ? ` ${quizScore.pct}%` : ''}</div>
-                      <div className={`prep-tab ${prepTab==='readiness'?'active':''}`} onClick={() => setPrepTab('readiness')}>Ready?{readinessScore ? ` ${readinessScore.pct}%` : ''}</div>
-                    </div>
+              {/* Workbook */}
+              <WorkbookRoleSection roleKey={selectedKey} />
 
-                    {prepTab === 'questions' && (
-                      <>
-                        {/* Technical Questions */}
-                        {(tracker.interviewPlan.technicalQuestions || []).map((q, i) => {
-                          const qKey = 'tq'+i;
-                          const ev = evaluations[qKey];
-                          const isEvaluating = !!evaluatingKeys[qKey];
-                          const isSystemDesign = q.category === 'system-design';
-                          return (
-                            <div key={qKey} className="prep-card">
-                              <div className="prep-card-header">
-                                <span className={`prep-card-cat ${q.category}`}>{q.category}</span>
-                                <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{q.difficulty}</span>
-                              </div>
-                              <div className="prep-q">{q.question}</div>
-                              {isSystemDesign ? (
-                                <div className="prep-actions">
-                                  <button className="btn btn-primary" onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: q.question })}>
-                                    <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
-                                  </button>
-                                  <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
-                                </div>
-                              ) : (
-                                <>
-                                  {q.type === 'code' ? (
-                                    <button className="btn btn-primary" style={{marginBottom:8}} onClick={() => setPage('codelab')}>
-                                      <Icons.code style={{width:14,height:14}} /> Open in Code Lab
-                                    </button>
-                                  ) : (
-                                    <textarea className="prep-textarea" placeholder="Write your answer here..." value={practiceAnswers[qKey] || ''} onChange={e => updatePracticeAnswer(qKey, e.target.value)} />
-                                  )}
-                                  <div className="prep-actions">
-                                    <button className="btn btn-primary" disabled={!(practiceAnswers[qKey] || '').trim() || isEvaluating} onClick={() => submitForReview(qKey, q.question, practiceAnswers[qKey], q.sampleAnswer, q.category)}>
-                                      {isEvaluating ? 'Evaluating...' : <><Icons.zap style={{width:12,height:12}} /> Submit for Review</>}
-                                    </button>
-                                    <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
-                                  </div>
-                                  {ev && (
-                                    <div className="prep-eval">
-                                      <span className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 4 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 4 ? 'var(--amber)' : 'var(--rose)'}}>{ev.score}/{ev.maxScore}</span>
-                                      <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:8}}>{ev.feedback}</div>
-                                      {ev.strengths?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--emerald)',fontFamily:'var(--font-mono)'}}>STRENGTHS</span><ul className="prep-eval-list">{ev.strengths.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
-                                      {ev.improvements?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)'}}>IMPROVEMENTS</span><ul className="prep-eval-list">{ev.improvements.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                              {revealedAnswers[qKey] && (
-                                <div className="prep-answer">
-                                  {q.sampleAnswer}
-                                  {q.followUps?.length > 0 && (
-                                    <div style={{marginTop:10}}>
-                                      <div style={{fontSize:11,fontWeight:700,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginBottom:4}}>FOLLOW-UPS</div>
-                                      {q.followUps.map((f, j) => <div key={j} className="prep-followup">{f}</div>)}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {/* Behavioral Questions */}
-                        {(tracker.interviewPlan.behavioralQuestions || []).map((q, i) => (
-                          <div key={'bq'+i} className="prep-card">
-                            <div className="prep-card-header">
-                              <span className="prep-card-cat behavioral">behavioral</span>
-                            </div>
-                            <div className="prep-q">{q.question}</div>
-                            {q.whatTheyLookFor && <div style={{fontSize:12,color:'var(--text-muted)',marginBottom:8,fontStyle:'italic'}}>What they look for: {q.whatTheyLookFor}</div>}
-                            {(() => { const qKey = 'bq'+i; const ev = evaluations[qKey]; const isEvaluating = !!evaluatingKeys[qKey]; return (<>
-                              <textarea className="prep-textarea" placeholder="Write your STAR response here (Situation, Task, Action, Result)..." value={practiceAnswers[qKey] || ''} onChange={e => updatePracticeAnswer(qKey, e.target.value)} />
-                              <div className="prep-actions">
-                                <button className="btn btn-primary" disabled={!(practiceAnswers[qKey] || '').trim() || isEvaluating} onClick={() => submitForReview(qKey, q.question, practiceAnswers[qKey], JSON.stringify(q.starFramework), 'behavioral')}>
-                                  {isEvaluating ? 'Evaluating...' : <><Icons.zap style={{width:12,height:12}} /> Submit for Review</>}
-                                </button>
-                                <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show STAR Framework</button>
-                              </div>
-                              {ev && (
-                                <div className="prep-eval">
-                                  <span className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 4 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 4 ? 'var(--amber)' : 'var(--rose)'}}>{ev.score}/{ev.maxScore}</span>
-                                  <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:8}}>{ev.feedback}</div>
-                                  {ev.strengths?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--emerald)',fontFamily:'var(--font-mono)'}}>STRENGTHS</span><ul className="prep-eval-list">{ev.strengths.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
-                                  {ev.improvements?.length > 0 && <div style={{marginTop:6}}><span style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)'}}>IMPROVEMENTS</span><ul className="prep-eval-list">{ev.improvements.map((s,j)=><li key={j}>{s}</li>)}</ul></div>}
-                                </div>
-                              )}
-                              {revealedAnswers[qKey] && (
-                                <div className="prep-answer">
-                                  <dl className="prep-star">
-                                    <dt>S</dt><dd>{q.starFramework?.situation}</dd>
-                                    <dt>T</dt><dd>{q.starFramework?.task}</dd>
-                                    <dt>A</dt><dd>{q.starFramework?.action}</dd>
-                                    <dt>R</dt><dd>{q.starFramework?.result}</dd>
-                                  </dl>
-                                </div>
-                              )}
-                            </>); })()}
-                          </div>
-                        ))}
-                        {/* System Design Prompt */}
-                        {tracker.interviewPlan.systemDesignPrompt && (
-                          <div className="prep-card" style={{borderLeft:'3px solid var(--cyan)'}}>
-                            <span className="prep-card-cat system-design" style={{marginBottom:8,display:'inline-block'}}>System Design Challenge</span>
-                            <div className="prep-q">{tracker.interviewPlan.systemDesignPrompt.title}</div>
-                            <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>{tracker.interviewPlan.systemDesignPrompt.description}</div>
-                            <div className="prep-actions" style={{marginBottom:10}}>
-                              <button className="btn btn-primary" onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: tracker.interviewPlan.systemDesignPrompt.title })}>
-                                <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
-                              </button>
-                              <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, sd: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Key Topics</button>
-                            </div>
-                            {revealedAnswers['sd'] && (
-                              <div className="prep-answer" style={{marginTop:10}}>
-                                <div style={{fontSize:11,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)',marginBottom:6}}>KEY TOPICS</div>
-                                {(tracker.interviewPlan.systemDesignPrompt.keyTopics || []).map((t, i) => <div key={i} style={{fontSize:12,color:'var(--text-secondary)',marginBottom:2}}>• {t}</div>)}
-                                <div style={{fontSize:11,fontWeight:700,color:'var(--emerald)',fontFamily:'var(--font-mono)',marginTop:10,marginBottom:6}}>EVALUATION CRITERIA</div>
-                                {(tracker.interviewPlan.systemDesignPrompt.evaluationCriteria || []).map((t, i) => <div key={i} style={{fontSize:12,color:'var(--text-secondary)',marginBottom:2}}>• {t}</div>)}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Company Insights */}
-                        {tracker.interviewPlan.companyInsights && (
-                          <div className="prep-card">
-                            <span className="prep-card-cat" style={{background:'var(--orange-dim)',color:'var(--orange)',marginBottom:8,display:'inline-block'}}>Company Intel</span>
-                            {Object.entries(tracker.interviewPlan.companyInsights).map(([k, v]) => v && (
-                              <div key={k} style={{marginBottom:8}}>
-                                <div style={{fontSize:11,fontWeight:700,color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',letterSpacing:1,marginBottom:2}}>{k.replace(/([A-Z])/g, ' $1').trim()}</div>
-                                <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6}}>{v}</div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {prepTab === 'quiz' && (
-                      <>
-                        {quizSubmitted && quizScore && (
-                          <div className="prep-card" style={{textAlign:'center',borderColor: quizScore.pct >= 70 ? 'rgba(52,211,153,0.3)' : 'rgba(251,113,133,0.3)'}}>
-                            <div style={{fontSize:36,fontWeight:800,fontFamily:'var(--font-mono)',color: quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)'}}>{quizScore.pct}%</div>
-                            <div style={{fontSize:13,color:'var(--text-secondary)',marginBottom:8}}>{quizScore.correct}/{quizScore.total} correct</div>
-                            <div className="prep-score-bar"><div className="prep-score-fill" style={{width: quizScore.pct + '%', background: quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)'}} /></div>
-                            <div style={{fontSize:12,color: quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)',fontFamily:'var(--font-mono)',fontWeight:600}}>
-                              {quizScore.pct >= 90 ? 'Excellent — you\'re ready!' : quizScore.pct >= 70 ? 'Good — almost there!' : 'Keep studying — review the questions tab'}
-                            </div>
-                          </div>
-                        )}
-                        {(tracker.interviewPlan.quiz || []).map((q, i) => {
-                          const answered = quizAnswers[i] !== undefined;
-                          const submitted = quizSubmitted;
-                          return (
-                            <div key={'quiz'+i} className="prep-card">
-                              <div style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)',marginBottom:6}}>Question {i+1} of {tracker.interviewPlan.quiz.length}</div>
-                              <div className="prep-q">{q.question}</div>
-                              {(q.options || []).map((opt, j) => {
-                                let cls = 'prep-quiz-option';
-                                if (submitted && j === q.correctIndex) cls += ' correct';
-                                else if (submitted && quizAnswers[i] === j && j !== q.correctIndex) cls += ' wrong';
-                                else if (!submitted && quizAnswers[i] === j) cls += ' selected';
-                                return (
-                                  <div key={j} className={cls} onClick={() => { if (!submitted) { const updated = {...quizAnswers, [i]: j}; setQuizAnswers(updated); savePrepState({ quizAnswers: updated }); } }}>
-                                    <span className="option-letter">{String.fromCharCode(65+j)}</span>
-                                    <span>{opt.replace(/^[A-D]\)\s*/, '')}</span>
-                                    {submitted && j === q.correctIndex && <Icons.check style={{width:14,height:14,color:'var(--emerald)',marginLeft:'auto'}} />}
-                                    {submitted && quizAnswers[i] === j && j !== q.correctIndex && <Icons.x style={{width:14,height:14,color:'var(--rose)',marginLeft:'auto'}} />}
-                                  </div>
-                                );
-                              })}
-                              {submitted && q.explanation && <div className="prep-answer" style={{marginTop:8}}>{q.explanation}</div>}
-                            </div>
-                          );
-                        })}
-                        {!quizSubmitted ? (
-                          <button className="btn btn-primary" style={{width:'100%',padding:'12px',fontSize:14}} onClick={() => { setQuizSubmitted(true); savePrepState({ quizSubmitted: true }); }} disabled={Object.keys(quizAnswers).length < (tracker.interviewPlan.quiz || []).length}>
-                            Submit Quiz ({Object.keys(quizAnswers).length}/{(tracker.interviewPlan.quiz || []).length} answered)
-                          </button>
-                        ) : (
-                          <button className="btn btn-secondary" style={{width:'100%',padding:'10px',fontSize:12}} onClick={() => { setQuizAnswers({}); setQuizSubmitted(false); savePrepState({ quizAnswers: {}, quizSubmitted: false }); }}>Retake Quiz</button>
-                        )}
-                      </>
-                    )}
-
-                    {prepTab === 'readiness' && (
-                      <>
-                        {readinessScore && (
-                          <div className="prep-card" style={{textAlign:'center'}}>
-                            <div style={{fontSize:36,fontWeight:800,fontFamily:'var(--font-mono)',color: readinessScore.pct >= 80 ? 'var(--emerald)' : readinessScore.pct >= 50 ? 'var(--amber)' : 'var(--rose)'}}>{readinessScore.pct}%</div>
-                            <div style={{fontSize:13,color:'var(--text-secondary)',marginBottom:8}}>{readinessScore.done}/{readinessScore.total} items complete</div>
-                            <div className="prep-score-bar"><div className="prep-score-fill" style={{width: readinessScore.pct + '%', background: readinessScore.pct >= 80 ? 'var(--emerald)' : readinessScore.pct >= 50 ? 'var(--amber)' : 'var(--rose)'}} /></div>
-                          </div>
-                        )}
-                        <div className="prep-card">
-                          {(tracker.interviewPlan.readinessChecklist || []).map((item, i) => (
-                            <div key={i} className="prep-readiness-item">
-                              <input type="checkbox" className="checkbox" checked={!!readinessChecks[i]} onChange={e => saveReadinessCheck(i, e.target.checked)} />
-                              <span style={{flex:1,color: readinessChecks[i] ? 'var(--text-muted)' : 'var(--text)', textDecoration: readinessChecks[i] ? 'line-through' : 'none'}}>{item.item}</span>
-                              <span className={`prep-card-cat ${item.category}`} style={{fontSize:9}}>{item.category}</span>
-                            </div>
-                          ))}
-                        </div>
-                        {isReady && stage === 'discovered' && selected.url && (
-                          <button className="btn btn-primary" style={{width:'100%',padding:'14px',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginTop:4}} onClick={() => { setStage('applied'); window.open(selected.url, '_blank'); }}>
-                            <Icons.send style={{width:16,height:16}} /> You're Ready — Apply Now
-                          </button>
-                        )}
-                        {isReady && !selected.url && stage === 'discovered' && (
-                          <button className="btn btn-primary" style={{width:'100%',padding:'14px',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginTop:4}} onClick={() => setStage('applied')}>
-                            <Icons.send style={{width:16,height:16}} /> Mark as Applied
-                          </button>
-                        )}
-                        {!isReady && (
-                          <div style={{textAlign:'center',padding:'12px',fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>
-                            {!quizScore ? 'Complete the quiz first' : quizScore.pct < 70 ? `Quiz score ${quizScore.pct}% — aim for 70%+` : ''}{' '}
-                            {readinessScore && readinessScore.pct < 80 ? `Checklist ${readinessScore.pct}% — aim for 80%+` : ''}
-                          </div>
-                        )}
-                      </>
-                    )}
-                    <button onClick={generatePlan} disabled={planLoading} style={{marginTop:8,background:'none',border:'1px dashed var(--border)',borderRadius:8,padding:'6px 14px',color:'var(--text-muted)',cursor:'pointer',fontSize:11,fontFamily:'var(--font-mono)',display:'block',width:'100%',textAlign:'center'}}>
-                      {planLoading ? 'Regenerating...' : 'Regenerate Prep Plan'}
-                    </button>
-                  </>
-                ) : tracker?.interviewPlanRaw ? (
-                  <div style={{background:'var(--bg-surface)',border:'1px solid var(--border)',borderRadius:10,padding:'18px 20px'}}>
-                    <div className="md-content" style={{fontSize:13}} dangerouslySetInnerHTML={{__html: marked.parse(tracker.interviewPlanRaw)}} />
-                    <button onClick={generatePlan} disabled={planLoading} style={{marginTop:12,background:'none',border:'1px dashed var(--border)',borderRadius:8,padding:'6px 14px',color:'var(--text-muted)',cursor:'pointer',fontSize:11,fontFamily:'var(--font-mono)'}}>
-                      {planLoading ? 'Regenerating...' : 'Regenerate as Interactive Plan'}
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={generatePlan} disabled={planLoading} className="btn btn-secondary" style={{display:'flex',alignItems:'center',gap:8,fontSize:13,width:'100%',justifyContent:'center',padding:'14px 20px'}}>
-                    {planLoading ? (
-                      <><span className="dot-pulse" style={{display:'inline-flex',gap:4}}><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span> Generating prep plan...</>
-                    ) : (
-                      <><Icons.zap style={{width:16,height:16,color:'var(--amber)'}} /> Generate Interview Prep Plan</>
-                    )}
-                  </button>
-                )}
-              </div>
+              <TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(setRoleTracker)} />
 
               {/* Notes */}
               <div className="mc-section">
@@ -2426,6 +2857,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
               <div className="mc-actions">
                 {selected.url && <a href={selected.url} target="_blank" rel="noopener" className="btn btn-link" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6,fontSize:13}}><Icons.externalLink style={{width:14,height:14}} /> View Posting</a>}
                 {selected.url && stage === 'discovered' && <button className="btn btn-primary" style={{fontSize:13,display:'flex',alignItems:'center',gap:6}} onClick={() => { setStage('applied'); window.open(selected.url, '_blank'); }}><Icons.send style={{width:14,height:14}} /> Apply</button>}
+                <AcceptedResumeLink roleKey={selectedKey} stage={stage} />
               </div>
             </>
           ) : (
@@ -2437,552 +2869,229 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   );
 }
 
-/* ===== PREP PLANS ===== */
-function PrepPlans({ allRoles, roleTracker, setRoleTracker, setPage, openSystemDesignTopic }) {
-  const [selectedKey, setSelectedKey] = useState(null);
-  const [prepTab, setPrepTab] = useState('questions');
-  const [revealedAnswers, setRevealedAnswers] = useState({});
-  const [quizAnswers, setQuizAnswers] = useState({});
-  const [practiceAnswers, setPracticeAnswers] = useState({});
-  const [evaluations, setEvaluations] = useState({});
-  const [evaluatingKeys, setEvaluatingKeys] = useState({});
-  const [quizSubmitted, setQuizSubmitted] = useState(false);
-  const [readinessChecks, setReadinessChecks] = useState({});
-  const saveTimer = useRef(null);
+/* ===== WORKBOOKS ===== */
+const WB_STATUS_COLORS = { queued: 'var(--text-muted)', deferred: 'var(--amber)', generating: 'var(--amber)', ready: 'var(--emerald)', partial: 'var(--amber)', failed: 'var(--rose)' };
+const WB_STEP_LABELS = { research: 'Researching the role', links: 'Checking links', plan: 'Planning chapters', write: 'Writing chapters', verify: 'Testing code answers', review: 'Editing chapters', glossary: 'Building the glossary', publish: 'Publishing' };
 
-  // Build list of roles that have generated plans
-  const roleMap = {};
-  allRoles.forEach(r => { const key = `${r.company}|${r.role}`; if (!roleMap[key]) roleMap[key] = { ...r, key }; });
-
-  const [planLoadingKeys, setPlanLoadingKeys] = useState({});
-
-  const hasPlanAttempt = (t) => t.interviewPlan || t.interviewPlanRaw || (t.timeline || []).some(e => e.event && e.event.includes('prep plan'));
-
-  const plansWithRoles = Object.entries(roleTracker)
-    .filter(([_, t]) => hasPlanAttempt(t))
-    .map(([key, t]) => {
-      const role = roleMap[key] || { company: key.split('|')[0], role: key.split('|')[1], key };
-      const isStructured = t.interviewPlan && typeof t.interviewPlan === 'object';
-      const quizTotal = isStructured ? (t.interviewPlan.quiz || []).length : 0;
-      const quizDone = t.quizSubmitted ? Object.values(t.quizAnswers || {}).length : 0;
-      const quizCorrect = isStructured && t.quizSubmitted ? (t.interviewPlan.quiz || []).filter((q, i) => (t.quizAnswers || {})[i] === q.correctIndex).length : 0;
-      const readinessTotal = isStructured ? (t.interviewPlan.readinessChecklist || []).length : 0;
-      const readinessDone = Object.values(t.readinessChecks || {}).filter(Boolean).length;
-      const questionsTotal = isStructured ? (t.interviewPlan.technicalQuestions || []).length + (t.interviewPlan.behavioralQuestions || []).length + (t.interviewPlan.systemDesignPrompt ? 1 : 0) : 0;
-      const questionsRevealed = Object.keys(t.revealedAnswers || {}).length;
-      return { key, role, tracker: t, plan: t.interviewPlan, isStructured, quizTotal, quizDone, quizCorrect, readinessTotal, readinessDone, questionsTotal, questionsRevealed, stage: t.stage || 'discovered' };
-    })
-    .sort((a, b) => (STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage)));
-
-  // Auto-select first plan
-  useEffect(() => {
-    if (!selectedKey && plansWithRoles.length > 0) setSelectedKey(plansWithRoles[0].key);
-  }, [plansWithRoles.length]);
-
-  // Load persisted prep state when switching plans
-  useEffect(() => {
-    const t = roleTracker[selectedKey];
-    setRevealedAnswers(t?.revealedAnswers || {});
-    setQuizAnswers(t?.quizAnswers || {});
-    setQuizSubmitted(!!t?.quizSubmitted);
-    setReadinessChecks(t?.readinessChecks || {});
-    setPracticeAnswers(t?.practiceAnswers || {});
-    setEvaluations(t?.evaluations || {});
-    setEvaluatingKeys({});
-    setPrepTab('questions');
-  }, [selectedKey]);
-
-  const saveTracker = (updated) => {
-    setRoleTracker(updated);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { api.post('/api/role-tracker', updated); }, 500);
-  };
-
-  const savePrepState = (updates) => {
-    const updated = { ...roleTracker, [selectedKey]: { ...roleTracker[selectedKey], ...updates } };
-    saveTracker(updated);
-  };
-
-  const submitForReview = async (qKey, question, userAnswer, sampleAnswer, category) => {
-    if (!userAnswer.trim() || evaluatingKeys[qKey]) return;
-    setEvaluatingKeys(prev => ({ ...prev, [qKey]: true }));
-    try {
-      const result = await api.post('/api/evaluate-answer', { question, userAnswer, sampleAnswer, category });
-      const updated = { ...evaluations, [qKey]: result };
-      setEvaluations(updated);
-      savePrepState({ evaluations: updated, practiceAnswers: { ...practiceAnswers } });
-    } catch {
-      // silent
-    }
-    setEvaluatingKeys(prev => { const n = { ...prev }; delete n[qKey]; return n; });
-  };
-
-  const updatePracticeAnswer = (qKey, value) => {
-    const updated = { ...practiceAnswers, [qKey]: value };
-    setPracticeAnswers(updated);
-    // Debounce save
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { savePrepState({ practiceAnswers: updated }); }, 1000);
-  };
-
-  const planLoading = !!planLoadingKeys[selectedKey];
-
-  const regeneratePlan = async (roleKey) => {
-    if (planLoadingKeys[roleKey]) return;
-    setPlanLoadingKeys(prev => ({ ...prev, [roleKey]: true }));
-    if (roleKey === selectedKey) {
-      setRevealedAnswers({});
-      setQuizAnswers({});
-      setQuizSubmitted(false);
-      setReadinessChecks({});
-      setPracticeAnswers({});
-      setEvaluations({});
-    }
-    const r = roleMap[roleKey] || { company: roleKey.split('|')[0], role: roleKey.split('|')[1] };
-    const resumeFile = await api.get('/api/resume');
-    try {
-      const res = await api.post('/api/interview-plan', {
-        roleKey,
-        company: r.company,
-        role: r.role,
-        level: r.level || '',
-        location: r.location || '',
-        fit: r.fit || '',
-        tips: '',
-        resumeSummary: resumeFile?.summary || '',
-        resumeSkills: resumeFile?.skills || [],
-      });
-      if (res.plan || res.fallbackMarkdown) {
-        const t = { ...roleTracker };
-        const entry = { ...t[roleKey], interviewPlan: res.plan || null, interviewPlanRaw: null, revealedAnswers: {}, quizAnswers: {}, quizSubmitted: false, readinessChecks: {} };
-        if (res.fallbackMarkdown) entry.interviewPlanRaw = res.fallbackMarkdown;
-        entry.timeline = [...(entry.timeline || []), { date: new Date().toISOString(), event: 'Interview prep plan regenerated' }];
-        t[roleKey] = entry;
-        saveTracker(t);
+function wbRequest(url, method, body) {
+  return fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+    .then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const error = new Error(data.error || `Request failed (${r.status})`);
+        error.status = r.status;
+        throw error;
       }
-    } catch {
-      // silent fail
-    }
-    setPlanLoadingKeys(prev => { const next = { ...prev }; delete next[roleKey]; return next; });
+      return data;
+    });
+}
+
+function WorkbookCard({ wb, onChanged }) {
+  const [job, setJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+  const queueStatus = (job && job.queue && job.queue.status) || (wb.job && wb.job.status);
+  const deferred = wb.status === 'deferred' || queueStatus === 'deferred';
+  const active = !deferred && (wb.status === 'queued' || wb.status === 'generating' || ['queued', 'running'].includes(queueStatus));
+  const pending = active || deferred;
+
+  useEffect(() => {
+    if (!active) { setJob(null); return undefined; }
+    let stopped = false;
+    let polling = false;
+    const poll = async () => {
+      if (stopped || polling) return;
+      polling = true;
+      try {
+        const j = await wbRequest(`/api/workbooks/${wb.id}/job`, 'GET');
+        if (stopped) return;
+        setJob(j);
+        const status = j && j.queue ? j.queue.status : null;
+        if (['done', 'failed', 'deferred'].includes(status)) {
+          stopped = true;
+          clearInterval(timer);
+          if (onChangedRef.current) onChangedRef.current();
+        }
+      } catch (e) {
+        if (!stopped) setError(e.message);
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = setInterval(poll, 3000);
+    poll();
+    return () => { stopped = true; clearInterval(timer); };
+  }, [wb.id, active]);
+
+  const run = async (fn) => {
+    setBusy(true);
+    setError('');
+    try { await fn(); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); if (onChangedRef.current) onChangedRef.current(); }
   };
+  const state = job && job.state;
+  const runChapters = state ? Object.values(state.chapters || {}).filter(c => c.run === state.runId) : [];
+  const doneChapters = runChapters.filter(c => ['written', 'verified', 'reviewed', 'published'].includes(c.status)).length;
+  const progressLine = deferred
+    ? "Waiting: today's auto-build limit is reached"
+    : state && state.current
+      ? `${WB_STEP_LABELS[state.current] || state.current}${runChapters.length ? ` · ${doneChapters}/${runChapters.length} chapters` : ''}`
+      : 'Queued';
+  const latestJob = (job && job.queue) || wb.job;
+  const jobError = !pending && ((latestJob && latestJob.status === 'failed' && latestJob.error) || wb.lastError);
+  const reviewWarning = wb.unreviewedChapters > 0 ? `${wb.unreviewedChapters} chapters published without editor review` : null;
+  const canExpand = !pending && wb.tier !== 'onsite' && (wb.status === 'ready' || wb.status === 'partial');
+  const canRetry = !pending && (wb.failedChapters > 0 || wb.status === 'failed');
+  const btn = { fontSize: 12, padding: '6px 12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 };
 
-  const selectedPlan = plansWithRoles.find(p => p.key === selectedKey);
-  const tracker = selectedPlan?.tracker;
-  const plan = selectedPlan?.plan;
-  const role = selectedPlan?.role;
+  return (
+    <div className="prep-card">
+      <div className="prep-card-header">
+        <div>
+          <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{wb.company || 'Workbook'}</div>
+          <div className="prep-q" style={{ marginBottom: 0 }}>{wb.role || wb.title}</div>
+        </div>
+        <span className="prep-card-cat" style={{ background: 'var(--bg-deep)', color: WB_STATUS_COLORS[wb.status] || 'var(--text-muted)' }}>{wb.status}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>
+        <span>{wb.tier === 'onsite' ? 'Onsite' : 'Screen'} tier</span>
+        <span>Readiness {wb.readiness || 0}%</span>
+        <span>{wb.graded || 0}/{wb.total || 0} graded</span>
+        <span style={{ color: wb.misses ? 'var(--rose)' : undefined }}>{wb.misses || 0} to review</span>
+        {wb.source === 'generated' && wb.researched === false && <span style={{ color: 'var(--amber)' }}>Not web-researched</span>}
+        {wb.postingLive === false && <span style={{ color: 'var(--rose)' }}>Posting may be closed</span>}
+        {wb.failedChapters > 0 && <span style={{ color: 'var(--rose)' }}>{wb.failedChapters} chapter{wb.failedChapters === 1 ? '' : 's'} failed</span>}
+      </div>
+      {pending && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--amber)' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', animation: 'chatDot 1.2s infinite' }} />
+          {progressLine}
+        </div>
+      )}
+      {jobError && <div role="alert" style={{ color: 'var(--rose)', fontSize: 12, marginBottom: 10 }}>{jobError}</div>}
+      {reviewWarning && <div style={{ color: 'var(--amber)', fontSize: 12, marginBottom: 10 }}>{reviewWarning}</div>}
+      {error && <div role="alert" style={{ color: 'var(--rose)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <a className="btn btn-primary" style={btn} href={`/workbooks/${wb.id}`} target="_blank" rel="noopener">Open</a>
+        {wb.source === 'interview' && !pending && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest('/api/workbooks', 'POST', { roleKey: (wb.roleKeys || [])[0] }))}>Create workbook</button>}
+        {canExpand && wb.source !== 'interview' && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest(`/api/workbooks/${wb.id}/expand`, 'POST'))}>Expand to onsite</button>}
+        {canRetry && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest(`/api/workbooks/${wb.id}/retry`, 'POST'))}>Retry failed</button>}
+        <a className="btn btn-secondary" style={btn} href={`/api/workbooks/${wb.id}/export`}>Download offline</a>
+        <button className="btn btn-secondary" style={{ ...btn, color: 'var(--rose)' }} disabled={busy || pending}
+          onClick={() => { if (window.confirm(`Delete the workbook "${wb.title}"? This removes its chapters and your progress.`)) run(() => wbRequest(`/api/workbooks/${wb.id}`, 'DELETE')); }}>Delete</button>
+      </div>
+    </div>
+  );
+}
 
-  const quizScore = plan?.quiz && quizSubmitted ? (() => {
-    const quiz = plan.quiz;
-    const correct = quiz.filter((q, i) => quizAnswers[i] === q.correctIndex).length;
-    return { correct, total: quiz.length, pct: Math.round((correct / quiz.length) * 100) };
-  })() : null;
+function WorkbookRoleSection({ roleKey }) {
+  const [wb, setWb] = useState(undefined);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const load = useCallback(() => {
+    setError('');
+    wbRequest('/api/workbooks', 'GET')
+      .then(list => setWb((list || []).find(w => (w.roleKeys || []).includes(roleKey)) || null))
+      .catch(e => { setWb(null); setError(e.message); });
+  }, [roleKey]);
+  useEffect(() => { setWb(undefined); load(); }, [load]);
+  const create = async () => {
+    setCreating(true);
+    try { await wbRequest('/api/workbooks', 'POST', { roleKey }); load(); }
+    catch (e) { setError(e.message); }
+    finally { setCreating(false); }
+  };
+  return (
+    <div className="mc-section">
+      <div className="mc-section-title"><Icons.clipboard style={{ width: 14, height: 14, color: 'var(--amber)' }} /> Workbook</div>
+      {error && <div role="alert" style={{ fontSize: 12, color: 'var(--rose)' }}>{error}</div>}
+      {wb === undefined ? (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>
+      ) : wb ? (
+        <WorkbookCard wb={wb} onChanged={load} />
+      ) : (
+        <button onClick={create} disabled={creating} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, width: '100%', justifyContent: 'center', padding: '14px 20px' }}>
+          <Icons.zap style={{ width: 16, height: 16, color: 'var(--amber)' }} /> {creating ? 'Creating…' : 'Create workbook'}
+        </button>
+      )}
+    </div>
+  );
+}
 
-  const readinessScore = plan?.readinessChecklist ? (() => {
-    const total = plan.readinessChecklist.length;
-    const done = Object.values(readinessChecks).filter(Boolean).length;
-    return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
-  })() : null;
+function Workbooks({ setPage }) {
+  const [list, setList] = useState(null);
+  const [candidates, setCandidates] = useState([]);
+  const [settings, setSettings] = useState(null);
+  const [building, setBuilding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  const isReady = quizScore && quizScore.pct >= 70 && readinessScore && readinessScore.pct >= 80;
+  const load = useCallback(() => {
+    setError('');
+    wbRequest('/api/workbooks', 'GET').then(setList).catch(e => { setList([]); setError(e.message); });
+    wbRequest('/api/workbooks/backfill', 'GET').then(r => setCandidates((r && r.candidates) || [])).catch(e => setError(e.message));
+    wbRequest('/api/settings', 'GET').then(setSettings).catch(e => setError(e.message));
+  }, []);
 
-  const getProgressColor = (pct) => pct >= 80 ? 'var(--emerald)' : pct >= 50 ? 'var(--amber)' : 'var(--text-muted)';
-  const getOverallProgress = (p) => {
-    let score = 0, total = 0;
-    if (p.questionsTotal > 0) { score += (p.questionsRevealed / p.questionsTotal) * 33; total += 33; }
-    if (p.quizTotal > 0) { score += (p.tracker.quizSubmitted ? (p.quizCorrect / p.quizTotal) * 33 : 0); total += 33; }
-    if (p.readinessTotal > 0) { score += (p.readinessDone / p.readinessTotal) * 34; total += 34; }
-    return total > 0 ? Math.round(score) : 0;
+  useEffect(() => { load(); }, [load]);
+  const anyActive = (list || []).some(w => ['queued', 'generating'].includes(w.status) || (w.job && ['queued', 'running'].includes(w.job.status)));
+  useEffect(() => {
+    if (!anyActive) return undefined;
+    const timer = setInterval(load, 10000);
+    return () => clearInterval(timer);
+  }, [anyActive, load]);
+
+  const autoBuild = !!(settings && settings.workbooks && settings.workbooks.autoBuild);
+  const toggleAutoBuild = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const next = await wbRequest('/api/settings', 'PUT', { workbooks: { autoBuild: !autoBuild } });
+      setSettings(next);
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+  const buildAll = async () => {
+    setBuilding(true);
+    setError('');
+    try { await wbRequest('/api/workbooks/backfill', 'POST'); }
+    catch (e) { setError(e.message); }
+    finally { setBuilding(false); load(); }
   };
 
   return (
     <>
       <div className="codelab-toolbar anim-enter">
-        <h2>Interview Prep Plans</h2>
-        <div style={{flex:1}} />
-        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{plansWithRoles.length} plan{plansWithRoles.length !== 1 ? 's' : ''} generated</span>
+        <h2>Workbooks</h2>
+        <div style={{ flex: 1 }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginRight: 12, cursor: 'pointer' }}>
+          <input type="checkbox" checked={autoBuild} onChange={toggleAutoBuild} disabled={!settings || saving} /> Auto-build for saved and applied roles
+        </label>
+        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} disabled={!candidates.length || building} onClick={buildAll}>
+          Build for all saved/applied ({candidates.length})
+        </button>
       </div>
-
-      {plansWithRoles.length === 0 ? (
-        <div className="anim-enter anim-delay-1" style={{textAlign:'center',padding:'80px 20px'}}>
-          <Icons.clipboard style={{width:48,height:48,color:'var(--text-muted)',marginBottom:16}} />
-          <h3 style={{fontSize:18,fontWeight:600,color:'var(--text-secondary)',marginBottom:8}}>No Prep Plans Yet</h3>
-          <p style={{fontSize:14,color:'var(--text-muted)',maxWidth:400,margin:'0 auto 20px'}}>Generate interview prep plans from the Intel page by selecting a role and clicking "Generate Interview Prep Plan".</p>
-          <button className="btn btn-primary" style={{padding:'10px 24px',fontSize:14}} onClick={() => setPage('intel')}>
-            <Icons.radar style={{width:14,height:14,display:'inline',verticalAlign:'middle',marginRight:6}} />Go to Intel
-          </button>
-        </div>
-      ) : (
-        <div className="intel-split anim-enter anim-delay-1" style={{border:'1px solid var(--border)',borderRadius:'var(--radius)',overflow:'hidden'}}>
-          {/* Left Panel - Plan List */}
-          <div className="intel-left">
-            <div className="intel-left-header">
-              <div style={{padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <span style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',letterSpacing:1}}>All Plans</span>
-                {plansWithRoles.some(p => !p.isStructured) && (
-                  <button onClick={() => { const toGen = plansWithRoles.filter(p => !p.isStructured && !planLoadingKeys[p.key]); toGen.forEach(p => regeneratePlan(p.key)); }} disabled={Object.keys(planLoadingKeys).length > 0} style={{background:'none',border:'1px solid var(--amber)',borderRadius:6,padding:'3px 10px',color:'var(--amber)',cursor:'pointer',fontSize:10,fontFamily:'var(--font-mono)',fontWeight:600,transition:'all 0.15s',opacity: Object.keys(planLoadingKeys).length > 0 ? 0.5 : 1}}>
-                    Generate All
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="intel-role-list">
-              {plansWithRoles.map(p => {
-                const progress = getOverallProgress(p);
-                const isLoading = !!planLoadingKeys[p.key];
-                return (
-                  <div key={p.key} className={`intel-role-item ${selectedKey===p.key?'active':''}`} onClick={() => setSelectedKey(p.key)}>
-                    <div className="iri-company">
-                      <span className={`stage-dot stage-${p.stage}`} />
-                      {p.role.company}
-                      {!p.isStructured && !isLoading && (
-                        <button onClick={e => { e.stopPropagation(); regeneratePlan(p.key); }} style={{marginLeft:'auto',background:'var(--amber)',border:'none',borderRadius:4,padding:'2px 8px',color:'var(--bg-deep)',cursor:'pointer',fontSize:9,fontFamily:'var(--font-mono)',fontWeight:700}}>
-                          GEN
-                        </button>
-                      )}
-                    </div>
-                    <div className="iri-title">{p.role.role}</div>
-                    {isLoading ? (
-                      <div style={{display:'flex',alignItems:'center',gap:6,marginTop:6}}>
-                        <span style={{display:'inline-flex',gap:3}}><span style={{width:4,height:4,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite'}}/><span style={{width:4,height:4,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:4,height:4,borderRadius:'50%',background:'var(--amber)',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span>
-                        <span style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',fontWeight:600}}>Generating...</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
-                          <div style={{flex:1,height:4,borderRadius:2,background:'var(--bg-deep)',overflow:'hidden'}}>
-                            <div style={{width: progress + '%', height:'100%', borderRadius:2, background: getProgressColor(progress), transition:'width 0.3s var(--ease)'}} />
-                          </div>
-                          <span style={{fontSize:10,fontFamily:'var(--font-mono)',color: getProgressColor(progress),fontWeight:600,minWidth:32,textAlign:'right'}}>{progress}%</span>
-                        </div>
-                        <div className="iri-meta" style={{marginTop:4}}>
-                          {!p.isStructured && !p.plan && <span style={{color:'var(--rose)'}}>Not generated</span>}
-                          {!p.isStructured && p.plan && <span style={{color:'var(--amber)'}}>Needs upgrade</span>}
-                          {p.isStructured && p.tracker.quizSubmitted && <span style={{color: (p.quizCorrect / p.quizTotal * 100) >= 70 ? 'var(--emerald)' : 'var(--rose)'}}>Quiz {Math.round(p.quizCorrect / p.quizTotal * 100)}%</span>}
-                          {p.isStructured && p.tracker.quizSubmitted && p.readinessTotal > 0 && <span>&middot;</span>}
-                          {p.isStructured && p.readinessTotal > 0 && <span>{p.readinessDone}/{p.readinessTotal} ready</span>}
-                          {p.isStructured && !p.tracker.quizSubmitted && p.readinessTotal === 0 && <span>{STAGE_LABELS[p.stage]}</span>}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+      <UnlinkedSessions />
+      {error && <div role="alert" style={{ color: 'var(--rose)', padding: 12 }}>{error}</div>}
+      <div className="anim-enter anim-delay-1" style={{ overflowY: 'auto', padding: '4px 2px' }}>
+        {list === null ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 20 }}>Loading workbooks…</div>
+        ) : list.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '80px 20px' }}>
+            <Icons.clipboard style={{ width: 48, height: 48, color: 'var(--text-muted)', marginBottom: 16 }} />
+            <h3 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>No workbooks yet</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 440, margin: '0 auto 20px' }}>Open a role on the Intel page and click "Create workbook", or build workbooks for every saved and applied role with the button above.</p>
+            <button className="btn btn-primary" style={{ padding: '10px 24px', fontSize: 14 }} onClick={() => setPage('intel')}>
+              <Icons.radar style={{ width: 14, height: 14, display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />Go to Intel
+            </button>
           </div>
-
-          {/* Right Panel - Interactive Prep */}
-          <div className="intel-right" style={{overflowY:'auto'}}>
-            {selectedPlan && !selectedPlan.isStructured ? (
-              <>
-                <div style={{marginBottom:16}}>
-                  <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:STAGE_COLORS[selectedPlan.stage] || 'var(--text-muted)',fontWeight:600,textTransform:'uppercase',letterSpacing:1.5,marginBottom:4}}>{role.company}</div>
-                  <h3 style={{fontSize:20,fontWeight:700,marginBottom:4}}>{role.role}</h3>
-                  <div style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{role.level} &middot; {role.location || 'Remote'}</div>
-                </div>
-                {typeof plan === 'string' && plan.length > 80 ? (
-                  <div style={{background:'var(--bg-surface)',border:'1px solid var(--border)',borderRadius:10,padding:'18px 20px',marginBottom:16}}>
-                    <div className="md-content" style={{fontSize:13}} dangerouslySetInnerHTML={{__html: marked.parse(plan)}} />
-                  </div>
-                ) : (
-                  <div className="prep-card" style={{textAlign:'center',padding:'32px 20px',marginBottom:16}}>
-                    <Icons.zap style={{width:32,height:32,color:'var(--amber)',marginBottom:12}} />
-                    <div style={{fontSize:15,fontWeight:600,color:'var(--text)',marginBottom:6}}>
-                      {!plan ? 'Plan generation incomplete' : 'Previous generation failed'}
-                    </div>
-                    <div style={{fontSize:13,color:'var(--text-muted)',marginBottom:4}}>
-                      {!plan ? 'A plan was attempted but no data was saved. Click below to generate.' : 'The previous attempt didn\'t produce a usable plan.'}
-                    </div>
-                  </div>
-                )}
-                <button onClick={() => regeneratePlan(selectedKey)} disabled={planLoading} className="btn btn-primary" style={{width:'100%',padding:'14px 20px',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-                  {planLoading ? (
-                    <><span style={{display:'inline-flex',gap:4}}><span style={{width:5,height:5,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span> Generating interactive plan...</>
-                  ) : (
-                    <><Icons.zap style={{width:16,height:16}} /> Generate Interactive Prep Plan</>
-                  )}
-                </button>
-              </>
-            ) : selectedPlan && selectedPlan.isStructured ? (
-              <>
-                <div style={{marginBottom:16}}>
-                  <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:STAGE_COLORS[selectedPlan.stage] || 'var(--text-muted)',fontWeight:600,textTransform:'uppercase',letterSpacing:1.5,marginBottom:4}}>{role.company}</div>
-                  <h3 style={{fontSize:20,fontWeight:700,marginBottom:4}}>{role.role}</h3>
-                  <div style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{role.level} &middot; {role.location || 'Remote'}</div>
-                </div>
-
-                {/* Overall Progress */}
-                <div className="prep-card" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
-                  <div style={{fontSize:28,fontWeight:800,fontFamily:'var(--font-mono)',color: getProgressColor(getOverallProgress(selectedPlan))}}>{getOverallProgress(selectedPlan)}%</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:12,color:'var(--text-secondary)',marginBottom:6}}>Overall Progress</div>
-                    <div style={{display:'flex',gap:12,fontSize:11,fontFamily:'var(--font-mono)'}}>
-                      <span style={{color:'var(--violet)'}}>{selectedPlan.questionsRevealed}/{selectedPlan.questionsTotal} practiced</span>
-                      <span style={{color: quizScore ? (quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)') : 'var(--text-muted)'}}>{quizScore ? `Quiz ${quizScore.pct}%` : 'Quiz pending'}</span>
-                      <span style={{color: readinessScore ? getProgressColor(readinessScore.pct) : 'var(--text-muted)'}}>{readinessScore ? `${readinessScore.done}/${readinessScore.total} ready` : 'Readiness pending'}</span>
-                    </div>
-                  </div>
-                  {isReady && <div style={{padding:'4px 12px',borderRadius:20,background:'var(--emerald-dim)',color:'var(--emerald)',fontSize:11,fontWeight:700,fontFamily:'var(--font-mono)'}}>READY</div>}
-                </div>
-
-                {/* Tabs */}
-                <div className="prep-tabs">
-                  <div className={`prep-tab ${prepTab==='questions'?'active':''}`} onClick={() => setPrepTab('questions')}>Practice</div>
-                  <div className={`prep-tab ${prepTab==='quiz'?'active':''}`} onClick={() => setPrepTab('quiz')}>Quiz{quizScore ? ` ${quizScore.pct}%` : ''}</div>
-                  <div className={`prep-tab ${prepTab==='readiness'?'active':''}`} onClick={() => setPrepTab('readiness')}>Ready?{readinessScore ? ` ${readinessScore.pct}%` : ''}</div>
-                </div>
-
-                {prepTab === 'questions' && (
-                  <>
-                    {(plan.technicalQuestions || []).map((q, i) => {
-                      const qKey = 'tq'+i;
-                      const ev = evaluations[qKey];
-                      const isEvaluating = !!evaluatingKeys[qKey];
-                      const isCode = q.type === 'code';
-                      const isSystemDesign = q.category === 'system-design';
-                      return (
-                        <div key={qKey} className="prep-card">
-                          <div className="prep-card-header">
-                            <span className={`prep-card-cat ${q.category}`}>{q.category}</span>
-                            <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                              {isCode && <span style={{fontSize:9,fontFamily:'var(--font-mono)',background:'var(--violet-dim)',color:'var(--violet)',padding:'2px 6px',borderRadius:4,fontWeight:700}}>CODE</span>}
-                              <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{q.difficulty}</span>
-                            </div>
-                          </div>
-                          <div className="prep-q">{q.question}</div>
-                          {/* Answer area */}
-                          {isSystemDesign ? (
-                            <div className="prep-actions">
-                              <button className="btn btn-primary" onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: q.question })}>
-                                <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
-                              </button>
-                              <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
-                            </div>
-                          ) : isCode ? (
-                            <div style={{marginTop:8}}>
-                              {q.starterCode && <div style={{background:'var(--bg-deep)',border:'1px solid var(--border)',borderRadius:8,padding:12,fontFamily:'var(--font-mono)',fontSize:12,color:'var(--text-secondary)',whiteSpace:'pre-wrap',marginBottom:8}}>{q.starterCode}</div>}
-                              <button className="btn btn-secondary" style={{fontSize:12,padding:'8px 16px',display:'flex',alignItems:'center',gap:6}} onClick={() => setPage('codelab')}>
-                                <Icons.code style={{width:12,height:12}} /> Open in Code Lab
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <textarea className="prep-textarea" placeholder="Write your answer here..." value={practiceAnswers[qKey] || ''} onChange={e => updatePracticeAnswer(qKey, e.target.value)} />
-                              <div className="prep-actions">
-                                <button className="btn btn-primary" disabled={!(practiceAnswers[qKey] || '').trim() || isEvaluating} onClick={() => submitForReview(qKey, q.question, practiceAnswers[qKey], q.sampleAnswer, q.category)}>
-                                  {isEvaluating ? <><span style={{display:'inline-flex',gap:3}}><span style={{width:4,height:4,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite'}}/><span style={{width:4,height:4,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:4,height:4,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span> Evaluating...</> : <><Icons.send style={{width:12,height:12}} /> Submit for Review</>}
-                                </button>
-                                <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Reference Answer</button>
-                              </div>
-                            </>
-                          )}
-                          {/* Evaluation result */}
-                          {!isSystemDesign && ev && (
-                            <div className="prep-eval">
-                              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                                <div className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 5 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 5 ? 'var(--amber)' : 'var(--rose)'}}>
-                                  {ev.score}/{ev.maxScore || 10}
-                                </div>
-                                <span style={{fontSize:12,color:'var(--text-secondary)'}}>{ev.feedback}</span>
-                              </div>
-                              <dl className="prep-eval-list">
-                                {(ev.strengths || []).length > 0 && <><dt style={{color:'var(--emerald)'}}>Strengths</dt>{ev.strengths.map((s, j) => <dd key={j}>• {s}</dd>)}</>}
-                                {(ev.improvements || []).length > 0 && <><dt style={{color:'var(--amber)'}}>To Improve</dt>{ev.improvements.map((s, j) => <dd key={j}>• {s}</dd>)}</>}
-                              </dl>
-                            </div>
-                          )}
-                          {/* Reference answer */}
-                          {revealedAnswers[qKey] && (
-                            <div className="prep-answer" style={{marginTop:10}}>
-                              <div style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)',marginBottom:4}}>REFERENCE ANSWER</div>
-                              {q.sampleAnswer}
-                              {q.followUps?.length > 0 && (
-                                <div style={{marginTop:10}}>
-                                  <div style={{fontSize:11,fontWeight:700,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginBottom:4}}>FOLLOW-UPS</div>
-                                  {q.followUps.map((f, j) => <div key={j} className="prep-followup">{f}</div>)}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {/* Behavioral Questions */}
-                    {(plan.behavioralQuestions || []).map((q, i) => {
-                      const qKey = 'bq'+i;
-                      const ev = evaluations[qKey];
-                      const isEvaluating = !!evaluatingKeys[qKey];
-                      return (
-                        <div key={qKey} className="prep-card">
-                          <div className="prep-card-header">
-                            <span className="prep-card-cat behavioral">behavioral</span>
-                          </div>
-                          <div className="prep-q">{q.question}</div>
-                          {q.whatTheyLookFor && <div style={{fontSize:12,color:'var(--text-muted)',marginBottom:8,fontStyle:'italic'}}>What they look for: {q.whatTheyLookFor}</div>}
-                          <textarea className="prep-textarea" placeholder="Write your STAR response here (Situation, Task, Action, Result)..." value={practiceAnswers[qKey] || ''} onChange={e => updatePracticeAnswer(qKey, e.target.value)} />
-                          <div className="prep-actions">
-                            <button className="btn btn-primary" disabled={!(practiceAnswers[qKey] || '').trim() || isEvaluating} onClick={() => submitForReview(qKey, q.question, practiceAnswers[qKey], JSON.stringify(q.starFramework), 'behavioral')}>
-                              {isEvaluating ? <><span style={{display:'inline-flex',gap:3}}><span style={{width:4,height:4,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite'}}/><span style={{width:4,height:4,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:4,height:4,borderRadius:'50%',background:'#fff',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></span> Evaluating...</> : <><Icons.send style={{width:12,height:12}} /> Submit for Review</>}
-                            </button>
-                            <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, [qKey]: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show STAR Framework</button>
-                          </div>
-                          {ev && (
-                            <div className="prep-eval">
-                              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                                <div className="prep-eval-score" style={{background: ev.score >= 7 ? 'var(--emerald-dim)' : ev.score >= 5 ? 'var(--amber-dim)' : 'var(--rose-dim)', color: ev.score >= 7 ? 'var(--emerald)' : ev.score >= 5 ? 'var(--amber)' : 'var(--rose)'}}>
-                                  {ev.score}/{ev.maxScore || 10}
-                                </div>
-                                <span style={{fontSize:12,color:'var(--text-secondary)'}}>{ev.feedback}</span>
-                              </div>
-                              <dl className="prep-eval-list">
-                                {(ev.strengths || []).length > 0 && <><dt style={{color:'var(--emerald)'}}>Strengths</dt>{ev.strengths.map((s, j) => <dd key={j}>• {s}</dd>)}</>}
-                                {(ev.improvements || []).length > 0 && <><dt style={{color:'var(--amber)'}}>To Improve</dt>{ev.improvements.map((s, j) => <dd key={j}>• {s}</dd>)}</>}
-                              </dl>
-                            </div>
-                          )}
-                          {revealedAnswers[qKey] && (
-                            <div className="prep-answer" style={{marginTop:10}}>
-                              <div style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)',marginBottom:4}}>STAR FRAMEWORK</div>
-                              <dl className="prep-star">
-                                <dt>S</dt><dd>{q.starFramework?.situation}</dd>
-                                <dt>T</dt><dd>{q.starFramework?.task}</dd>
-                                <dt>A</dt><dd>{q.starFramework?.action}</dd>
-                                <dt>R</dt><dd>{q.starFramework?.result}</dd>
-                              </dl>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {/* System Design */}
-                    {plan.systemDesignPrompt && (
-                      <div className="prep-card" style={{borderLeft:'3px solid var(--cyan)'}}>
-                        <span className="prep-card-cat system-design" style={{marginBottom:8,display:'inline-block'}}>System Design Challenge</span>
-                        <div className="prep-q">{plan.systemDesignPrompt.title}</div>
-                        <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>{plan.systemDesignPrompt.description}</div>
-                        <div className="prep-actions">
-                          <button className="btn btn-primary" style={{fontSize:13}} onClick={() => openSystemDesignTopic({ source: 'prep-plan', sourceRoleKey: selectedKey, title: plan.systemDesignPrompt.title })}>
-                            <Icons.messageCircle style={{width:14,height:14}} /> Practice as Conversation
-                          </button>
-                          <button className="prep-reveal-btn" onClick={() => { const updated = {...revealedAnswers, sd: true}; setRevealedAnswers(updated); savePrepState({ revealedAnswers: updated }); }}>Show Key Topics</button>
-                        </div>
-                        {revealedAnswers['sd'] && (
-                          <div className="prep-answer" style={{marginTop:10}}>
-                            <div style={{fontSize:11,fontWeight:700,color:'var(--amber)',fontFamily:'var(--font-mono)',marginBottom:6}}>KEY TOPICS</div>
-                            {(plan.systemDesignPrompt.keyTopics || []).map((t, i) => <div key={i} style={{fontSize:12,color:'var(--text-secondary)',marginBottom:2}}>• {t}</div>)}
-                            <div style={{fontSize:11,fontWeight:700,color:'var(--emerald)',fontFamily:'var(--font-mono)',marginTop:10,marginBottom:6}}>EVALUATION CRITERIA</div>
-                            {(plan.systemDesignPrompt.evaluationCriteria || []).map((t, i) => <div key={i} style={{fontSize:12,color:'var(--text-secondary)',marginBottom:2}}>• {t}</div>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {/* Company Insights */}
-                    {plan.companyInsights && (
-                      <div className="prep-card">
-                        <span className="prep-card-cat" style={{background:'var(--orange-dim)',color:'var(--orange)',marginBottom:8,display:'inline-block'}}>Company Intel</span>
-                        {Object.entries(plan.companyInsights).map(([k, v]) => v && (
-                          <div key={k} style={{marginBottom:8}}>
-                            <div style={{fontSize:11,fontWeight:700,color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',letterSpacing:1,marginBottom:2}}>{k.replace(/([A-Z])/g, ' $1').trim()}</div>
-                            <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:1.6}}>{v}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {prepTab === 'quiz' && (
-                  <>
-                    {quizSubmitted && quizScore && (
-                      <div className="prep-card" style={{textAlign:'center',borderColor: quizScore.pct >= 70 ? 'rgba(52,211,153,0.3)' : 'rgba(251,113,133,0.3)'}}>
-                        <div style={{fontSize:36,fontWeight:800,fontFamily:'var(--font-mono)',color: quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)'}}>{quizScore.pct}%</div>
-                        <div style={{fontSize:13,color:'var(--text-secondary)',marginBottom:8}}>{quizScore.correct}/{quizScore.total} correct</div>
-                        <div className="prep-score-bar"><div className="prep-score-fill" style={{width: quizScore.pct + '%', background: quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)'}} /></div>
-                        <div style={{fontSize:12,color: quizScore.pct >= 70 ? 'var(--emerald)' : 'var(--rose)',fontFamily:'var(--font-mono)',fontWeight:600}}>
-                          {quizScore.pct >= 90 ? 'Excellent — you\'re ready!' : quizScore.pct >= 70 ? 'Good — almost there!' : 'Keep studying — review the questions tab'}
-                        </div>
-                      </div>
-                    )}
-                    {(plan.quiz || []).map((q, i) => {
-                      const submitted = quizSubmitted;
-                      return (
-                        <div key={'quiz'+i} className="prep-card">
-                          <div style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)',marginBottom:6}}>Question {i+1} of {plan.quiz.length}</div>
-                          <div className="prep-q">{q.question}</div>
-                          {(q.options || []).map((opt, j) => {
-                            let cls = 'prep-quiz-option';
-                            if (submitted && j === q.correctIndex) cls += ' correct';
-                            else if (submitted && quizAnswers[i] === j && j !== q.correctIndex) cls += ' wrong';
-                            else if (!submitted && quizAnswers[i] === j) cls += ' selected';
-                            return (
-                              <div key={j} className={cls} onClick={() => { if (!submitted) { const updated = {...quizAnswers, [i]: j}; setQuizAnswers(updated); savePrepState({ quizAnswers: updated }); } }}>
-                                <span className="option-letter">{String.fromCharCode(65+j)}</span>
-                                <span>{opt.replace(/^[A-D]\)\s*/, '')}</span>
-                                {submitted && j === q.correctIndex && <Icons.check style={{width:14,height:14,color:'var(--emerald)',marginLeft:'auto'}} />}
-                                {submitted && quizAnswers[i] === j && j !== q.correctIndex && <Icons.x style={{width:14,height:14,color:'var(--rose)',marginLeft:'auto'}} />}
-                              </div>
-                            );
-                          })}
-                          {submitted && q.explanation && <div className="prep-answer" style={{marginTop:8}}>{q.explanation}</div>}
-                        </div>
-                      );
-                    })}
-                    {!quizSubmitted ? (
-                      <button className="btn btn-primary" style={{width:'100%',padding:'12px',fontSize:14}} onClick={() => { setQuizSubmitted(true); savePrepState({ quizSubmitted: true }); }} disabled={Object.keys(quizAnswers).length < (plan.quiz || []).length}>
-                        Submit Quiz ({Object.keys(quizAnswers).length}/{(plan.quiz || []).length} answered)
-                      </button>
-                    ) : (
-                      <button className="btn btn-secondary" style={{width:'100%',padding:'10px',fontSize:12}} onClick={() => { setQuizAnswers({}); setQuizSubmitted(false); savePrepState({ quizAnswers: {}, quizSubmitted: false }); }}>Retake Quiz</button>
-                    )}
-                  </>
-                )}
-
-                {prepTab === 'readiness' && (
-                  <>
-                    {readinessScore && (
-                      <div className="prep-card" style={{textAlign:'center'}}>
-                        <div style={{fontSize:36,fontWeight:800,fontFamily:'var(--font-mono)',color: readinessScore.pct >= 80 ? 'var(--emerald)' : readinessScore.pct >= 50 ? 'var(--amber)' : 'var(--rose)'}}>{readinessScore.pct}%</div>
-                        <div style={{fontSize:13,color:'var(--text-secondary)',marginBottom:8}}>{readinessScore.done}/{readinessScore.total} items complete</div>
-                        <div className="prep-score-bar"><div className="prep-score-fill" style={{width: readinessScore.pct + '%', background: readinessScore.pct >= 80 ? 'var(--emerald)' : readinessScore.pct >= 50 ? 'var(--amber)' : 'var(--rose)'}} /></div>
-                      </div>
-                    )}
-                    <div className="prep-card">
-                      {(plan.readinessChecklist || []).map((item, i) => (
-                        <div key={i} className="prep-readiness-item">
-                          <input type="checkbox" className="checkbox" checked={!!readinessChecks[i]} onChange={e => { const updated = { ...readinessChecks, [i]: e.target.checked }; setReadinessChecks(updated); savePrepState({ readinessChecks: updated }); }} />
-                          <span style={{flex:1,color: readinessChecks[i] ? 'var(--text-muted)' : 'var(--text)', textDecoration: readinessChecks[i] ? 'line-through' : 'none'}}>{item.item}</span>
-                          <span className={`prep-card-cat ${item.category}`} style={{fontSize:9}}>{item.category}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {isReady && (
-                      <div className="prep-card" style={{textAlign:'center',borderColor:'rgba(52,211,153,0.3)',background:'rgba(52,211,153,0.05)'}}>
-                        <div style={{fontSize:18,fontWeight:700,color:'var(--emerald)',marginBottom:4}}>You're Ready!</div>
-                        <div style={{fontSize:13,color:'var(--text-secondary)',marginBottom:12}}>Quiz passed and readiness checklist complete.</div>
-                        {role.url && (
-                          <button className="btn btn-primary" style={{padding:'12px 24px',fontSize:14,display:'inline-flex',alignItems:'center',gap:8}} onClick={() => window.open(role.url, '_blank')}>
-                            <Icons.send style={{width:14,height:14}} /> Apply Now
-                          </button>
-                        )}
-                        <button className="btn btn-secondary" style={{padding:'10px 20px',fontSize:13,marginLeft:8,display:'inline-flex',alignItems:'center',gap:6}} onClick={() => setPage('intel')}>
-                          <Icons.radar style={{width:12,height:12}} /> View in Intel
-                        </button>
-                      </div>
-                    )}
-                    {!isReady && (
-                      <div style={{textAlign:'center',padding:'12px',fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>
-                        {!quizScore ? 'Complete the quiz first' : quizScore.pct < 70 ? `Quiz score ${quizScore.pct}% — aim for 70%+` : ''}{' '}
-                        {readinessScore && readinessScore.pct < 80 ? `Checklist ${readinessScore.pct}% — aim for 80%+` : ''}
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            ) : (
-              <div className="intel-right-empty">Select a plan to view details</div>
-            )}
-          </div>
-        </div>
-      )}
+        ) : (
+          list.map(wb => <WorkbookCard key={wb.id} wb={wb} onChanged={load} />)
+        )}
+      </div>
     </>
   );
 }
@@ -3276,10 +3385,10 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
               <div className="sd-topic-title">
                 {t.title}
                 {t.hasConversation && <span className="sd-resume-badge">in progress</span>}
-                {t.source === 'prep-plan' && <span className="sd-resume-badge">prep plan</span>}
+                {t.source === 'workbook' && <span className="sd-resume-badge">workbook</span>}
               </div>
               <div className="sd-topic-desc">{t.description}</div>
-              {t.source === 'prep-plan' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:6}}>{t.sourceCompany}{t.sourceRole ? ` · ${t.sourceRole}` : ''}</div>}
+              {t.source === 'workbook' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:6}}>{t.sourceCompany}{t.sourceRole ? ` · ${t.sourceRole}` : ''}</div>}
             </div>
           ))}
         </div>
@@ -3296,13 +3405,13 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
             <>
               <div className="sd-chat-header">
                 <h3>{selectedTopic.title}</h3>
-                {selectedTopic.source === 'prep-plan' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)'}}>{selectedTopic.sourceCompany}{selectedTopic.sourceRole ? ` · ${selectedTopic.sourceRole}` : ''}</span>}
+                {selectedTopic.source === 'workbook' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)'}}>{selectedTopic.sourceCompany}{selectedTopic.sourceRole ? ` · ${selectedTopic.sourceRole}` : ''}</span>}
               </div>
               <div className="sd-empty-state">
                 <Icons.messageCircle style={{width:48,height:48,opacity:0.3}} />
                 <p style={{fontSize:16,fontWeight:600,color:'var(--text-secondary)'}}>Ready to begin?</p>
                 <p style={{fontSize:13,maxWidth:400}}>{selectedTopic.description}</p>
-                <p style={{fontSize:12,marginTop:4}}>{selectedTopic.source === 'prep-plan' ? 'The interviewer will use this prep-plan prompt and role context for the discussion.' : 'The interviewer will present the problem and guide you through the design process.'}</p>
+                <p style={{fontSize:12,marginTop:4}}>{selectedTopic.source === 'workbook' ? 'The interviewer will use this workbook question and role context for the discussion.' : 'The interviewer will present the problem and guide you through the design process.'}</p>
                 <button className="btn btn-primary" onClick={startInterview} disabled={starting} style={{marginTop:12,padding:'10px 28px',fontSize:14,display:'flex',alignItems:'center',gap:8}}>
                   {starting ? <><div className="dot-pulse" style={{display:'inline-flex',gap:4}}><span style={{width:5,height:5,borderRadius:'50%',background:'var(--bg-deep)',animation:'chatDot 1.2s infinite'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--bg-deep)',animation:'chatDot 1.2s infinite',animationDelay:'0.2s'}}/><span style={{width:5,height:5,borderRadius:'50%',background:'var(--bg-deep)',animation:'chatDot 1.2s infinite',animationDelay:'0.4s'}}/></div> Starting...</> : <><Icons.play style={{width:16,height:16}} /> Start Interview</>}
                 </button>
@@ -3313,7 +3422,7 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
               <div className="sd-chat-header">
                 <div>
                   <h3>{selectedTopic.title}</h3>
-                  {selectedTopic.source === 'prep-plan' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:3}}>{selectedTopic.sourceCompany}{selectedTopic.sourceRole ? ` · ${selectedTopic.sourceRole}` : ''}</div>}
+                  {selectedTopic.source === 'workbook' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:3}}>{selectedTopic.sourceCompany}{selectedTopic.sourceRole ? ` · ${selectedTopic.sourceRole}` : ''}</div>}
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:12}}>
                   <span className="sd-exchange-count">{exchangeCount} exchange{exchangeCount !== 1 ? 's' : ''}</span>

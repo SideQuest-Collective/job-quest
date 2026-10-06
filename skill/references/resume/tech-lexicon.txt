@@ -1,0 +1,731 @@
+# Job Quest generic technology lexicon. One name per line. Used by the fact guard
+# (rule 3): a tailored bullet may name a lexicon entry only if its source bullet
+# or the master skills mention it. Add missing tools at the end of the file.
+# Languages
+Python
+Java
+JavaScript
+TypeScript
+Go
+Golang
+Rust
+C++
+C#
+Kotlin
+Swift
+Objective-C
+Scala
+Ruby
+PHP
+Perl
+Elixir
+Erlang
+Haskell
+Clojure
+F#
+OCaml
+Dart
+Lua
+Julia
+MATLAB
+Groovy
+Bash
+PowerShell
+SQL
+PL/SQL
+T-SQL
+GraphQL
+HTML
+CSS
+Sass
+Solidity
+Zig
+Fortran
+COBOL
+VBA
+Visual Basic
+Apex
+Elm
+Nim
+WebAssembly
+Wasm
+Verilog
+VHDL
+Prolog
+Lisp
+Racket
+Smalltalk
+Delphi
+ABAP
+Stata
+# Frontend and mobile
+React
+React Native
+Next.js
+Vue
+Vue.js
+Nuxt
+Angular
+AngularJS
+Svelte
+SvelteKit
+SolidJS
+Ember.js
+Backbone.js
+jQuery
+Redux
+MobX
+Zustand
+RxJS
+Tailwind CSS
+Tailwind
+Bootstrap
+Material UI
+Chakra UI
+styled-components
+Storybook
+Webpack
+Vite
+Rollup
+esbuild
+Babel
+Gatsby
+Remix
+Astro
+Expo
+Flutter
+Ionic
+Cordova
+Electron
+Tauri
+Three.js
+D3.js
+Chart.js
+WebGL
+WebRTC
+WebSockets
+WebSocket
+Service Workers
+PWA
+SwiftUI
+UIKit
+Jetpack Compose
+Xamarin
+Qt
+Android
+iOS
+Android SDK
+Kotlin Multiplatform
+Unity
+Unreal Engine
+Godot
+ARKit
+ARCore
+# Backend frameworks and APIs
+Node.js
+Node
+Express
+Express.js
+NestJS
+Fastify
+Koa
+Hapi
+Deno
+Bun
+Django
+Flask
+FastAPI
+Tornado
+Celery
+Spring
+Spring Boot
+Spring Cloud
+Hibernate
+Micronaut
+Quarkus
+Dropwizard
+Vert.x
+Play Framework
+Akka
+Ruby on Rails
+Rails
+Sinatra
+Laravel
+Symfony
+ASP.NET
+.NET
+.NET Core
+Entity Framework
+Phoenix
+Gin
+Actix
+Axum
+Tokio
+gRPC
+gRPC-Web
+Protocol Buffers
+Protobuf
+Thrift
+Avro
+OpenAPI
+Swagger
+REST
+tRPC
+Apollo
+Hasura
+Prisma
+TypeORM
+Sequelize
+SQLAlchemy
+Alembic
+Mongoose
+Drizzle
+Knex
+JSON-RPC
+SOAP
+OData
+# Databases and storage
+PostgreSQL
+Postgres
+MySQL
+MariaDB
+SQLite
+Oracle
+SQL Server
+Microsoft SQL Server
+MongoDB
+DynamoDB
+Cassandra
+ScyllaDB
+Redis
+Memcached
+Elasticsearch
+OpenSearch
+Solr
+Neo4j
+CouchDB
+Couchbase
+Firebase
+Firestore
+Supabase
+PlanetScale
+CockroachDB
+TiDB
+Vitess
+ClickHouse
+Apache Druid
+Apache Pinot
+InfluxDB
+TimescaleDB
+HBase
+Bigtable
+Spanner
+Cloud Spanner
+Aurora
+Amazon Aurora
+RDS
+Amazon RDS
+Redshift
+Amazon Redshift
+Snowflake
+BigQuery
+Databricks
+Delta Lake
+Apache Iceberg
+Iceberg
+Apache Hudi
+Teradata
+Vertica
+Greenplum
+DuckDB
+Pinecone
+Weaviate
+Milvus
+Qdrant
+ChromaDB
+pgvector
+FAISS
+LanceDB
+etcd
+ZooKeeper
+Consul
+MinIO
+Ceph
+# Streaming, data, and orchestration
+Apache Kafka
+Kafka
+Kafka Streams
+Kafka Connect
+Schema Registry
+Confluent
+Kinesis
+Amazon Kinesis
+Kinesis Data Firehose
+Apache Pulsar
+Pulsar
+RabbitMQ
+ActiveMQ
+ZeroMQ
+NATS
+SQS
+Amazon SQS
+SNS
+Amazon SNS
+Google Pub/Sub
+Pub/Sub
+EventBridge
+Amazon EventBridge
+Apache Spark
+Spark
+PySpark
+Spark Streaming
+Hadoop
+HDFS
+MapReduce
+Hive
+Presto
+Trino
+Athena
+Amazon Athena
+Apache Flink
+Flink
+Apache Beam
+Dataflow
+Airflow
+Apache Airflow
+Dagster
+Prefect
+Luigi
+Argo Workflows
+dbt
+Fivetran
+Airbyte
+Talend
+Informatica
+Apache NiFi
+Debezium
+Glue
+AWS Glue
+EMR
+Amazon EMR
+Dataproc
+Azure Synapse
+Azure Data Factory
+Looker
+Tableau
+Power BI
+Metabase
+Apache Superset
+Redash
+Pandas
+NumPy
+SciPy
+Polars
+Dask
+Jupyter
+Parquet
+Apache Arrow
+Great Expectations
+Temporal
+Inngest
+Sidekiq
+BullMQ
+Resque
+# Machine learning and AI
+TensorFlow
+PyTorch
+Keras
+JAX
+scikit-learn
+XGBoost
+LightGBM
+CatBoost
+Hugging Face
+spaCy
+NLTK
+OpenCV
+MLflow
+Kubeflow
+SageMaker
+Amazon SageMaker
+Vertex AI
+Azure ML
+Bedrock
+Amazon Bedrock
+OpenAI
+OpenAI API
+OpenAI Agents SDK
+Anthropic
+Claude
+Claude Code
+Codex
+Cursor
+GitHub Copilot
+GPT-4
+ChatGPT
+Gemini
+Llama
+Mistral
+Cohere
+LangChain
+LangGraph
+LlamaIndex
+DSPy
+Haystack
+Semantic Kernel
+AutoGen
+CrewAI
+vLLM
+TensorRT
+ONNX
+Triton Inference Server
+CUDA
+Ollama
+Weights & Biases
+Ray
+Ray Serve
+BentoML
+Feast
+Label Studio
+MCP
+Model Context Protocol
+RAG
+LoRA
+RLHF
+Whisper
+Stable Diffusion
+# Cloud: AWS
+AWS
+Amazon Web Services
+Lambda
+AWS Lambda
+S3
+Amazon S3
+EC2
+Amazon EC2
+ECS
+Amazon ECS
+EKS
+Amazon EKS
+Fargate
+AWS Fargate
+Step Functions
+AWS Step Functions
+CloudFormation
+AWS CloudFormation
+CDK
+AWS CDK
+CloudWatch
+Amazon CloudWatch
+CloudFront
+Route 53
+API Gateway
+Amazon API Gateway
+IAM
+AWS IAM
+KMS
+AWS KMS
+Secrets Manager
+Cognito
+Amplify
+AppSync
+Elastic Beanstalk
+AWS Batch
+ElastiCache
+DocumentDB
+Amazon Neptune
+Timestream
+Lake Formation
+QuickSight
+X-Ray
+AWS X-Ray
+CodePipeline
+CodeBuild
+CodeDeploy
+Systems Manager
+VPC
+ELB
+ALB
+NLB
+Lightsail
+App Runner
+MSK
+Amazon MSK
+SES
+Amazon SES
+WAF
+GuardDuty
+CloudTrail
+# Cloud: Google, Azure, and others
+GCP
+Google Cloud
+Google Cloud Platform
+Cloud Run
+Cloud Functions
+App Engine
+GKE
+Google Kubernetes Engine
+Compute Engine
+Cloud Storage
+Cloud SQL
+Cloud Build
+Anthos
+Azure
+Microsoft Azure
+Azure Functions
+Azure DevOps
+AKS
+Azure Kubernetes Service
+Cosmos DB
+Azure Blob Storage
+Azure Service Bus
+Azure Event Hubs
+Azure SQL
+Cloudflare
+Cloudflare Workers
+Vercel
+Netlify
+Heroku
+DigitalOcean
+Linode
+Fly.io
+Oracle Cloud
+IBM Cloud
+Alibaba Cloud
+OpenStack
+# DevOps and infrastructure
+Docker
+Docker Compose
+Podman
+Kubernetes
+K8s
+Helm
+Kustomize
+Istio
+Linkerd
+Envoy
+Nomad
+Terraform
+Pulumi
+Ansible
+Chef
+Puppet
+SaltStack
+Packer
+Vagrant
+Vault
+HashiCorp Vault
+Jenkins
+GitHub Actions
+GitLab CI
+GitLab
+GitHub
+Bitbucket
+CircleCI
+Travis CI
+TeamCity
+Bamboo
+Buildkite
+Argo CD
+ArgoCD
+FluxCD
+Spinnaker
+Tekton
+Bazel
+Gradle
+Maven
+CMake
+npm
+Yarn
+pnpm
+Poetry
+Conda
+Nginx
+Apache HTTP Server
+HAProxy
+Traefik
+Caddy
+Kong
+Linux
+Ubuntu
+Debian
+CentOS
+Red Hat
+RHEL
+Alpine Linux
+Windows Server
+macOS
+Unix
+systemd
+Git
+Mercurial
+SVN
+Perforce
+Jira
+Confluence
+PagerDuty
+Opsgenie
+ServiceNow
+Backstage
+Crossplane
+Karpenter
+KEDA
+Knative
+OpenShift
+Rancher
+containerd
+Firecracker
+gVisor
+eBPF
+WireGuard
+Tailscale
+OpenVPN
+CI/CD
+# Observability
+Prometheus
+Grafana
+Datadog
+New Relic
+Splunk
+Sumo Logic
+Elastic Stack
+ELK
+Logstash
+Kibana
+Fluentd
+Fluent Bit
+Grafana Loki
+Jaeger
+Zipkin
+OpenTelemetry
+Honeycomb
+Sentry
+Dynatrace
+AppDynamics
+Lightstep
+Chronosphere
+Nagios
+Zabbix
+StatsD
+Graphite
+VictoriaMetrics
+Thanos
+Bugsnag
+Rollbar
+LogRocket
+Amplitude
+Mixpanel
+Segment
+Google Analytics
+PostHog
+LaunchDarkly
+Optimizely
+Statsig
+# Testing and quality
+Jest
+Mocha
+Chai
+Vitest
+Jasmine
+Karma
+Cypress
+Playwright
+Puppeteer
+Selenium
+WebdriverIO
+TestCafe
+pytest
+JUnit
+TestNG
+Mockito
+RSpec
+Cucumber
+Gatling
+JMeter
+k6
+Locust
+Postman
+Pact
+SonarQube
+ESLint
+Prettier
+Ruff
+mypy
+Pylint
+Testcontainers
+Detox
+XCTest
+Espresso
+# Security, identity, and compliance
+OAuth
+OAuth 2.0
+OpenID Connect
+OIDC
+SAML
+JWT
+Auth0
+Okta
+Keycloak
+LDAP
+Active Directory
+TLS
+mTLS
+Kerberos
+SOC 2
+HIPAA
+PCI DSS
+GDPR
+ISO 27001
+FedRAMP
+Snyk
+Veracode
+Checkmarx
+Wiz
+CrowdStrike
+Burp Suite
+OWASP
+# Protocols, formats, and hardware
+JSON
+YAML
+XML
+HTTP/2
+HTTP/3
+QUIC
+TCP/IP
+UDP
+Server-Sent Events
+AMQP
+MQTT
+Bluetooth Low Energy
+BLE
+Raspberry Pi
+Arduino
+ROS
+FreeRTOS
+# SaaS platforms and APIs
+Stripe
+Plaid
+Twilio
+SendGrid
+Mailgun
+Braintree
+Adyen
+PayPal
+Shopify
+Salesforce
+HubSpot
+Zendesk
+Intercom
+Algolia
+Mapbox
+Google Maps API
+Contentful
+Strapi
+WordPress
+Magento
+Zapier
+Retool
+Airtable
+Slack API
+Eventbrite API
+Ticketmaster API

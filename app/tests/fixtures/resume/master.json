@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "contact": {
+    "name": "Alex Example",
+    "email": "alex@example.com",
+    "phone": "(+1) 555-010-0199",
+    "linkedin": "linkedin.com/in/alex-example",
+    "location": "Springfield, IL, USA",
+    "links": ["github.com/alex-example"]
+  },
+  "headline": "Senior Software Engineer | Backend Systems & Data Platforms",
+  "summary": "Backend engineer with 8+ years building data platforms and payment services on AWS. Built a billing platform of 6 services that handles 3M+ payment events per day and moves ledger data into a shared warehouse for analytics teams. Led a migration of 40 nightly batch jobs to Step Functions that cut compute costs by 35%. Owns on-call for 9 production services and mentors 4 engineers through design and code reviews.",
+  "experience": [
+    {
+      "id": "globex",
+      "employer": "Globex Corp",
+      "start": "2017-06",
+      "end": null,
+      "roles": [
+        {
+          "id": "sr",
+          "title": "Senior Software Engineer",
+          "team": "Billing Platform",
+          "start": "2022-02",
+          "end": null,
+          "bullets": [
+            { "id": "exp.sr.1", "text": "Designed and built a billing platform of 6 services that processes 3M+ payment events per day with Python and PostgreSQL." },
+            { "id": "exp.sr.2", "text": "Cut P99 API latency from 900ms to 250ms by adding a Redis cache and rewriting 12 slow SQL queries." },
+            { "id": "exp.sr.3", "text": "Led a migration of 40 nightly batch jobs to AWS Step Functions, cutting compute costs by 35% and failed runs by 80%." },
+            { "id": "exp.sr.4", "text": "Run on-call for 9 production services with CloudWatch alarms on 60+ metrics and a weekly incident review." },
+            { "id": "exp.sr.5", "text": "Mentor 4 engineers through design reviews and code reviews, and wrote the team's API design guide." }
+          ]
+        },
+        {
+          "id": "ii",
+          "title": "Software Engineer II",
+          "team": "Billing Platform",
+          "start": "2019-08",
+          "end": "2022-02",
+          "bullets": [
+            { "id": "exp.ii.1", "text": "Split a monolithic invoicing service into 4 independently deployable services on Docker and Kubernetes." },
+            { "id": "exp.ii.2", "text": "Built a Kafka event pipeline that moves 500K ledger records per hour into a Redshift warehouse for 5 analytics teams." },
+            { "id": "exp.ii.3", "text": "Added contract tests and a CI/CD pipeline in GitHub Actions, raising test coverage from 55% to 90%." },
+            { "id": "exp.ii.4", "text": "Shipped a REST API for partner refunds used by 30+ merchants within the first quarter." }
+          ]
+        },
+        {
+          "id": "i",
+          "title": "Software Engineer I",
+          "team": "Internal Tools & Reporting",
+          "start": "2017-06",
+          "end": "2019-08",
+          "bullets": [
+            { "id": "exp.i.1", "text": "Built a TypeScript and React dashboard for finance operations used by 120 staff each week." },
+            { "id": "exp.i.2", "text": "Automated a monthly reconciliation report in Python, saving 20 hours of manual work per month." },
+            { "id": "exp.i.3", "text": "Wrote data validation checks that caught 15 billing errors before customer invoices were sent." },
+            { "id": "exp.i.4", "text": "Moved 8 internal reports from spreadsheets to a shared SQL reporting database with daily refresh jobs." }
+          ]
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj.pantry",
+      "name": "Pantry (Recipe Planner App)",
+      "tech": ["React Native", "TypeScript", "Supabase"],
+      "bullets": [
+        { "id": "proj.pantry.1", "text": "Built a recipe planner app as a solo project with a NestJS API and a Supabase (PostgreSQL) database, now used by 300+ people." }
+      ]
+    },
+    {
+      "id": "proj.relay",
+      "name": "Relay (Chat to Email Bridge)",
+      "tech": ["TypeScript", "Node.js", "Cloudflare Workers"],
+      "bullets": [
+        { "id": "proj.relay.1", "text": "Built a bridge that forwards team chat threads to email for 2 volunteer groups, running on Cloudflare Workers." },
+        { "id": "proj.relay.2", "text": "Added automated tests and CI on GitHub Actions that run in under 3 minutes." }
+      ]
+    }
+  ],
+  "skills": [
+    { "group": "Languages", "items": ["Python", "TypeScript", "SQL", "Java"] },
+    { "group": "Backend", "items": ["REST APIs", "PostgreSQL", "Redis", "Kafka", "Node.js"] },
+    { "group": "Cloud", "items": ["AWS (Lambda, S3, SQS, Step Functions)", "Docker", "Kubernetes", "CloudWatch"] },
+    { "group": "Practices", "items": ["CI/CD", "GitHub Actions", "Code Review", "On-Call", "Observability"] }
+  ],
+  "education": [
+    { "school": "State University", "degree": "Bachelor of Science in Computer Science", "start": "", "end": "2017-05" }
+  ],
+  "certifications": [],
+  "meta": { "nextIds": { "exp.sr": 6, "exp.ii": 5, "exp.i": 5, "proj.pantry": 2, "proj.relay": 3 } }
+}

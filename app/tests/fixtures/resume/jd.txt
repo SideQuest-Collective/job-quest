@@ -1,0 +1,20 @@
+Senior Software Engineer, Payments Platform
+Initech is hiring a Senior Software Engineer to build the services that move money for 40,000 merchants.
+
+What you will do
+- Design and run backend services in Python and Java on AWS.
+- Own data stores in PostgreSQL and Redis, and event streams on Kafka.
+- Ship containers with Docker and Kubernetes through a CI/CD pipeline.
+- Share on-call for the services your team owns and improve their reliability.
+- Feed reporting data into Redshift for finance and analytics partners.
+
+What you bring
+- 6+ years of backend engineering experience in production systems.
+- Strong Python skills and solid SQL.
+- Experience with AWS, Docker, Kubernetes, Kafka, Redis and PostgreSQL.
+- Comfort with CI/CD and being on-call.
+
+Nice to have
+- GitHub Actions workflows.
+- Java services at scale.
+- Terraform for infrastructure as code.

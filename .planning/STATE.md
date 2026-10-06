@@ -93,7 +93,6 @@ None yet.
 
 | Date | Task | Status | Artifact |
 |------|------|--------|----------|
-| 2026-08-17 | Generate and validate daily Job Quest intelligence | complete | `.planning/quick/260817-hr8-generate-and-validate-job-quest-daily-in/260817-hr8-SUMMARY.md` |
 | 2026-05-05 | Fix Code Lab runner for LRU class operation tests | complete | `.planning/quick/260505-qpc-fix-lru-coding-problem-test-runner-misma/SUMMARY.md` |
 | 2026-05-05 | Fix Ask AI assistant pane persistence and resizable input layout | complete | `.planning/quick/260505-na0-fix-ask-ai-assistant-pane-persistence-an/SUMMARY.md` |
 | 2026-05-05 | Remove static submit-review flow for generated system design prep questions | complete | `.planning/quick/260505-n1n-remove-remaining-static-submit-review-fl/SUMMARY.md` |

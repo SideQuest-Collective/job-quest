@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "contact": {
+    "name": "Alex Example",
+    "email": "alex@example.com",
+    "phone": "(+1) 555-010-0199",
+    "linkedin": "linkedin.com/in/alex-example",
+    "location": "Springfield, IL, USA",
+    "links": ["github.com/alex-example"]
+  },
+  "headline": "Senior Software Engineer | Backend & Data",
+  "summary": "Software engineer building reliable services & tools. Improved throughput by 25% and saved $10K.",
+  "experience": [
+    {
+      "id": "globex-corp",
+      "employer": "Globex Corp",
+      "start": "2018-06",
+      "end": null,
+      "roles": [
+        {
+          "id": "sr", "title": "Senior Software Engineer", "team": "Billing Platform", "start": "2023-02", "end": null,
+          "bullets": [
+            { "id": "exp.sr.1", "text": "Designed a billing service of 4 components that handles 2M+ events per day." },
+            { "id": "exp.sr.2", "text": "Cut P99 latency from 900ms to 300ms by adding a cache layer." }
+          ]
+        },
+        {
+          "id": "ii", "title": "Software Engineer II", "team": "Billing Platform", "start": "2021-01", "end": "2023-02",
+          "bullets": [ { "id": "exp.ii.1", "text": "Moved a nightly batch job to Step Functions, saving $40K per year." } ]
+        },
+        {
+          "id": "i", "title": "Software Engineer I", "team": "Internal Tools & Reporting", "start": "2018-06", "end": "2021-01",
+          "bullets": [ { "id": "exp.i.1", "text": "Built an internal dashboard used by 3 teams." } ]
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj.pantry", "name": "Pantry", "tech": ["React Native", "TypeScript", "Supabase"],
+      "bullets": [ { "id": "proj.pantry.1", "text": "Built a recipe planner app as a solo project on a Supabase (PostgreSQL) backend." } ]
+    },
+    {
+      "id": "proj.relay", "name": "Relay", "tech": ["TypeScript", "Node.js"],
+      "bullets": [
+        { "id": "proj.relay.1", "text": "Built a bridge that forwards team chat messages to email." },
+        { "id": "proj.relay.2", "text": "Added automated tests and CI on GitHub Actions." }
+      ]
+    }
+  ],
+  "skills": [
+    { "group": "Languages", "items": ["Python", "TypeScript", "SQL"] },
+    { "group": "AWS & Infrastructure", "items": ["AWS (Lambda, S3, SQS)", "Docker", "CI/CD"] }
+  ],
+  "education": [
+    { "school": "State University", "degree": "Bachelor of Science in Computer Science", "start": "", "end": "2016-05" }
+  ],
+  "certifications": [],
+  "meta": { "nextIds": { "exp.sr": 3, "exp.ii": 2, "exp.i": 2, "proj.pantry": 2, "proj.relay": 3 } }
+}

@@ -1,0 +1,90 @@
+{
+  "contractVersion": "jq-interview/1",
+  "roleKey": null,
+  "practiceSet": null,
+  "practiceResults": [],
+  "practiceQuestions": [],
+  "round": "coding",
+  "phase": "optimize",
+  "phase_history": [
+    {
+      "phase": "clarify",
+      "start": 1773498600,
+      "end": 1773498780
+    },
+    {
+      "phase": "next",
+      "start": 1773498780,
+      "end": 1773498900
+    },
+    {
+      "phase": "code",
+      "start": 1773498900,
+      "end": 1773499200
+    },
+    {
+      "phase": "solution",
+      "start": 1773499200,
+      "end": 1773499500
+    },
+    {
+      "phase": "code",
+      "start": 1773499500,
+      "end": 1773500100
+    },
+    {
+      "phase": "test",
+      "start": 1773500100,
+      "end": 1773500700
+    },
+    {
+      "phase": "code",
+      "start": 1773500700,
+      "end": 1773501000
+    },
+    {
+      "phase": "optimize",
+      "start": 1773501000,
+      "end": null
+    }
+  ],
+  "now": null,
+  "summary": null,
+  "stages": {
+    "clarify": {
+      "title": "Merge overlapping intervals",
+      "bullets": [
+        "Ask whether intervals that share an endpoint should merge."
+      ],
+      "ts": "2026-03-14T14:50:30Z"
+    }
+  },
+  "revisit": null,
+  "question": {
+    "id": 2,
+    "title": "Merge overlapping intervals",
+    "ts": "2026-03-14T14:50:00Z"
+  },
+  "questions": [
+    {
+      "id": 1,
+      "title": "Rate limiter: sliding window",
+      "ts": "2026-03-14T14:31:00Z",
+      "ended": "2026-03-14T14:50:00Z",
+      "stages": {
+        "clarify": {
+          "title": "Rate limiter: sliding window",
+          "bullets": [
+            "Confirm the window length, request limit, and timestamp ordering."
+          ],
+          "ts": "2026-03-14T14:31:30Z"
+        }
+      },
+      "now": null
+    }
+  ],
+  "cheatsheet": [],
+  "clip": true,
+  "started_at": 1773498600,
+  "endedAt": 1773501300
+}

@@ -32,11 +32,11 @@
 
 ## Known Bugs
 
-**[Confirmed] Dashboard greeting is hard-coded to a developer name:**
-- Symptoms: The home screen renders a hardcoded owner name regardless of the active user profile.
+**[Fixed] Dashboard greeting was hard-coded to a developer name:**
+- Symptoms: The home screen rendered a hardcoded owner name regardless of the active user profile.
 - Files: `app/public/index.html`
 - Trigger: Opening the dashboard home view.
-- Workaround: None in-product; requires editing the frontend code.
+- Fix: the greeting now reads the display name from profile.json via GET /api/profile.
 
 **[Confirmed] `activity.json` seed shape does not match server expectations:**
 - Symptoms: Installer seeds `activity.json` as `[]`, but `readActivity()` and `logActivity()` treat it as an object keyed by date.

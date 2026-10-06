@@ -22,7 +22,7 @@ CODEX_SKILL_DIR="$HOME_DIR/.codex/skills/job-quest"
 
 DATA_DIRS=(
   intel quizzes tasks problems behavioral conversations sd-conversations
-  resume-files logs
+  resume-files logs workbooks resume
 )
 DATA_FILES=(
   profile.json activity.json progress.json resume.json role-tracker.json
@@ -114,7 +114,7 @@ fi
 
 echo ""
 echo "Installing app dependencies..."
-cd "$APP_DIR/app" && npm install --silent
+cd "$APP_DIR/app" && npm install --silent --omit=optional
 
 echo "DATA_DIR=$DATA_DIR" > "$APP_DIR/app/.env"
 
@@ -142,6 +142,13 @@ fi
 [ -f "$DATA_DIR/progress.json" ] || echo '{}' > "$DATA_DIR/progress.json"
 [ -f "$DATA_DIR/resume.json" ] || echo '{}' > "$DATA_DIR/resume.json"
 
+# Resume tailoring provisioning
+mkdir -p "$DATA_DIR/resume/template" "$DATA_DIR/resume/tailored"
+if ! command -v tectonic >/dev/null 2>&1; then
+  echo "  Note: tectonic not found. Resume tailoring needs it to build PDFs: brew install tectonic"
+fi
+# End resume tailoring provisioning
+
 echo ""
 echo "Installing runtime-neutral helpers..."
 cp "$APP_DIR/skill/bin/generate-plan.sh" "$BIN_DIR/generate-plan.sh"
@@ -152,6 +159,7 @@ cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
 cp "$APP_DIR/skill/bin/run-interview-trainer.sh" "$BIN_DIR/run-interview-trainer.sh"
 cp "$APP_DIR/skill/bin/install-trainer-schedule.sh" "$BIN_DIR/install-trainer-schedule.sh"
 cp "$APP_DIR/skill/bin/run-trainer-replies.sh" "$BIN_DIR/run-trainer-replies.sh"
+cp "$APP_DIR/skill/bin/import-workbook.sh" "$BIN_DIR/import-workbook.sh"
 
 # Dedicated Full Disk Access entry point for the trainer reply poller (macOS).
 # Compiled per-machine so the user grants FDA to one single-purpose binary.
@@ -163,6 +171,13 @@ cp "$APP_DIR/skill/bin/update.sh" "$BIN_DIR/update.sh"
 cp "$APP_DIR/skill/bin/uninstall.sh" "$BIN_DIR/uninstall.sh"
 cp "$APP_DIR/skill/bin/reinstall.sh" "$BIN_DIR/reinstall.sh"
 chmod +x "$BIN_DIR/"*.sh
+
+# Job Quest CLI for /interview (contract jq-interview/1; see CONTRACT.md).
+# Named jq by the contract. ~/.job-quest/bin is never added to PATH, so the jq JSON tool is unaffected;
+# /interview always runs it by absolute path. A symlink, so `git pull` updates apply immediately.
+chmod +x "$APP_DIR/skill/bin/jq"
+ln -sfn "$APP_DIR/skill/bin/jq" "$BIN_DIR/jq"
+mkdir -p "$DATA_DIR/interview-sessions"
 
 echo "Installing shared references..."
 cp "$APP_DIR/skill/references/intel-agent-template.md" "$REFERENCES_DIR/intel-agent-template.md"
@@ -201,4 +216,7 @@ echo ""
 echo "  Dashboard:"
 echo "    ~/.job-quest/bin/start.sh"
 echo "    Then open http://localhost:3847"
+echo ""
+echo "  /interview integration (optional):"
+echo "    ~/.job-quest/bin/jq  (Job Quest CLI, run by absolute path; not on PATH, does not replace the jq JSON tool)"
 echo ""

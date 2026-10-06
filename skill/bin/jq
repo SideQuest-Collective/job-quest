@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+// Job Quest CLI for /interview, contract jq-interview/1 (see CONTRACT.md).
+// Not the JSON processor: /interview runs ~/.job-quest/bin/jq by absolute path.
+// One JSON value on stdout; exit 0 (success), 1 (runtime), or 2 (usage).
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const USAGE = 'usage: jq version | roles --company <name> | interview-context <roleKey> [--round <round>] [--no-agent] | ingest-session <folder> | link-session <folder> <roleKey>';
+const FLAGS = {
+  version: [], roles: ['company'], 'interview-context': ['round', 'no-agent'],
+  'ingest-session': [], 'link-session': [],
+};
+
+function out(value, code = 0) {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
+  process.exitCode = code;
+}
+
+function fail(message, code = 1) {
+  out({ error: String(message).split(/[\r\n]/)[0] }, code);
+}
+
+function appRoot() {
+  const here = path.dirname(fs.realpathSync(__filename));
+  const candidates = process.env.JOB_QUEST_APP_DIR
+    ? [path.resolve(process.env.JOB_QUEST_APP_DIR, 'app')]
+    : [path.resolve(here, '..', '..', 'app'), path.resolve(here, '..', 'app', 'app')];
+  return candidates.find((c) => fs.existsSync(path.join(c, 'lib', 'interview', 'contract.js'))) || null;
+}
+
+function envFileDataDir(root) {
+  try {
+    for (const line of fs.readFileSync(path.join(root, '.env'), 'utf-8').split('\n')) {
+      const m = /^\s*DATA_DIR\s*=\s*(.+?)\s*$/.exec(line);
+      if (m) return m[1];
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return null;
+}
+
+function parseArgs(argv, allowed, InputError) {
+  const pos = [];
+  const opts = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) { pos.push(a); continue; }
+    const eq = a.indexOf('=');
+    const key = eq === -1 ? a.slice(2) : a.slice(2, eq);
+    if (!allowed.includes(key)) throw new InputError(`unknown option: --${key}`);
+    if (key === 'no-agent') {
+      if (eq !== -1) throw new InputError('--no-agent does not take a value');
+      opts[key] = true;
+    } else if (eq !== -1) opts[key] = a.slice(eq + 1);
+    else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) opts[key] = argv[++i];
+    else throw new InputError(`--${key} needs a value`);
+  }
+  return { pos, opts };
+}
+
+async function main() {
+  const root = appRoot();
+  if (!root) return fail('Job Quest app not found next to this script; reinstall Job Quest or set JOB_QUEST_APP_DIR');
+  const lib = (name) => require(path.join(root, 'lib', 'interview', name));
+  const contract = lib('contract');
+  const [cmd, ...rest] = process.argv.slice(2);
+  if (!Object.hasOwn(FLAGS, cmd)) return fail(cmd ? `unknown command: ${cmd}; run jq with no arguments for usage` : USAGE, 2);
+  const { pos, opts } = parseArgs(rest, FLAGS[cmd], contract.InputError);
+  const env = { ...process.env };
+  if (!env.DATA_DIR) env.DATA_DIR = envFileDataDir(root);
+  const dataDir = contract.dataDirFromEnv(env);
+  const interviewHome = contract.interviewHome(env);
+
+  switch (cmd) {
+    case 'version': {
+      if (pos.length) return fail('version takes no arguments', 2);
+      const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
+      return out({ version: pkg.version, contract: contract.CONTRACT });
+    }
+    case 'roles':
+      if (pos.length || !opts.company) return fail('roles needs --company <name>', 2);
+      return out(lib('roles').listRolesForCompany(dataDir, opts.company));
+    case 'interview-context':
+      if (pos.length !== 1) return fail('interview-context needs <roleKey>', 2);
+      return out(await lib('context').writeInterviewContext({
+        dataDir, interviewHome, roleKey: pos[0], round: opts.round ?? null, noAgent: !!opts['no-agent'],
+      }));
+    case 'ingest-session':
+      if (pos.length !== 1) return fail('ingest-session needs <folder>', 2);
+      // The library resolves bare/absolute folders and takes the per-folder lock with its default wait.
+      return out(await lib('ingest').ingestSession({ dataDir, interviewHome, folder: pos[0] }));
+    case 'link-session':
+      if (pos.length !== 2) return fail('link-session needs <folder> <roleKey>', 2);
+      return out(await lib('ingest').linkSession({ dataDir, interviewHome, folder: pos[0], roleKey: pos[1] }));
+  }
+}
+
+main().catch((error) => fail(error && error.message ? error.message : String(error), error && error.code === 'INPUT' ? 2 : 1));

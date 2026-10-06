@@ -92,8 +92,8 @@ Once confirmed, save to `~/.job-quest/data/profile.json`:
 {
   "name": "...",
   "currentRole": "...",
-  "yearsExperience": 8,
-  "strengths": ["distributed systems", "measurement", "data pipelines"],
+  "yearsExperience": 6,
+  "strengths": ["distributed systems", "API design", "data pipelines"],
   "targetLevel": "Staff",
   "targetCompanies": {
     "specific": ["Google", "Stripe"],
@@ -224,7 +224,7 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 **Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
 
-**Interview Prep:** Ask which company/role. Search the web for company-specific intel, recent interview reports, and generate a tailored prep plan with technical questions, behavioral prompts, and a readiness checklist. Save to role-tracker.
+**Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them.
 
 **Daily Tasks:** Read today's task file. Walk through tasks conversationally, helping with each one — expanding on system design topics, role-playing behavioral questions, doing research together.
 
@@ -239,6 +239,17 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 **Interview Trainer:** Route to the "Interview Trainer" section below — set it up if `~/.job-quest/data/trainer/config.json` is missing, otherwise review pending questions, adjust hours, pause/resume, or change the delivery handle.
 
 **Manage Installation:** Route to the "Installation Management" section below.
+
+## Workbooks
+
+A workbook is a per-role study guide: teaching chapters written for the user's background, drillable questions (multiple choice, written, and code) with hints, answer keys, and rubrics, a hover glossary, self-grading, and a Review misses list. Workbooks live in `~/.job-quest/data/workbooks/<id>/`.
+
+- **Generation** runs in the background on the dashboard's job queue: a researcher agent, a link check, a curriculum planner, chapter writers, Python checks of every code answer, and an editor. Code validates every agent output; a chapter that fails its checks is never published.
+- **Tiers:** `screen` (5–7 chapters) by default; "Expand to onsite" adds 4–8 chapters without touching existing ones.
+- **Auto-build:** saving or applying to a role queues a workbook (at most 3 automatic builds a day; extras wait for the next day). Toggle it on the Workbooks tab; "Build for all saved/applied" covers older roles.
+- **Progress** is saved on the dashboard, not just in the browser. "Download offline" gives a single HTML file that works without internet.
+- **Trainer:** missed workbook questions come back through the hourly trainer on a 1-, 3-, then 7-day schedule, and graded replies update the workbook.
+- **Import** an existing hand-built kit with `~/.job-quest/bin/import-workbook.sh` (see Available Scripts).
 
 ## Interview Trainer
 
@@ -287,6 +298,20 @@ Questions accumulate in `~/.job-quest/data/trainer/questions.json`. The generato
 - **Change handle:** update `phone` in config.json.
 - **Remove entirely:** `~/.job-quest/bin/install-trainer-schedule.sh --uninstall`.
 - **Status:** `~/.job-quest/bin/install-trainer-schedule.sh --show`; logs at `~/.job-quest/data/logs/interview-trainer.log`.
+
+## Resume Tailoring
+
+Job Quest keeps one structured master resume (`~/.job-quest/data/resume/master.json`) and builds a tailored one-page PDF per role. Each version is graded by a deterministic ATS score (Keywords 30, Parseability 30, Structure 15, History 15, Content 10) and revised up to 3 rounds per run until it scores at least 90. It never adds a number, tool, employer, title, or date that the master does not support.
+
+- **Set up the master:** Dashboard → Resume → Master. Fill it in, or choose "Import from LaTeX" to convert the uploaded `resume_cv.tex`, review the diff, choose "Use this", then Save. If you keep a `content.py`/`build.py` workflow, import it with `node ~/.job-quest/app/skill/bin/import-resume.js --content <content.py> --tex <resume_cv.tex>`; it prints a diff and saves only with `--write`.
+- **Tailor:** on a role page choose "Tailor resume". Saving or applying to a role queues one automatically. Turn this off with `PUT /api/settings {"resume":{"autoTailor":false}}`; at most `settings.resume.autoDailyCap` (default 5) automatic runs start per day, and extra ones wait for the next day.
+- **When the posting can't be fetched** (closed posting, or a board that renders in the browser), use "Paste JD" on the card.
+- **Review:** the card shows the score breakdown, every round, missing keywords (marked "not supported by your master resume" when nothing in the master backs them), and a bullet-by-bullet diff with each bullet's source ID. "Retry" runs up to 3 more rounds with the same frozen keywords. "Accept" adds "Resume tailored (score)" to the role's timeline and links the PDF on applied roles.
+- **Requirements:** Tectonic (`brew install tectonic`). Files live in `~/.job-quest/data/resume/tailored/<id>/`. The LaTeX template is `~/.job-quest/data/resume/template/resume_cv.tex` (only its preamble and macros are used).
+- **Agents:** a JD analyst lists keywords (code keeps only terms found verbatim in the posting, then freezes them) and a tailor rewrites bullets. Both run read-only through `~/.job-quest/app/skill/bin/run-agent.sh`.
+- **Missing technology names:** if a tool slips past the fact guard, add it to `~/.job-quest/app/skill/references/resume/tech-lexicon.txt`.
+
+For a live validation run from a repository checkout, create a fresh directory with `mktemp -d` and import the master there using `node skill/bin/import-resume.js --content <content.py> --tex <resume_cv.tex> --data-dir <temp-data-dir>` (review the diff, then repeat with `--write`). Run `node app/scripts/live-tailor.js <role-url> <temp-data-dir> "<company>" "<role>"`. This uses the authenticated Claude CLI, clears fake/dry-run settings, refuses directories outside the system temp root, and requires a valid imported master. It prints JSON with status, best score/round, categories, gaps, and each round's score/discard reason, tells, and guard counts/rules; inspect the generated PDF before recording validation results.
 
 ## Schedule Management
 
@@ -368,14 +393,14 @@ Checks whether the installed repo is behind `origin/main` and, if so, refreshes 
 ```
 
 ### generate-plan.sh
-Generates a role-specific interview prep plan using the active runtime CLI. Takes a prompt file as input and returns structured JSON with technical questions, behavioral questions, quiz, system design prompts, and a readiness checklist.
+Runs one prompt file through the active runtime CLI and prints its output. The interview trainer uses it to evaluate replies. (Role prep plans are now workbooks; see the "Workbooks" section.)
 
 ```bash
 # Use when the user wants interview prep for a specific role
 ~/.job-quest/bin/generate-plan.sh /tmp/prep-prompt.txt
 ```
 
-The prompt file should contain the role details (company, title, level, fit analysis, tips). The script outputs JSON that can be saved to the role tracker.
+The script prints the runtime's raw reply.
 
 ### code-review.sh
 Multi-turn code review using the active runtime CLI. Takes a prompt (via argument or stdin) and returns feedback. Used by the Code Lab for reviewing the user's solutions to coding problems.
@@ -429,6 +454,13 @@ Generates one interview question tailored to the user's saved/tracked/applied ro
 # Logs to ~/.job-quest/data/logs/interview-trainer.log
 ```
 
+### import-workbook.sh
+Imports a hand-built study kit (a folder with `content/*.md` chapters in the workbook `@@` format and `content/glossary-*.txt`) as a workbook covering one or more roles. Prints a JSON report with chapter, question, and glossary counts, lint findings (reported, never blocking), and code-answer verification.
+
+```bash
+~/.job-quest/bin/import-workbook.sh ~/.job-quest/data/practice/my-kit --roles "Acme|Staff Engineer" --roles "Beta|Senior SWE" --title "Acme + Beta onsite kit"
+```
+
 ### install-trainer-schedule.sh
 Installs the hourly interview-trainer schedule (launchd on macOS, crontab on Linux). Takes an hour range; fires at the top of each hour in that range, every day.
 
@@ -457,6 +489,17 @@ One-step clean reset — runs uninstall then re-runs `install.sh` from GitHub.
 ```
 
 When the user asks to practice coding, prep for an interview, or start the dashboard, use these scripts rather than reimplementing the functionality. They handle runtime detection, shared-home paths, and error logging.
+
+## /interview integration
+
+When the `/interview` live copilot is installed (`~/.interview/app/capture.py` exists), Job Quest prepares its context before a call and imports each finished session afterwards. The two talk only through the `jq-interview/1` contract in `CONTRACT.md`.
+
+- `~/.job-quest/bin/jq` is Job Quest's CLI for `/interview`. It is not the `jq` JSON tool: it lives in `~/.job-quest/bin`, which is never put on `PATH`, and `/interview` runs it by absolute path. It works without the dashboard running. Every command prints one JSON value; failures exit non-zero with `{"error":"<one line>"}`. `version` reports the contract; `roles --company <name>` lists matching roles.
+- Before a call: `~/.job-quest/bin/jq interview-context "<Company|Role>" --round <coding|system|behavioral|recruiter|screen>` writes `~/.interview/context/{resume.md,<company>-jd.md,target.md}`, `~/.interview/cheatsheets/<company>.json` (from the role's workbook), and `~/.interview/practice/<roleId>.json` (company plus role slug). Missing inputs are reported under `skipped`; it never waits for workbook generation. `--no-agent` uses only cached cheat sheets. The dashboard's role page has the same action as **Prep /interview**.
+- Files without Job Quest's ownership marker (the `generated by job-quest` first line in Markdown or `"_generatedBy":"job-quest"` in JSON) are never overwritten; a `.jq` copy is written beside them, unless that sibling is also user-owned. The returned `cheatsheet` is the target path whenever a file exists there (the user's sheet wins), or `null`; `practice` is the file Job Quest wrote (target or `.jq` sibling), or `null`.
+- After a call: `/interview stop` runs `~/.job-quest/bin/jq ingest-session <folder>`. The session lands on the role's timeline, raises the tracker stage (never lowers it), adds the asked questions to the role's workbook chapter "Asked in your interviews" with grades from the debrief (misses enter the trainer queue), and turns follow-ups into tasks. Re-running an unchanged, fully applied session changes nothing. Successful debrief analysis is reused until the session or debrief changes; failed analysis is retried once per edit (at most two attempts for unchanged inputs).
+- The dashboard also scans `~/.interview/sessions/` at startup and every 10 minutes. This backstop requires `session.json` and `debrief.md`; a debrief with the scorecard placeholder waits until it has been unmodified for 30 minutes. Records live in `~/.job-quest/data/interview-sessions/` with statuses `unlinked|linking|ingesting|failed|ingested`; the backstop retries failed or interrupted imports.
+- Sessions recorded before the integration, or without a role, show under **Unlinked /interview sessions** on the Workbooks tab; pick a role to import them (`~/.job-quest/bin/jq link-session <folder> "<Company|Role>"` does the same). `<folder>` is a session folder name or its absolute path. `JOB_QUEST_HOME` and `INTERVIEW_HOME` override the default homes.
 
 ## Troubleshooting
 

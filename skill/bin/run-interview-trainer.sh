@@ -76,6 +76,47 @@ if [ "$FORCE" = false ] && { [ "$HOUR_NOW" -lt "$START_HOUR" ] || [ "$HOUR_NOW" 
   exit 0
 fi
 
+# Send one trainer message over iMessage on macOS when a handle is configured.
+deliver_message() {
+  local message="$1"
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "$PHONE" ]; then
+    local osa_err osa_exit
+    set +e
+    osa_err=$(osascript - "$PHONE" "$message" 2>&1 <<'OSA'
+on run argv
+  set targetHandle to item 1 of argv
+  set messageText to item 2 of argv
+  tell application "Messages"
+    set targetService to 1st account whose service type = iMessage
+    set targetBuddy to participant targetHandle of targetService
+    send messageText to targetBuddy
+  end tell
+end run
+OSA
+)
+    osa_exit=$?
+    set -e
+    if [ "$osa_exit" -eq 0 ]; then
+      log "iMessage sent to $PHONE"
+    else
+      log "WARNING: iMessage delivery failed (question still saved): $(echo "$osa_err" | head -c 300 | tr '\n' ' ')"
+      log "If this mentions 'not authorized', allow automation in System Settings > Privacy & Security > Automation."
+    fi
+  else
+    log "Delivery skipped (no phone configured or not macOS)."
+  fi
+}
+
+# Workbook review: code decides whether a missed workbook question is due (spaced repetition,
+# never two workbook questions in a row). When one is due it is sent verbatim and the agent is not called.
+PICK_JSON="$(node "$REPO_ROOT/skill/bin/trainer-pick.js" pick --data-dir "$JOB_QUEST_DATA_DIR" 2>>"$LOG_FILE")" || PICK_JSON='{"picked":false}'
+if [ "$(echo "$PICK_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('picked', False))" 2>/dev/null)" = "True" ]; then
+  log "Workbook review question saved: $(echo "$PICK_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['summary'])")"
+  deliver_message "$(echo "$PICK_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['message'])")"
+  log "=== Interview trainer run finished (exit 0) ==="
+  exit 0
+fi
+
 # Build the context block (profile, saved/applied roles, recent history) in one
 # pass so the runtime CLI needs no tools at all.
 CONTEXT_FILE="$(mktemp)"
@@ -284,8 +325,7 @@ PY
 log "Question saved: $SUMMARY (total $(python3 -c "import json; print(len(json.load(open('$QUESTIONS_FILE'))))"))"
 
 # Deliver via iMessage on macOS when a handle is configured.
-if [[ "$OSTYPE" == darwin* ]] && [ -n "$PHONE" ]; then
-  MESSAGE="$(QUESTION_JSON="$QUESTION_JSON" python3 <<'PY'
+MESSAGE="$(QUESTION_JSON="$QUESTION_JSON" python3 <<'PY'
 import json, os
 
 q = json.loads(os.environ['QUESTION_JSON'])
@@ -295,29 +335,6 @@ if len(text) > 700:
 print(f"🎯 Interview Trainer — {q.get('company','')} ({q.get('category','')})\n\n{text}\n\nReply here with your answer ('skip' to pass, 'next' for a new question), or use http://localhost:3847 → Trainer")
 PY
 )"
-  set +e
-  OSA_ERR=$(osascript - "$PHONE" "$MESSAGE" 2>&1 <<'OSA'
-on run argv
-  set targetHandle to item 1 of argv
-  set messageText to item 2 of argv
-  tell application "Messages"
-    set targetService to 1st account whose service type = iMessage
-    set targetBuddy to participant targetHandle of targetService
-    send messageText to targetBuddy
-  end tell
-end run
-OSA
-)
-  OSA_EXIT=$?
-  set -e
-  if [ "$OSA_EXIT" -eq 0 ]; then
-    log "iMessage sent to $PHONE"
-  else
-    log "WARNING: iMessage delivery failed (question still saved): $(echo "$OSA_ERR" | head -c 300 | tr '\n' ' ')"
-    log "If this mentions 'not authorized', allow automation in System Settings > Privacy & Security > Automation."
-  fi
-else
-  log "Delivery skipped (no phone configured or not macOS)."
-fi
+deliver_message "$MESSAGE"
 
 log "=== Interview trainer run finished (exit 0) ==="
