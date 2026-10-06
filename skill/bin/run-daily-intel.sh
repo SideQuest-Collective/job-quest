@@ -92,14 +92,14 @@ Mix of 2-3 system design, 2 coding concept, 1-2 behavioral questions. Bias towar
 ### 4. Create 8-10 daily tasks
 Categories: coding, system-design, behavioral, research, networking, application. Each task MUST include a substantial \`content\` field (100-400 words for non-coding tasks) with a detailed markdown walkthrough that ${NAME} can read in the UI.
 
-### 5. Append 3-5 adaptive coding problems
-Read ${JOB_QUEST_DATA_DIR}/problems/progress.json to see what ${NAME} has solved. Generate problems calibrated to performance. APPEND to ${JOB_QUEST_DATA_DIR}/problems/problems.json — do not overwrite existing problems.
+### 5. Add 3-5 adaptive coding problems
+Read ${JOB_QUEST_DATA_DIR}/problems/progress.json to see what ${NAME} has solved. Generate problems calibrated to performance, each with a referenceSolution, and add them ONLY with: node ${JOB_QUEST_APP_ROOT}/skill/bin/add-problems.js <your-problems.json> --data-dir ${JOB_QUEST_DATA_DIR} (rules in the template's "Add coding problems" section). Never edit problems.json directly; fix and re-run on an error.
 
 ## Output files
 - ${JOB_QUEST_DATA_DIR}/intel/${TODAY}.json
 - ${JOB_QUEST_DATA_DIR}/quizzes/${TODAY}.json
 - ${JOB_QUEST_DATA_DIR}/tasks/${TODAY}.json
-- ${JOB_QUEST_DATA_DIR}/problems/problems.json
+- coding problems: via add-problems.js only
 
 Each file's schema is documented in ${TEMPLATE}. Validate JSON before writing. When done, print a one-line summary: "Done: N roles, M quiz questions, K tasks, P new problems".
 EOF

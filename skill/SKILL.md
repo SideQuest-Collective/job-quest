@@ -294,14 +294,14 @@ Use this when the user wants a schedule, for one interview or several.
 
 1. **Pin down the interviews.** For each one, confirm the company, role, round, date and time, and what's allowed (AI tools, language). Ask how many hours a day they have. Record the dates and the round on the role as a checklist item or note plus a timeline entry. The tracker endpoint replaces the whole tracker, so `GET /api/role-tracker`, change only that role's fields, and `POST` the complete object back. A role missing from the body is deleted.
 2. **Make sure every role has a workbook.** Run `GET /api/workbooks`. For a role without one, run `POST /api/workbooks {"roleKey", "tier": "screen" | "onsite", "research"?}`. Pass `research` only if you already did the research: it's markdown that must end with a `## Sources` section listing http(s) links, and the build then skips its own web search. For an onsite after a screen workbook, run `POST /api/workbooks/<id>/expand`. Builds take a while: check `GET /api/workbooks/<id>/job` and tell the user which ones are still generating.
-3. **Drills go into Code Lab.** Reuse existing problems first (`GET /api/problems`; company drills carry the company in `tags`). Add new ones with `POST /api/problems {"problems": [...]}`, at most 20 per call. Each needs:
+3. **Drills go into Code Lab.** Reuse existing problems first (`GET /api/problems`; company drills carry the company in `tags`). Add new ones with `node ~/.job-quest/app/skill/bin/add-problems.js <file.json>`, which works without the dashboard, or with `POST /api/problems {"problems": [...]}`. Either way, at most 20 per call, and never by editing `problems.json`. Each needs:
    - `id`: a new lowercase slug.
    - `title`, `category` (a slug such as `acme-practice`), `difficulty` (`easy`, `medium` or `hard`), `description` and `starterCode`.
    - `functionName`: a function, or a class driven by `{"operations": [["method", ...args], ...]}` with the expected list of return values.
    - `testCases`: at least two `{"input": {...}, "expected": ...}`.
    - `referenceSolution`: Python that defines `functionName`.
 
-   Optional fields are `examples`, `constraints`, `hints` and `tags` (include the company slug). The server runs `referenceSolution` against every test in Code Lab's own runner and rejects the whole batch if any test fails; the solution is never stored. For a progressive drill, add one problem per part (`acme-spreadsheet-1`, `-2`, …).
+   Optional fields are `examples`, `constraints`, `hints` and `tags` (include the company slug). Both check that the starter matches the tests, then run `referenceSolution` against every test in Code Lab's own runner, and reject the whole batch on any failure; the solution is never stored. Expected errors are written `{"raises": "ValueError"}`. Tree, linked-list and graph problems declare `adapters` instead of converting inside the function. The full rules are in the "Add coding problems" section of `references/intel-agent-template.md`. For a progressive drill, add one problem per part (`acme-spreadsheet-1`, `-2`, …).
 4. **The schedule goes into Daily Tasks.** Send the whole plan with `POST /api/tasks/plan {"planId": "prep-2026-10-06", "tasks": [...]}`. Each task has:
    - `date`: `YYYY-MM-DD`, today or later.
    - `text`: one concrete action.
@@ -325,6 +325,7 @@ A workbook is a per-role study guide: teaching chapters written for the user's b
 - **Auto-build:** saving or applying to a role queues a workbook (at most 3 automatic builds a day; extras wait for the next day). Toggle it on the Workbooks tab; "Build for all saved/applied" covers older roles.
 - **Progress** is saved on the dashboard, not just in the browser. "Download offline" gives a single HTML file that works without internet.
 - **Trainer:** missed workbook questions come back through the hourly trainer on a 1-, 3-, then 7-day schedule, and graded replies update the workbook.
+- **Code Lab:** code questions whose tests passed verification show an **Open in Code Lab** button and are listed in Code Lab under "From your workbooks", so they can be run against their tests and reviewed there. Unverified ones (for example, from imported kits without `@@tests`) stay workbook-only.
 - **Import** an existing hand-built kit with `~/.job-quest/bin/import-workbook.sh` (see Available Scripts).
 
 ## Interview Trainer

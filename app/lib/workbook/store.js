@@ -123,16 +123,28 @@ function nolinkFor(meta) {
 }
 function isSystemDesign(q) { return /^system design$/i.test(String(q.topic || '').trim()); }
 function sdTopicId(id, qid) { return `wb-${crypto.createHash('sha1').update(`${id}:${qid}`).digest('hex').slice(0, 12)}`; }
+// Code questions whose @@tests passed verification are offered in Code Lab under this id.
+function codeProblemId(id, qid) { return `wb-code-${crypto.createHash('sha1').update(`${id}:${qid}`).digest('hex').slice(0, 12)}`; }
+function passingQids(dataDir, id) {
+  const v = readJsonFile(path.join(wbDir(dataDir, id), 'verify.json'), null);
+  const out = new Set();
+  for (const list of Object.values((v && v.chapters) || {})) {
+    for (const r of Array.isArray(list) ? list : []) if (r && r.pass === true && typeof r.qid === 'string') out.add(r.qid);
+  }
+  return out;
+}
 
 function viewerContent(dataDir, id) {
   const meta = readMeta(dataDir, id);
   const parsed = loadParsed(dataDir, id);
+  const passing = passingQids(dataDir, id);
   return {
     chapters: parsed.chapters.map((c) => ({ id: c.id, company: c.company || 'both', topic: c.topic, title: c.title, mins: c.mins, sub: c.sub, body: c.body, file: c.file })),
     questions: parsed.questions.map((q) => {
       const o = { id: q.id, company: q.company || 'both', topic: q.topic, type: q.type, diff: q.diff, chapter: q.chapter, body: q.body,
         choices: q.choices || '', hint: q.hint || '', rubric: q.rubric || '', answer: q.answer || '', file: q.file };
       if (isSystemDesign(q)) o.sdTopicId = sdTopicId(id, q.id);
+      if (q.type === 'code' && passing.has(q.id)) o.codeProblemId = codeProblemId(id, q.id);
       return o;
     }),
     glossary: mergeGlossaries(parsed.glossaryFiles, nolinkFor(meta)),
@@ -189,6 +201,7 @@ function appendChapterQuestions(dataDir, id, { intro, questions }, now = () => n
 }
 
 module.exports = {
+  codeProblemId, passingQids,
   ASKED, companyNamesFor, isValidId, rootDir, wbDir, readJsonFile, writeJsonAtomic,
   createWorkbook, readMeta, writeMeta, listWorkbooks, findByRoleKey, deleteWorkbook,
   readJob, writeJob, readProgress, writeProgress, writeGrades,

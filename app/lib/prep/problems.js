@@ -3,6 +3,7 @@
 // that must pass every one of its tests in Code Lab's own runner; the solution is not stored.
 const fs = require('fs');
 const path = require('path');
+const { adaptersError } = require('../codelab/runner');
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,79}$/;
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
@@ -33,12 +34,14 @@ function validateProblem(p, i, existingIds) {
       throw new ProblemError(`${where}.testCases[${j}] needs an input object and an expected value`);
     }
   });
+  const bad = adaptersError(p.adapters);
+  if (bad) throw new ProblemError(`${where}.${bad}`);
   for (const k of ['examples', 'constraints', 'hints', 'tags']) {
     if (p[k] != null && !Array.isArray(p[k])) throw new ProblemError(`${where}.${k} must be an array`);
   }
 }
 
-function addProblems(dataDir, body, { runTests }) {
+function addProblems(dataDir, body, { runTests, lint = null }) {
   const list = body && body.problems;
   if (!Array.isArray(list) || !list.length) throw new ProblemError('problems must be a non-empty array');
   if (list.length > MAX_PROBLEMS) throw new ProblemError(`add at most ${MAX_PROBLEMS} problems at a time`);
@@ -54,9 +57,17 @@ function addProblems(dataDir, body, { runTests }) {
     validateProblem(p, i, ids);
     ids.add(p.id);
   });
+  // Starter code must match the tests structurally (see lib/codelab/lint.py) before anything runs.
+  if (lint) {
+    const found = lint(list.map((p) => ({ ...p })));
+    list.forEach((p, i) => {
+      const issues = found[p.id] || [];
+      if (issues.length) throw new ProblemError(`problems[${i}] (${p.id}): ${issues.join('; ')}`);
+    });
+  }
   // Verify every drill before writing any of them.
   list.forEach((p, i) => {
-    const r = runTests(p.referenceSolution, p.functionName, p.testCases);
+    const r = runTests(p.referenceSolution, p.functionName, p.testCases, { adapters: p.adapters || null });
     if (r.error) throw new ProblemError(`problems[${i}] (${p.id}): reference solution failed to run: ${r.error}${r.errorDetails ? ` (${r.errorDetails})` : ''}`);
     const failed = (r.results || []).filter((x) => !x.passed);
     if (failed.length || (r.results || []).length !== p.testCases.length) {
@@ -69,7 +80,7 @@ function addProblems(dataDir, body, { runTests }) {
     id: p.id, title: p.title.trim(), category: p.category, difficulty: p.difficulty, order: nextOrder + i,
     description: p.description, examples: p.examples || [], constraints: p.constraints || [],
     starterCode: p.starterCode, functionName: p.functionName, testCases: p.testCases,
-    hints: p.hints || [], tags: p.tags || [],
+    hints: p.hints || [], tags: p.tags || [], ...(p.adapters ? { adapters: p.adapters } : {}),
   }));
   const cats = new Set(data.categories.map((c) => c.id));
   for (const p of added) {

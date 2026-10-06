@@ -698,6 +698,14 @@ function App() {
     if (sd) {
       openSystemDesignTopic({ id: sd });
       window.history.replaceState(window.history.state, '', `${window.location.pathname}#sysdesign`);
+      return;
+    }
+    // ...and to /?problem=<id> for "Open in Code Lab" on verified code questions.
+    const problem = new URLSearchParams(window.location.search).get('problem');
+    if (problem) {
+      codeLabInitialProblemRef.current = problem;
+      setPage('codelab');
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}#codelab`);
     }
   }, []);
 
@@ -4328,7 +4336,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
     setShowBottom(true);
     setBottomTab('results');
     try {
-      const res = await api.post('/api/run-code', { code, functionName: problem.functionName, testCases: problem.testCases });
+      const res = await api.post('/api/run-code', { code, functionName: problem.functionName, testCases: problem.testCases, adapters: problem.adapters || null });
       setTestResults(res);
       // Auto-save code and mark solved when all tests pass
       if (res.results?.length > 0 && res.results.every(r => r.passed)) {
@@ -4506,6 +4514,12 @@ function CodeLab({ sessionRef, initialProblemRef }) {
         <div className="codelab-left">
           <h3>{problem.title}</h3>
           <div className="prob-diff"><span className={`diff-badge diff-${problem.difficulty}`}>{problem.difficulty}</span></div>
+          {problem.issues?.length > 0 && (
+            <div role="alert" style={{margin:'8px 0 12px',padding:'10px 12px',borderRadius:8,border:'1px solid rgba(251,113,133,0.3)',background:'var(--rose-dim)',fontSize:12,lineHeight:1.6,color:'var(--rose)'}}>
+              <strong>This problem's starter code doesn't match its tests</strong>, so a correct solution may still fail:
+              <ul style={{margin:'4px 0 0 16px',padding:0}}>{problem.issues.map((m, i) => <li key={i}>{m}</li>)}</ul>
+            </div>
+          )}
           <div className="prob-desc">{problem.description}</div>
 
           {problem.examples?.map((ex, i) => (

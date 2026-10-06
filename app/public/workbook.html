@@ -509,6 +509,7 @@ function qHTML(q,i,n){
   let h='<div class="qhead"><span class="muted small">Question '+(i+1)+' of '+n+'</span>'+chip(q.company)+'<span class="chip">'+esc(q.topic||'')+'</span><span class="chip">'+({mcq:'Multiple choice',open:'Written',code:'Code'}[q.type])+'</span><span class="chip">'+'●'.repeat(q.diff)+'<span style="opacity:.3">'+'●'.repeat(3-q.diff)+'</span></span><span class="grow"></span>'+statusChip(a.s)+'<button class="iconbtn small" data-act="flag" title="Flag for later">'+(S.flag[q.id]?'★':'☆')+'</button></div>';
   h+='<div class="card qcard"><div class="prose">'+md(q.body)+'</div>';
   if(q.sdTopicId&&!OFFLINE)h+='<div class="row" style="margin:6px 0 4px"><a class="btn" href="/?sd='+encodeURIComponent(q.sdTopicId)+'" target="_blank" rel="noopener">Practice as mock interview</a></div>';
+  if(q.codeProblemId&&!OFFLINE)h+='<div class="row" style="margin:6px 0 4px"><a class="btn" href="/?problem='+encodeURIComponent(q.codeProblemId)+'" target="_blank" rel="noopener">Open in Code Lab</a></div>';
   if(q.type==='mcq'){
     const answered=a.pick!==undefined;
     h+='<div class="choices">'+q.opts.map(function(o,k){let cls='choice';if(answered){cls+=' locked';if(o.ok)cls+=' right';else if(a.pick===k)cls+=' wrong';}

@@ -66,7 +66,7 @@ Based on performance:
 - If a category hasn't been touched → generate an easy problem to start
 - Always include 1-2 hard problems to stretch
 
-Generate 3-5 new problems and APPEND them to the existing problems.json (don't overwrite).
+Generate 3-5 new problems and add them with the checker described under "Add coding problems" below. Never edit problems.json yourself.
 
 ## Output Format
 
@@ -111,10 +111,28 @@ Write these files:
 }
 ```
 
-### Append to {{DATA_DIR}}/problems/problems.json
-Read the existing file, parse the problems array, add new problems with unique IDs, and write back.
+### Add coding problems (never write problems.json directly)
+Write the new problems to a scratch file such as `/tmp/jq-problems-YYYY-MM-DD.json` as `{"problems": [...]}`, then run:
 
-Each problem needs: id, title, category, difficulty, order, description, examples, constraints, starterCode, functionName, testCases, hints, tags.
+```bash
+node <app root>/skill/bin/add-problems.js /tmp/jq-problems-YYYY-MM-DD.json --data-dir {{DATA_DIR}}
+```
+
+`<app root>` is given in your run prompt (by default `~/.job-quest/app`). It prints `{"added": [...], "tests": N}`, or `{"error": "..."}` and adds nothing. On an error, fix the named problem and run it again. Drop a problem you can't fix rather than writing it by hand.
+
+Each problem needs:
+- `id`: unique, a lowercase slug.
+- `title`, `category` (a slug), `difficulty` (`easy`, `medium` or `hard`), `description`, `starterCode` and `functionName`.
+- `testCases`: at least 2.
+- `referenceSolution`: a full Python solution. It must pass every test and is never stored.
+- Optionally `examples`, `constraints`, `hints` and `tags`. `order` is assigned for you.
+
+Rules the checker enforces:
+- **Function problems:** `starterCode` defines `def <functionName>(...)`, and each test is `{"input": {<param>: value}, "expected": value}`. The input keys must be exactly the parameters.
+- **Class problems:** `starterCode` defines `class <functionName>` with every method the tests call. Each test is `{"input": {<__init__ kwargs>, "operations": [["method", arg, ...], ...]}, "expected": [one value per operation]}`.
+- **Expected errors:** use `{"raises": "ValueError"}` as the expected value, or as one entry of a class test's list.
+- **Trees, linked lists and graphs:** never convert test data inside the user's function, and never define `_build_*`/`_serialize_*` helpers that the function calls. Instead declare `"adapters": {"args": {"root": "tree"}, "returns": "tree"}`. The kinds are `tree` (level-order array, `null` for a gap), `list` (array) and `graph` (1-indexed adjacency list). Code Lab then hands the function real `TreeNode`/`ListNode`/`Node` objects and converts its return value back. The starter should define the node class and an empty function that takes nodes, so a recursive solution works unchanged.
+- **Comparison:** results are compared as JSON, so tuples equal lists and sets are compared sorted. Floats are compared with a small tolerance. For function problems, lists may come back in any order; for class problems, outputs must be in order.
 
 ## Quality Checks
 - Verify all JSON is valid before writing
@@ -122,4 +140,4 @@ Each problem needs: id, title, category, difficulty, order, description, example
 - Verify no duplicate roles (check all existing intel files)
 - Verify quiz correctIndex is valid (0-3)
 - Verify task content fields are substantial (not empty strings)
-- Verify problem test cases actually work with the expected solution
+- Add problems only through add-problems.js; its referenceSolution check is the proof the tests work

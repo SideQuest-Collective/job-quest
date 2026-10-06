@@ -16,6 +16,8 @@ const { createAutoBuild } = require('./lib/workbook/autobuild');
 const workbookStore = require('./lib/workbook/store');
 const { applyPlan } = require('./lib/prep/plan');
 const { addProblems } = require('./lib/prep/problems');
+const { runPythonTests, adaptersError, lintProblems } = require('./lib/codelab/runner');
+const { createProblemStore } = require('./lib/codelab/store');
 const { createResumeService } = require('./lib/resume/pipeline');
 const { readMaster, writeMaster } = require('./lib/resume/master');
 const { readTracker, writeTracker, mergeTrackerSnapshot } = require('./lib/interview/tracker-effects');
@@ -245,9 +247,7 @@ app.post('/api/tasks/update', (req, res) => {
 // Write a dated prep plan into Daily Tasks (replaces this plan's unfinished tasks from today on).
 app.post('/api/tasks/plan', (req, res) => {
   try {
-    const problemsFile = path.join(DATA_DIR, 'problems', 'problems.json');
-    let problemIds = new Set();
-    try { problemIds = new Set(JSON.parse(fs.readFileSync(problemsFile, 'utf-8')).problems.map(p => p.id)); } catch { /* no problems yet */ }
+    const problemIds = new Set(problemStore.read().problems.map(p => p.id));
     const result = applyPlan(DATA_DIR, req.body, {
       today: getLocalDateStamp(),
       workbookExists: id => workbookStore.isValidId(id) && !!workbookStore.readMeta(DATA_DIR, id),
@@ -887,13 +887,9 @@ app.get('/api/activity', (req, res) => {
 
 // --- Problems / Code Lab ---
 
+const problemStore = createProblemStore(DATA_DIR);
 app.get('/api/problems', (req, res) => {
-  const file = path.join(DATA_DIR, 'problems', 'problems.json');
-  if (fs.existsSync(file)) {
-    res.json(JSON.parse(fs.readFileSync(file, 'utf-8')));
-  } else {
-    res.json({ categories: [], problems: [] });
-  }
+  try { res.json(problemStore.read()); } catch (err) { res.status(500).json({ error: `could not read problems: ${err.message}` }); }
 });
 
 app.get('/api/problems/progress', (req, res) => {
@@ -927,125 +923,19 @@ app.post('/api/problems/progress', (req, res) => {
   res.json({ success: true });
 });
 
-// Run Python code against test cases (Code Lab and drill verification share this runner).
-function runPythonTests(code, functionName, testCases) {
-  const tmpFile = path.join(os.tmpdir(), `codelab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.py`);
-
-const testRunner = `
-import inspect, json, sys, traceback
-
-source = ${JSON.stringify(code)}
-function_name = ${JSON.stringify(functionName)}
-tests = json.loads(${JSON.stringify(JSON.stringify(testCases))})
-
-def format_error(exc=None):
-    if isinstance(exc, SyntaxError):
-        loc = f"line {exc.lineno}" if exc.lineno else "unknown line"
-        if exc.offset:
-            loc += f", col {exc.offset}"
-        msg = f"SyntaxError: {exc.msg} ({loc})"
-        if exc.text:
-            msg += "\\n  " + exc.text.rstrip()
-            if exc.offset:
-                msg += "\\n  " + (" " * max(exc.offset - 1, 0)) + "^"
-        return msg
-    lines = traceback.format_exc().strip().split("\\n")
-    return lines[-1] if lines else "Execution failed"
-
-namespace = {}
-try:
-    exec(compile(source, "<user_code>", "exec"), namespace)
-except Exception as exc:
-    print(json.dumps({
-        "error": format_error(exc),
-        "errorSource": "user_code",
-        "errorTitle": "Your code could not be loaded",
-        "results": []
-    }))
-    sys.exit(0)
-
-fn = namespace.get(function_name)
-if not callable(fn):
-    print(json.dumps({
-        "error": f"Function '{function_name}' is not defined",
-        "errorSource": "user_code",
-        "errorTitle": "Your code is missing the required function",
-        "results": []
-    }))
-    sys.exit(0)
-
-def run_test(fn, test):
-    input_data = test.get('input', {})
-    operations = input_data.get('operations')
-    if inspect.isclass(fn) and isinstance(operations, list):
-        constructor_args = {key: value for key, value in input_data.items() if key != 'operations'}
-        instance = fn(**constructor_args)
-        outputs = []
-        for operation in operations:
-            if not operation:
-                raise ValueError("Operation entries must not be empty")
-            method_name = operation[0]
-            method_args = operation[1:]
-            method = getattr(instance, method_name)
-            outputs.append(method(*method_args))
-        return outputs
-    return fn(**input_data)
-
-results = []
-for i, test in enumerate(tests):
-    try:
-        result = run_test(fn, test)
-        # Sort lists for order-insensitive comparison where needed
-        expected = test['expected']
-        passed = result == expected
-        # Try sorted comparison for list results
-        if not passed and isinstance(result, list) and isinstance(expected, list):
-            try:
-                passed = sorted(result) == sorted(expected)
-            except:
-                pass
-        results.append({"index": i, "passed": passed, "actual": repr(result), "expected": repr(expected)})
-    except Exception as exc:
-        results.append({"index": i, "passed": False, "error": format_error(exc), "errorSource": "user_code"})
-print(json.dumps({"results": results}))
-`;
-
-  try {
-    fs.writeFileSync(tmpFile, testRunner);
-    const output = execSync(`python3 "${tmpFile}"`, {
-      encoding: 'utf-8',
-      timeout: 10000,
-      maxBuffer: 1024 * 1024,
-    });
-    fs.unlinkSync(tmpFile);
-    return JSON.parse(output.trim());
-  } catch (err) {
-    try { fs.unlinkSync(tmpFile); } catch {}
-    const stderr = String(err.stderr || err.message || '').trim();
-    const errorText = [err.stderr, err.message, err.code, err.signal].filter(Boolean).join('\n');
-    const timedOut = /timed out|timeout|ETIMEDOUT|SIGTERM/i.test(errorText);
-    const runtimeError = timedOut
-      ? 'Execution timed out after 10 seconds'
-      : 'Code Lab could not start the Python runner';
-    return {
-      error: runtimeError,
-      errorSource: 'runtime',
-      errorTitle: 'Code Lab failed to run your code',
-      errorDetails: stderr || 'The local runner failed before your code could be evaluated.',
-      results: [],
-    };
-  }
-}
-
+// Run Python code against test cases (Code Lab and drill verification share lib/codelab/runner.js).
 app.post('/api/run-code', (req, res) => {
-  const { code, functionName, testCases } = req.body;
-  res.json(runPythonTests(code, functionName, testCases));
+  const { code, functionName, testCases, adapters } = req.body || {};
+  const bad = adaptersError(adapters);
+  if (bad) return res.status(400).json({ error: bad, errorSource: 'runtime', errorTitle: 'Invalid problem', results: [] });
+  res.json(runPythonTests(code, functionName, testCases, { adapters }));
 });
 
 // Add verified drills to Code Lab (each with a reference solution that must pass its tests).
 app.post('/api/problems', (req, res) => {
   try {
-    const result = addProblems(DATA_DIR, req.body, { runTests: runPythonTests });
+    const result = addProblems(DATA_DIR, req.body, { runTests: runPythonTests, lint: lintProblems });
+    problemStore.invalidate();
     logActivity('problems_added', { problems: result.added });
     res.status(201).json(result);
   } catch (err) {
@@ -1848,6 +1738,9 @@ app.post('/api/resume/master/import-latex', resumeRoute(async (req, res) => {
   logActivity('resume_master_import_proposed', { filename: name, errors: result.errors.length });
   return res.json(result);
 }));
+
+// Migrate and check Code Lab problems at startup so the log shows any that need attention.
+try { problemStore.read(); } catch (err) { console.error(`[codelab] ${err.message}`); }
 
 jobQueue.start();
 jobQueue.tick();
