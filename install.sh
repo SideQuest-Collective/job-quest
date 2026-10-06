@@ -29,23 +29,6 @@ DATA_FILES=(
   role-actions.json applications.json
 )
 
-detect_runtime() {
-  local explicit="${JOB_QUEST_RUNTIME:-${JOBQUEST_RUNTIME:-${JQ_RUNTIME:-}}}"
-  explicit="$(printf '%s' "$explicit" | tr '[:upper:]' '[:lower:]')"
-  case "$explicit" in
-    claude|codex)
-      echo "$explicit"
-      return
-      ;;
-  esac
-
-  if env | grep -q '^CODEX_'; then
-    echo "codex"
-  else
-    echo "claude"
-  fi
-}
-
 copy_if_missing() {
   local source="$1"
   local target="$2"
@@ -64,9 +47,6 @@ link_compat_entry() {
   fi
   ln -s "$target" "$shim"
 }
-
-ACTIVE_RUNTIME="$(detect_runtime)"
-echo "Detected runtime: $ACTIVE_RUNTIME"
 
 echo ""
 echo "Checking prerequisites..."
@@ -195,7 +175,8 @@ cp "$APP_DIR/skill/SKILL.md" "$CLAUDE_SKILL_DIR/SKILL.md"
 cp "$APP_DIR/skill/SKILL.md" "$CODEX_SKILL_DIR/SKILL.md"
 
 echo "Writing runtime descriptor..."
-JOB_QUEST_RUNTIME="$ACTIVE_RUNTIME" node "$APP_DIR/lib/runtime.js" ensure --require-registration > /dev/null
+ACTIVE_RUNTIME="$(node "$APP_DIR/lib/runtime.js" ensure --require-registration |
+  node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).activeRuntime')"
 
 echo "Creating compatibility shims..."
 for dir_name in "${DATA_DIRS[@]}"; do
