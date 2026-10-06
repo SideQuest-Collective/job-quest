@@ -1,11 +1,14 @@
 // app/lib/workbook/autobuild.js
+const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 const { readSettings } = require('../jobs/settings');
 const { resolveRole } = require('../jobs/roles');
 
 function createAutoBuild({ dataDir, queue, now = () => new Date() }) {
-  function enqueueWorkbook(roleKey, { trigger = 'manual', auto = false, ignoreSwitch = false } = {}) {
+  // research: optional research.md text the caller already gathered (it must cite sources); the build
+  // then skips its own web research. It is written before the job is queued, which may start it at once.
+  function enqueueWorkbook(roleKey, { trigger = 'manual', auto = false, ignoreSwitch = false, research = null } = {}) {
     if (typeof roleKey !== 'string' || !roleKey.includes('|')) return { status: 'invalid' };
     const existing = store.findByRoleKey(dataDir, roleKey);
     // An interview-only workbook (P3) does not count: generation runs into that same directory.
@@ -18,6 +21,10 @@ function createAutoBuild({ dataDir, queue, now = () => new Date() }) {
     } else {
       const role = resolveRole(dataDir, roleKey);
       meta = store.createWorkbook(dataDir, { roleKeys: [roleKey], company: role.company, role: role.role, trigger }, now);
+    }
+    if (research) {
+      fs.writeFileSync(path.join(store.wbDir(dataDir, meta.id), 'research.md'), research.endsWith('\n') ? research : `${research}\n`);
+      meta = store.writeMeta(dataDir, { ...meta, researched: true, researchSource: 'supplied' }, now);
     }
     const r = queue.enqueue(
       { kind: 'workbook', key: `workbook:${meta.id}`, payload: { workbookId: meta.id, mode: 'create' } },

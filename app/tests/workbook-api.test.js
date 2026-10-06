@@ -351,3 +351,23 @@ test('workbook viewer page loads when the app lives under a dot directory like ~
   assert.match(await ok.text(), /<html/i);
   assert.equal((await fetch(`${base}/workbooks/missing-id`)).status, 404);
 });
+
+test('create accepts research the caller already gathered, keeps it through the build, and validates it', async () => {
+  const dir = tmp();
+  const research = '## Role summary\n\n- Reported screen: spreadsheet engine.\n\n## Sources\n\n- [Report](https://example.com/report)\n';
+  await withServer(dir, async (base) => {
+    const bad = await call(base, '/api/workbooks', 'POST', { roleKey: 'Gamma|SWE', research: '## Notes\n\nno sources' });
+    assert.equal(bad.status, 400);
+    assert.match((await bad.json()).error, /## Sources/);
+    assert.equal(fs.existsSync(path.join(dir, 'workbooks', 'gamma-swe')), false);
+    const r = await call(base, '/api/workbooks', 'POST', { roleKey: 'Gamma|SWE', research });
+    assert.equal(r.status, 201);
+    const body = await r.json();
+    assert.equal(body.workbook.researched, true);
+    assert.equal(body.workbook.researchSource, 'supplied');
+    await waitForJob(base, body.workbook.id);
+    assert.equal(fs.readFileSync(path.join(dir, 'workbooks', 'gamma-swe', 'research.md'), 'utf-8'), research);
+    const again = await (await call(base, '/api/workbooks', 'POST', { roleKey: 'Gamma|SWE', research })).json();
+    assert.deepEqual([again.status, again.researchIgnored], ['exists', true]);
+  });
+});

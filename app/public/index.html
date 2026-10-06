@@ -2486,6 +2486,21 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
   };
 
   const handleTaskClick = (task, idx) => {
+    // Prep-plan tasks carry an explicit link to the workbook chapter, Code Lab drill, or System Design topic.
+    const link = task.link;
+    if (link && link.kind === 'workbook' && link.workbookId) {
+      window.open(`/workbooks/${encodeURIComponent(link.workbookId)}${link.chapter ? `#read/${encodeURIComponent(link.chapter)}` : ''}`, '_blank', 'noopener');
+      return;
+    }
+    if (link && link.kind === 'codelab' && link.problemId) {
+      if (codeLabInitialProblemRef) codeLabInitialProblemRef.current = link.problemId;
+      setPage('codelab');
+      return;
+    }
+    if (link && link.kind === 'sysdesign' && link.topicId) {
+      window.location.assign(`/?sd=${encodeURIComponent(link.topicId)}`);
+      return;
+    }
     if (task.category === 'coding') {
       if (codeLabInitialProblemRef) {
         codeLabInitialProblemRef.current = task.problemId || null;
@@ -2518,8 +2533,9 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
           </div>
           {viewing.tasks.map((t,i) => {
             const CatIcon = getCategoryIcon(t.category);
-            const isCoding = t.category === 'coding';
-            const isExpanded = expandedTask === i && !isCoding;
+            const linkKind = t.link && t.link.kind;
+            const isCoding = linkKind ? linkKind === 'codelab' : t.category === 'coding';
+            const isExpanded = expandedTask === i && !isCoding && !linkKind;
             const hasContent = t.content && t.content.trim().length > 0;
             return (
               <div key={i} className="card" style={{marginBottom:8,padding:0,cursor:'pointer',transition:'all 0.2s',border: isExpanded ? '1px solid var(--border-glow)' : undefined}}>
@@ -2528,11 +2544,18 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
                   <CatIcon style={{width:16,height:16,color: isCoding ? 'var(--violet)' : t.category === 'system-design' ? 'var(--cyan)' : t.category === 'behavioral' ? 'var(--amber)' : t.category === 'research' ? 'var(--blue)' : 'var(--text-muted)',flexShrink:0}} />
                   <span className="task-text" style={{flex:1,fontSize:14,textDecoration:t.completed?'line-through':undefined,opacity:t.completed?0.5:1}}>{t.text}</span>
                   <span className={`task-category cat-${t.category?.replace(/\s+/g,'-').toLowerCase()}`}>{t.category}</span>
+                  {t.roleKey && <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{t.roleKey.split('|')[0]}</span>}
+                  {t.minutes && <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{t.minutes} min</span>}
+                  {linkKind === 'workbook' && <span style={{fontSize:11,color:'var(--emerald)',fontFamily:'var(--font-mono)',background:'var(--emerald-dim)',padding:'3px 8px',borderRadius:6}}>Open workbook &rarr;</span>}
+                  {linkKind === 'sysdesign' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',background:'var(--cyan-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
                   {isCoding && <span style={{fontSize:11,color:'var(--violet)',fontFamily:'var(--font-mono)',background:'var(--violet-dim)',padding:'3px 8px',borderRadius:6}}>Open Lab &rarr;</span>}
-                  {t.category === 'system-design' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',background:'var(--cyan-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
-                  {t.category === 'behavioral' && <span style={{fontSize:11,color:'var(--amber)',fontFamily:'var(--font-mono)',background:'var(--amber-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
-                  {!isCoding && t.category !== 'system-design' && t.category !== 'behavioral' && hasContent && <span style={{fontSize:16,color:'var(--text-muted)',transform:isExpanded?'rotate(180deg)':'rotate(0)',transition:'transform 0.2s'}}>&#9662;</span>}
+                  {!linkKind && t.category === 'system-design' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',background:'var(--cyan-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
+                  {!linkKind && t.category === 'behavioral' && <span style={{fontSize:11,color:'var(--amber)',fontFamily:'var(--font-mono)',background:'var(--amber-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
+                  {!linkKind && !isCoding && t.category !== 'system-design' && t.category !== 'behavioral' && hasContent && <span style={{fontSize:16,color:'var(--text-muted)',transform:isExpanded?'rotate(180deg)':'rotate(0)',transition:'transform 0.2s'}}>&#9662;</span>}
                 </div>
+                {linkKind && hasContent && (
+                  <div style={{padding:'0 20px 14px 52px',marginTop:-6,fontSize:12,lineHeight:1.7,color:'var(--text-secondary)'}} dangerouslySetInnerHTML={{__html: marked.parse(t.content)}} />
+                )}
                 {isExpanded && hasContent && (
                   <div style={{padding:'0 20px 20px 52px',borderTop:'1px solid var(--border)'}}>
                     <div style={{paddingTop:16,fontSize:13,lineHeight:1.8,color:'var(--text-secondary)'}} dangerouslySetInnerHTML={{__html: marked.parse(t.content)}} />

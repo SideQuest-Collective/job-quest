@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
+const { researchAccepted } = require('./steps-prepare');
 const { buildExportHtml } = require('./export');
 
 function jobSummary(queue, id) {
@@ -58,14 +59,19 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir }) {
   });
 
   app.post('/api/workbooks', (req, res) => {
-    const { roleKey, tier } = req.body || {};
+    const { roleKey, tier, research } = req.body || {};
     if (typeof roleKey !== 'string' || !roleKey.includes('|')) {
       res.status(400).json({ error: 'roleKey must look like "Company|Role"' });
       return;
     }
-    const r = autoBuild.enqueueWorkbook(roleKey, { trigger: 'manual' });
+    if (research != null && (typeof research !== 'string' || !researchAccepted(research, false))) {
+      res.status(400).json({ error: 'research must be markdown with a "## Sources" section that lists at least one http(s) link' });
+      return;
+    }
+    const r = autoBuild.enqueueWorkbook(roleKey, { trigger: 'manual', research: research || null });
     if (tier === 'onsite' && r.status === 'queued') enqueueMode(r.workbook.id, 'expand', `workbook:${r.workbook.id}:expand`);
-    res.status(r.status === 'exists' ? 200 : 201).json(r);
+    // An existing workbook keeps its own research; say so rather than silently dropping it.
+    res.status(r.status === 'exists' ? 200 : 201).json(r.status === 'exists' && research ? { ...r, researchIgnored: true } : r);
   });
 
   app.get('/api/workbooks/:id', (req, res) => {

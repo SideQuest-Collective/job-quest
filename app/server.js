@@ -13,6 +13,9 @@ const { diffRoleActions, diffTracker, createRoleEventBus } = require('./lib/jobs
 const { registerWorkbookRoutes, getWorkbookSdTopics } = require('./lib/workbook/routes');
 const { createWorkbookHandler } = require('./lib/workbook/orchestrator');
 const { createAutoBuild } = require('./lib/workbook/autobuild');
+const workbookStore = require('./lib/workbook/store');
+const { applyPlan } = require('./lib/prep/plan');
+const { addProblems } = require('./lib/prep/problems');
 const { createResumeService } = require('./lib/resume/pipeline');
 const { readMaster, writeMaster } = require('./lib/resume/master');
 const { readTracker, writeTracker, mergeTrackerSnapshot } = require('./lib/interview/tracker-effects');
@@ -237,6 +240,25 @@ app.post('/api/tasks/update', (req, res) => {
     }
   }
   res.json({ success: true });
+});
+
+// Write a dated prep plan into Daily Tasks (replaces this plan's unfinished tasks from today on).
+app.post('/api/tasks/plan', (req, res) => {
+  try {
+    const problemsFile = path.join(DATA_DIR, 'problems', 'problems.json');
+    let problemIds = new Set();
+    try { problemIds = new Set(JSON.parse(fs.readFileSync(problemsFile, 'utf-8')).problems.map(p => p.id)); } catch { /* no problems yet */ }
+    const result = applyPlan(DATA_DIR, req.body, {
+      today: getLocalDateStamp(),
+      workbookExists: id => workbookStore.isValidId(id) && !!workbookStore.readMeta(DATA_DIR, id),
+      problemExists: id => problemIds.has(id),
+      sdTopicExists: id => !!getSdTopic(id),
+    });
+    logActivity('prep_plan_applied', result);
+    res.json(result);
+  } catch (err) {
+    res.status(err.code === 'INPUT' ? 400 : 500).json({ error: err.message });
+  }
 });
 
 // Get progress/stats
@@ -905,10 +927,9 @@ app.post('/api/problems/progress', (req, res) => {
   res.json({ success: true });
 });
 
-// Run Python code against test cases
-app.post('/api/run-code', (req, res) => {
-  const { code, functionName, testCases } = req.body;
-  const tmpFile = path.join(os.tmpdir(), `codelab_${Date.now()}.py`);
+// Run Python code against test cases (Code Lab and drill verification share this runner).
+function runPythonTests(code, functionName, testCases) {
+  const tmpFile = path.join(os.tmpdir(), `codelab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.py`);
 
 const testRunner = `
 import inspect, json, sys, traceback
@@ -997,7 +1018,7 @@ print(json.dumps({"results": results}))
       maxBuffer: 1024 * 1024,
     });
     fs.unlinkSync(tmpFile);
-    res.json(JSON.parse(output.trim()));
+    return JSON.parse(output.trim());
   } catch (err) {
     try { fs.unlinkSync(tmpFile); } catch {}
     const stderr = String(err.stderr || err.message || '').trim();
@@ -1006,13 +1027,29 @@ print(json.dumps({"results": results}))
     const runtimeError = timedOut
       ? 'Execution timed out after 10 seconds'
       : 'Code Lab could not start the Python runner';
-    res.json({
+    return {
       error: runtimeError,
       errorSource: 'runtime',
       errorTitle: 'Code Lab failed to run your code',
       errorDetails: stderr || 'The local runner failed before your code could be evaluated.',
       results: [],
-    });
+    };
+  }
+}
+
+app.post('/api/run-code', (req, res) => {
+  const { code, functionName, testCases } = req.body;
+  res.json(runPythonTests(code, functionName, testCases));
+});
+
+// Add verified drills to Code Lab (each with a reference solution that must pass its tests).
+app.post('/api/problems', (req, res) => {
+  try {
+    const result = addProblems(DATA_DIR, req.body, { runTests: runPythonTests });
+    logActivity('problems_added', { problems: result.added });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(err.code === 'INPUT' ? 400 : 500).json({ error: err.message });
   }
 });
 

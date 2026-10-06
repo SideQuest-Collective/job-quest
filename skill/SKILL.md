@@ -258,7 +258,7 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 **Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
 
-**Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them.
+**Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them. When they want a schedule across days or several interviews ("plan my prep", "I have X Thursday and Y Friday"), follow **Plan Prep** below.
 
 **Daily Tasks:** Read today's task file. Walk through tasks conversationally, helping with each one — expanding on system design topics, role-playing behavioral questions, doing research together.
 
@@ -273,6 +273,48 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 **Interview Trainer:** Route to the "Interview Trainer" section below — set it up if `~/.job-quest/data/trainer/config.json` is missing, otherwise review pending questions, adjust hours, pause/resume, or change the delivery handle.
 
 **Manage Installation:** Route to the "Installation Management" section below.
+
+## Prep Output Lives in the Dashboard
+
+Everything you make for the user's prep must be usable at `http://localhost:3847`. Start the dashboard first if it isn't running (`~/.job-quest/bin/start.sh --background`).
+
+| What you made | Where it goes | How |
+|---|---|---|
+| Study material for a role | A workbook | `POST /api/workbooks` (pass research you already gathered as `research`) |
+| Coding drills | Code Lab | `POST /api/problems` (each verified against its tests) |
+| A day-by-day schedule | Daily Tasks | `POST /api/tasks/plan` |
+| Interview dates, round, stage, notes | The role tracker | `GET /api/role-tracker`, change that role, `POST` the whole object back |
+| System design practice | System Design topics | Workbook system design questions appear there automatically; link to them |
+
+Never write prep plans, research notes, drills, question lists or cheat sheets as `.md`/`.txt` files, whether in `~/.job-quest/data/practice/`, the home folder or your own memory. Files in `data/practice/` are older imports: read them as input, never add to them. Research subagents return their findings to you as text; tell them not to write files, then pass the findings to the workbook as `research`. Put summaries in chat, with links to the dashboard pages.
+
+## Plan Prep
+
+Use this when the user wants a schedule, for one interview or several.
+
+1. **Pin down the interviews.** For each one, confirm the company, role, round, date and time, and what's allowed (AI tools, language). Ask how many hours a day they have. Record the dates and the round on the role as a checklist item or note plus a timeline entry. The tracker endpoint replaces the whole tracker, so `GET /api/role-tracker`, change only that role's fields, and `POST` the complete object back. A role missing from the body is deleted.
+2. **Make sure every role has a workbook.** Run `GET /api/workbooks`. For a role without one, run `POST /api/workbooks {"roleKey", "tier": "screen" | "onsite", "research"?}`. Pass `research` only if you already did the research: it's markdown that must end with a `## Sources` section listing http(s) links, and the build then skips its own web search. For an onsite after a screen workbook, run `POST /api/workbooks/<id>/expand`. Builds take a while: check `GET /api/workbooks/<id>/job` and tell the user which ones are still generating.
+3. **Drills go into Code Lab.** Reuse existing problems first (`GET /api/problems`; company drills carry the company in `tags`). Add new ones with `POST /api/problems {"problems": [...]}`, at most 20 per call. Each needs:
+   - `id`: a new lowercase slug.
+   - `title`, `category` (a slug such as `acme-practice`), `difficulty` (`easy`, `medium` or `hard`), `description` and `starterCode`.
+   - `functionName`: a function, or a class driven by `{"operations": [["method", ...args], ...]}` with the expected list of return values.
+   - `testCases`: at least two `{"input": {...}, "expected": ...}`.
+   - `referenceSolution`: Python that defines `functionName`.
+
+   Optional fields are `examples`, `constraints`, `hints` and `tags` (include the company slug). The server runs `referenceSolution` against every test in Code Lab's own runner and rejects the whole batch if any test fails; the solution is never stored. For a progressive drill, add one problem per part (`acme-spreadsheet-1`, `-2`, …).
+4. **The schedule goes into Daily Tasks.** Send the whole plan with `POST /api/tasks/plan {"planId": "prep-2026-10-06", "tasks": [...]}`. Each task has:
+   - `date`: `YYYY-MM-DD`, today or later.
+   - `text`: one concrete action.
+   - `category`: `coding`, `system-design`, `behavioral`, `research`, `networking` or `application`.
+   - Optionally `minutes`, `roleKey`, `content` (markdown details) and `link`.
+
+   `link` is what makes a task open the right page:
+   - `{"kind": "workbook", "workbookId", "chapter"?}`: chapter ids come from `GET /api/workbooks/<id>/content`.
+   - `{"kind": "codelab", "problemId"}`.
+   - `{"kind": "sysdesign", "topicId"}`: ids come from `GET /api/sd-topics`.
+
+   The server rejects links to things that don't exist yet, so create workbooks and drills first. A workbook link can point at a workbook that's still generating; leave out `chapter` until it's ready. To revise the plan, send it again with the same `planId`: unfinished tasks are replaced, finished ones are kept, and other tasks (daily intel, interview follow-ups) are untouched.
+5. **Report in chat.** Give a short day-by-day summary that names the dashboard pages (Tasks, Workbooks, Code Lab, System Design), and say which workbooks are still building. Offer to start the first block together.
 
 ## Workbooks
 
