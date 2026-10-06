@@ -145,6 +145,23 @@ echo "DATA_DIR=~/.job-quest/data" > ~/.job-quest/app/app/.env
 
 If the user already ran `install.sh`, this is done. Skip re-cloning — just confirm the layout.
 
+### Phase 3b: Import Their Resume
+
+Resume tailoring builds every tailored resume from one master resume, so get it now. Never assume where the resume lives; every user keeps it somewhere different.
+
+1. Ask: "Where's your current resume on this computer? A file or a folder is fine. PDF, Word, Markdown, plain text and LaTeX all work." Accept a path, a dragged-in file, or "I don't know". Expand `~` and handle spaces in paths.
+2. If they don't know, offer to look (ask first): `find ~/Documents ~/Desktop ~/Downloads -maxdepth 4 -type f \( -iname '*resume*' -o -iname '*cv*' \) \( -iname '*.pdf' -o -iname '*.docx' -o -iname '*.doc' -o -iname '*.md' -o -iname '*.txt' -o -iname '*.tex' \) 2>/dev/null | head -40`. Show the matches with modification dates and let them pick. Never read a file they didn't pick.
+3. If they point at a folder with several versions, pick the default resume: prefer one with no company name in its file name, then the most recently modified. Confirm the choice with them. Company-specific versions are history, not the master.
+4. Turn the chosen resume into the master:
+   - **`content.py` + `resume_cv.tex` workflow:** `node ~/.job-quest/app/skill/bin/import-resume.js --content <content.py> --tex <resume_cv.tex>`.
+   - **Anything else (PDF, Word, Markdown, text, LaTeX):** read it yourself. For `.docx`/`.doc` on macOS, convert it first with `textutil -convert txt -stdout <file>`. Draft the master JSON following the format and rules in `~/.job-quest/app/skill/references/resume/latex-to-master.md` (copy facts exactly, never invent, leave a field empty when the resume lacks it). Write the draft to a temporary file and run `node ~/.job-quest/app/skill/bin/import-resume.js --json <draft.json>`. If it reports validation errors, fix the draft and run it again.
+   
+   Both commands print a diff and save nothing.
+5. Show the user a short summary: name, roles per employer, bullet counts, projects, skill groups and education. Ask "Does this look right?" and apply any corrections. Then re-run the same command with `--write`.
+6. Copy, never move, the source files into `~/.job-quest/data/resume-files/` so the Resume page can show them. For a LaTeX resume, include its `cv-sections/` folder. Leave the originals where they are.
+
+If they have no resume yet, or want to skip, say they can add it later from Dashboard → Resume → Master or by running `/job-quest` and asking to import a resume. Tailoring stays idle until a master exists.
+
 ### Phase 4: Configure the Daily Intel Agent
 
 Ask the user about their preferred schedule using AskUserQuestion:
@@ -237,6 +254,8 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 ### Handling Each Return Flow:
 
+**Missing master resume:** on any return visit, if `~/.job-quest/data/resume/master.json` is missing or has no experience, mention once that tailoring is idle and offer to import their resume (Phase 3b).
+
 **Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
 
 **Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them.
@@ -318,7 +337,7 @@ Questions accumulate in `~/.job-quest/data/trainer/questions.json`. The generato
 
 Job Quest keeps one structured master resume (`~/.job-quest/data/resume/master.json`) and builds a tailored one-page PDF per role. Each version is graded by a deterministic ATS score (Keywords 30, Parseability 30, Structure 15, History 15, Content 10) and revised up to 3 rounds per run until it scores at least 90. It never adds a number, tool, employer, title, or date that the master does not support.
 
-- **Set up the master:** Dashboard → Resume → Master. Fill it in, or choose "Import from LaTeX" to convert the uploaded `resume_cv.tex`, review the diff, choose "Use this", then Save. If you keep a `content.py`/`build.py` workflow, import it with `node ~/.job-quest/app/skill/bin/import-resume.js --content <content.py> --tex <resume_cv.tex>`; it prints a diff and saves only with `--write`.
+- **Set up the master:** onboarding imports it (Phase 3b: ask where the resume is, then import it from any format with `import-resume.js --json` or the `content.py` workflow). Later, run `/job-quest` and ask to import a resume, which follows the same steps, or use Dashboard → Resume → Master. Fill it in, or choose "Import from LaTeX" to convert the uploaded `resume_cv.tex`, review the diff, choose "Use this", then Save. If you keep a `content.py`/`build.py` workflow, import it with `node ~/.job-quest/app/skill/bin/import-resume.js --content <content.py> --tex <resume_cv.tex>`; it prints a diff and saves only with `--write`.
 - **Tailor:** on a role page choose "Tailor resume". Saving or applying to a role queues one automatically. Turn this off with `PUT /api/settings {"resume":{"autoTailor":false}}`; at most `settings.resume.autoDailyCap` (default 5) automatic runs start per day, and extra ones wait for the next day.
 - **When the posting can't be fetched** (closed posting, or a board that renders in the browser), use "Paste JD" on the card.
 - **Review:** the card shows the score breakdown, every round, missing keywords (marked "not supported by your master resume" when nothing in the master backs them), and a bullet-by-bullet diff with each bullet's source ID. "Retry" runs up to 3 more rounds with the same frozen keywords. "Accept" adds "Resume tailored (score)" to the role's timeline and links the PDF on applied roles.

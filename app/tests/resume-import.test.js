@@ -245,3 +245,46 @@ test('CLI dry run creates no data directory and refuses a corrupt existing maste
   assert.equal(fs.readFileSync(file, 'utf-8'), '{broken');
   assert.equal(fs.existsSync(`${file}.tmp`), false);
 });
+
+test('CLI --json validates a drafted master, dry-runs, then writes with IDs assigned', (t) => {
+  const root = tmpDir();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dataDir = path.join(root, 'data');
+  const draft = path.join(root, 'draft.json');
+  fs.writeFileSync(draft, JSON.stringify({
+    contact: { name: 'Alex Example', email: 'alex@example.com' },
+    headline: 'Backend Engineer',
+    experience: [{ id: 'globex', employer: 'Globex Corp', start: '2019-03', end: null,
+      roles: [{ id: 'globex-swe', title: 'Software Engineer', team: '', start: '2019-03', end: null, bullets: [{ text: 'Built the billing API.' }] }] }],
+  }));
+  const args = [CLI, '--json', draft, '--data-dir', dataDir];
+  const dry = spawnSync(process.execPath, args, { encoding: 'utf-8' });
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /Using drafted master/);
+  assert.match(dry.stdout, /Dry run/);
+  assert.equal(fs.existsSync(dataDir), false);
+  const wet = spawnSync(process.execPath, [...args, '--write'], { encoding: 'utf-8' });
+  assert.equal(wet.status, 0, wet.stderr);
+  assert.match(wet.stdout, /\(1 bullets\)/);
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'resume', 'master.json'), 'utf-8'));
+  assert.equal(saved.contact.phone, '');
+  assert.deepEqual(saved.projects, []);
+  assert.equal(saved.experience[0].roles[0].bullets[0].id, 'exp.globex-swe.1');
+  assert.equal(validateMaster(saved).ok, true);
+});
+
+test('CLI --json rejects an invalid draft without writing, and refuses source flags alongside it', (t) => {
+  const root = tmpDir();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dataDir = path.join(root, 'data');
+  const draft = path.join(root, 'draft.json');
+  fs.writeFileSync(draft, JSON.stringify({ experience: [{ id: 'x', employer: 'X', start: 'March 2019', end: null, roles: [] }] }));
+  const bad = spawnSync(process.execPath, [CLI, '--json', draft, '--data-dir', dataDir, '--write'], { encoding: 'utf-8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /experience\[0\]\.start: must be YYYY-MM/);
+  assert.match(bad.stderr, /experience\[0\]\.roles: needs at least one role/);
+  assert.equal(fs.existsSync(dataDir), false);
+  const mixed = spawnSync(process.execPath, [CLI, '--json', draft, '--tex', 'x.tex'], { encoding: 'utf-8' });
+  assert.equal(mixed.status, 2);
+  assert.match(mixed.stderr, /cannot be combined/);
+});
