@@ -13,6 +13,7 @@ const CTX = { folder: FIXTURE_FOLDER, round: 'coding', date: '2026-03-14', known
 function setup(t) {
   withFakeAgent(t);
   const env = makeEnv();
+  t.after(() => fs.rmSync(env.root, { recursive: true, force: true }));
   const dir = copyFixtureSession(env.interviewHome);
   return { ...env, dir, parsed: parseSessionFolder(dir), work: sessionWorkDir(env.dataDir, FIXTURE_FOLDER) };
 }
@@ -42,8 +43,10 @@ test('validateAnalysis rejects a non-object', () => {
   assert.equal(validateAnalysis([], CTX).analysis, null);
 });
 
-test('transcriptTail keeps spoken lines only and trims from the front', () => {
-  const dir = copyFixtureSession(makeEnv().interviewHome);
+test('transcriptTail keeps spoken lines only and trims from the front', (t) => {
+  const env = makeEnv();
+  t.after(() => fs.rmSync(env.root, { recursive: true, force: true }));
+  const dir = copyFixtureSession(env.interviewHome);
   const tail = transcriptTail(dir);
   assert.ok(!tail.includes('capture started'));
   assert.ok(tail.endsWith('INTERVIEWER: Thanks. Both approaches are clear; add a nested-interval example to your tests.'));
@@ -266,4 +269,51 @@ test('malformed JSON and timeouts retry once; partial valid output survives a fa
       assert.match(result.error, scenario === 'timeout' ? /timed out/ : /not valid JSON/);
     }
   }
+});
+
+test('analyzeDebrief keeps the first attempt when the retry has more validation errors', async (t) => {
+  const { dataDir, dir, parsed } = localSetup(t);
+  const attempts = [
+    { ...emptyAnalysis(), asked: [good({ title: 'Best' }), good({ type: 'mcq' })] },
+    { ...emptyAnalysis(), asked: [good({ title: 'Worse 1' }), good({ title: 'Worse 2' }), good({ type: 'mcq' }), good({ type: 'mcq' })] },
+  ];
+  let calls = 0;
+  const result = await analyzeDebrief({ dataDir, sessionDir: dir, parsed, runAgentFn: async ({ cwd }) => {
+    fs.writeFileSync(path.join(cwd, 'analysis.json'), JSON.stringify(attempts[calls++]));
+    return { ok: true };
+  } });
+  assert.equal(calls, 2);
+  assert.deepEqual(result.analysis.asked.map((a) => a.title), ['Best']);
+  assert.deepEqual(result.dropped.map((d) => d.index), [1]);
+});
+
+test('analyzeDebrief breaks equal-error ties by keeping more asked items', async (t) => {
+  const { dataDir, dir, parsed } = localSetup(t);
+  for (const bestFirst of [true, false]) {
+    const best = { ...emptyAnalysis(), asked: [good({ title: 'Best 1' }), good({ title: 'Best 2' }), good({ type: 'mcq' })] };
+    const other = { ...emptyAnalysis(), asked: [good({ title: 'Other' }), good({ type: 'mcq' })] };
+    const attempts = bestFirst ? [best, other] : [other, best];
+    let calls = 0;
+    const result = await analyzeDebrief({ dataDir, sessionDir: dir, parsed, runAgentFn: async ({ cwd }) => {
+      fs.writeFileSync(path.join(cwd, 'analysis.json'), JSON.stringify(attempts[calls++]));
+      return { ok: true };
+    } });
+    assert.equal(calls, 2);
+    assert.deepEqual(result.analysis.asked.map((a) => a.title), ['Best 1', 'Best 2']);
+    assert.deepEqual(result.dropped.map((d) => d.index), [2]);
+  }
+});
+
+test('analyzeDebrief reports signal termination in retries and the final error', async (t) => {
+  const { dataDir, dir, parsed } = localSetup(t);
+  let calls = 0;
+  let retryPrompt;
+  const result = await analyzeDebrief({ dataDir, sessionDir: dir, parsed, runAgentFn: async ({ prompt }) => {
+    if (calls++ === 1) retryPrompt = prompt;
+    return { ok: false, code: null, signal: 'SIGTERM' };
+  } });
+  assert.equal(calls, 2);
+  assert.equal(result.analysis, null);
+  assert.equal(result.error, 'the agent terminated by SIGTERM');
+  assert.match(retryPrompt, /the agent terminated by SIGTERM/);
 });

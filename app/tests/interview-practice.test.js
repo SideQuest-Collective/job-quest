@@ -85,8 +85,18 @@ test('default limit is 20 and difficulty then qid break ties within a grade', ()
     'q01', 'q04', 'q07', 'q10', 'q13', 'q16', 'q19', 'q22',
     'q02', 'q05', 'q08',
   ]);
-  assert.deepEqual(ids(build('coding', {}, 0)), []);
+  assert.deepEqual(build('coding', {}, 0), build('coding'));
 });
+
+for (const limit of [-1, null, undefined, 0, NaN, 1.5, '2', Infinity]) {
+  test(`practice limit ${String(limit)} (${typeof limit}) uses the default of 20`, () => {
+    const questions = Array.from({ length: 25 }, (_, i) => Q(`q${String(i).padStart(2, '0')}`, 'code', 'Coding', 2));
+    const input = { roleKey: 'Acme|SWE', workbookId: 'acme-swe', round: 'coding', questions };
+    const expected = buildPracticeSet(input);
+    assert.equal(expected.questions.length, 20);
+    assert.deepEqual(buildPracticeSet({ ...input, limit }), expected);
+  });
+}
 
 test('building is repeatable, preserves inputs, and copies choices', () => {
   const questions = QUESTIONS.map((q) => Object.freeze({ ...q, choices: Object.freeze(q.choices.slice()) }));

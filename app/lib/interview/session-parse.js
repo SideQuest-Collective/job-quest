@@ -45,12 +45,17 @@ function phaseMinutes(history, endSec) {
 }
 
 function collectQuestions(sess) {
+  const questionId = (id) => {
+    if (typeof id !== 'number' && (typeof id !== 'string' || !id.trim())) return null;
+    const number = Number(id);
+    return Number.isFinite(number) ? number : null;
+  };
   const out = (sess.questions || [])
     .filter((q) => q && q.title)
-    .map((q) => ({ id: Number(q.id) || null, title: String(q.title), ts: q.ts || null }));
+    .map((q) => ({ id: questionId(q.id), title: String(q.title), ts: q.ts || null }));
   const live = sess.question;
   if (live && live.title && !out.some((q) => q.id === Number(live.id))) {
-    out.push({ id: Number(live.id) || null, title: String(live.title), ts: live.ts || null });
+    out.push({ id: questionId(live.id), title: String(live.title), ts: live.ts || null });
   }
   return out;
 }
@@ -70,8 +75,11 @@ function parseSessionFolder(dir) {
   if (!fs.existsSync(file)) throw new NotFoundError(`${folder}: session.json not found`);
   let sess;
   try { sess = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { throw new InputError(`${folder}: session.json is not valid JSON`); }
-  if (!sess || typeof sess.round !== 'string' || !Array.isArray(sess.questions)) {
-    throw new InputError(`${folder}: session.json needs "round" and "questions"`);
+  if (!sess || typeof sess.round !== 'string') {
+    throw new InputError(`${folder}: session.json needs "round" as a string`);
+  }
+  if (sess.questions !== undefined && !Array.isArray(sess.questions)) {
+    throw new InputError(`${folder}: session.json "questions" must be an array`);
   }
   if (!Number.isFinite(sess.started_at)) {
     throw new InputError(`${folder}: session.json needs a numeric "started_at"`);

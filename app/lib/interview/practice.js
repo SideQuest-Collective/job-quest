@@ -25,6 +25,7 @@ function gradeRank(progress, qid) {
 function buildPracticeSet({ roleKey, workbookId, round, questions, progress = {}, limit = 20 }) {
   const keep = roundFilter(round);
   if (!keep) return null;
+  if (!Number.isInteger(limit) || limit <= 0) limit = 20;
   const picked = questions
     .filter((q) => keep(q) && String(q.prompt || '').trim() && q.id)
     .sort((a, b) => gradeRank(progress, a.id) - gradeRank(progress, b.id)

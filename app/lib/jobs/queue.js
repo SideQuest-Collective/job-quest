@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { getLocalDateStamp } = require('../local-date');
+const { writeFileAtomic } = require('../interview/atomic');
 
 const ACTIVE = new Set(['queued', 'running', 'deferred']);
 
@@ -19,10 +20,7 @@ function createQueue({ dataDir, handlers, now = () => new Date() }) {
   let draining = null;
 
   function save() {
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-    fs.renameSync(tmp, file);
+    writeFileAtomic(file, JSON.stringify(state, null, 2));
   }
 
   function today() { return getLocalDateStamp(now()); }

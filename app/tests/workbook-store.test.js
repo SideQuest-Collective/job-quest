@@ -12,6 +12,28 @@ const { writeKit } = require('./helpers/workbook-fixture');
 function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'wb-store-')); }
 const now = () => new Date('2026-10-05T12:00:00.000Z');
 
+test('workbook JSON writes keep separate payloads when writes interleave', (t) => {
+  const dir = tmp();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'nested', 'meta.json');
+  const first = { title: 'First workbook' };
+  const second = { title: 'Second workbook' };
+  const rename = fs.renameSync;
+  const temps = [];
+  t.mock.method(fs, 'renameSync', (temp, destination) => {
+    temps.push(temp);
+    if (temps.length === 1) {
+      store.writeJsonAtomic(file, second);
+      assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify(second, null, 2));
+    }
+    rename(temp, destination);
+  });
+  store.writeJsonAtomic(file, first);
+  assert.equal(new Set(temps).size, 2);
+  assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify(first, null, 2));
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['meta.json']);
+});
+
 test('createWorkbook writes meta and empty progress with a slug id and collision suffix', () => {
   const dir = tmp();
   const m = store.createWorkbook(dir, { roleKeys: ['Acme|Staff Engineer'] }, now);

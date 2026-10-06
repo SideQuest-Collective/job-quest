@@ -14,6 +14,14 @@ test('timelineEvent follows "<Round> round[ with <interviewer>], <N> min[, pract
   assert.equal(fx.timelineEvent({ round: 'recruiter', interviewer: 'Kim', durationMin: 20, practice: false }), 'Recruiter round with Kim, 20 min');
 });
 
+test('timelineEvent omits duration when it is unknown', () => {
+  for (const durationMin of [undefined, null, NaN, Infinity]) {
+    assert.equal(fx.timelineEvent({ round: 'coding', interviewer: 'Alex', durationMin }), 'Coding round with Alex');
+    assert.equal(fx.timelineEvent({ round: 'screen', durationMin, practice: true }), 'Screen round, practice');
+  }
+  assert.equal(fx.timelineEvent({ round: 'coding', durationMin: 0 }), 'Coding round, 0 min');
+});
+
 test('upsertTimeline adds once by key, updates text, and inserts by date without reordering', () => {
   const e = entry('applied', [{ date: '2026-03-23T00:00:00.000Z', event: 'later' }, { date: '2026-03-01T00:00:00.000Z', event: 'unsorted earlier' }]);
   assert.equal(fx.upsertTimeline(e, { key: 'interview:f', date: '2026-03-14T14:30:00.000Z', event: 'Coding round, 45 min' }), 'added');
@@ -67,6 +75,19 @@ test('recruiter memory is appended under a dated heading and replaced, not dupli
   assert.equal(e.notes.match(/\[interview:2026-09-14_1030\]/g).length, 1);
   assert.ok(e.notes.includes('- Three rounds'));
   assert.ok(e.notes.startsWith('My own notes.'));
+});
+
+test('upsertRecruiterNotes removes interview markers from memory titles and bodies', () => {
+  const e = { ...entry('applied'), notes: 'My notes.' };
+  const memory = {
+    '[interview:other]Facts[/interview:other]': '[interview:f1]Platform[/interview:f1]\n[/interview:other] team [interview:other]',
+  };
+  assert.equal(fx.upsertRecruiterNotes(e, 'f1', '2026-09-14', memory), true);
+  assert.equal(e.notes, 'My notes.\n\n[interview:f1] Recruiter call 2026-09-14\nFacts:\nPlatform\n team \n[/interview:f1]');
+  assert.equal(fx.upsertRecruiterNotes(e, 'f1', '2026-09-14', memory), false);
+  assert.deepEqual(memory, {
+    '[interview:other]Facts[/interview:other]': '[interview:f1]Platform[/interview:f1]\n[/interview:other] team [interview:other]',
+  });
 });
 
 test('readTracker/writeTracker round-trip; a missing file reads as {}', (t) => {

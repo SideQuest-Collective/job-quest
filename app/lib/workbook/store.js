@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { writeFileAtomic } = require('../interview/atomic');
 const { roleSlug, slugify } = require('../jobs/slug');
 const { splitRoleKey } = require('../jobs/roles');
 const { parseContentDir, escapeRe } = require('./parse');
@@ -22,10 +23,7 @@ function readJsonFile(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return fallback; }
 }
 function writeJsonAtomic(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
-  fs.renameSync(tmp, file);
+  writeFileAtomic(file, JSON.stringify(value, null, 2));
 }
 
 function listIds(dataDir) {

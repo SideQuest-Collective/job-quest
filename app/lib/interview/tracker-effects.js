@@ -2,7 +2,7 @@
 // Deterministic tracker write-back: timeline entry keyed interview:<folder>, stage ladder, recruiter memory.
 const fs = require('fs');
 const path = require('path');
-const { randomBytes } = require('crypto');
+const { writeFileAtomic } = require('./atomic');
 const { ROUND_LABEL } = require('./workbook-markup');
 
 const ROUND_RANK = { recruiter: 1, screen: 2, coding: 3, system: 3, behavioral: 3 };
@@ -20,17 +20,7 @@ function readTracker(dataDir) {
 }
 
 function writeTracker(dataDir, tracker) {
-  const file = trackerFile(dataDir);
-  fs.mkdirSync(dataDir, { recursive: true });
-  const temp = `${file}.${process.pid}.${randomBytes(16).toString('hex')}.tmp`;
-  try {
-    fs.writeFileSync(temp, JSON.stringify(tracker, null, 2));
-    fs.renameSync(temp, file);
-  } finally {
-    try { fs.unlinkSync(temp); } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-  }
+  writeFileAtomic(trackerFile(dataDir), JSON.stringify(tracker, null, 2));
 }
 
 function ensureEntry(tracker, roleKey) {
@@ -42,7 +32,7 @@ function ensureEntry(tracker, roleKey) {
 
 function timelineEvent({ round, interviewer, durationMin, practice }) {
   const label = ROUND_LABEL[round] || `${String(round).charAt(0).toUpperCase()}${String(round).slice(1)}`;
-  return `${label} round${interviewer ? ` with ${interviewer}` : ''}, ${durationMin} min${practice ? ', practice' : ''}`;
+  return `${label} round${interviewer ? ` with ${interviewer}` : ''}${Number.isFinite(durationMin) ? `, ${durationMin} min` : ''}${practice ? ', practice' : ''}`;
 }
 
 function upsertTimeline(entry, { key, date, event }) {
@@ -53,12 +43,16 @@ function upsertTimeline(entry, { key, date, event }) {
     Object.assign(entry.timeline[i], item);
     return 'updated';
   }
+  insertTimeline(entry.timeline, item);
+  return 'added';
+}
+
+function insertTimeline(timeline, item) {
   // The dashboard writes UTC ISO timestamps; preserve them (startedAt is ISO too).
   // Legacy YYYY-MM-DD sorts before same-day timestamps and after prior-day ones
   // by code-unit comparison. Keep all dates and existing item order unchanged.
-  const at = entry.timeline.findIndex((t) => t && t.date && String(t.date) > String(date));
-  if (at === -1) entry.timeline.push(item); else entry.timeline.splice(at, 0, item);
-  return 'added';
+  const at = timeline.findIndex((t) => t && t.date && String(t.date) > String(item.date));
+  if (at === -1) timeline.push(item); else timeline.splice(at, 0, item);
 }
 
 function removeTimeline(entry, key) {
@@ -82,8 +76,9 @@ function applyStage(entry, round, practice) {
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function upsertRecruiterNotes(entry, folder, date, memory) {
+  const stripMarkers = (text) => String(text).replace(/\[\/?interview:[^\]\r\n]*\]/g, '');
   const lines = [`[interview:${folder}] Recruiter call ${date}`];
-  for (const [title, body] of Object.entries(memory)) lines.push(`${title}:`, body);
+  for (const [title, body] of Object.entries(memory)) lines.push(`${stripMarkers(title)}:`, stripMarkers(body));
   lines.push(`[/interview:${folder}]`);
   const block = lines.join('\n');
   const notes = String(entry.notes || '');
@@ -96,7 +91,37 @@ function upsertRecruiterNotes(entry, folder, date, memory) {
   return changed;
 }
 
+// Browser snapshots own user edits, but may predate an interview ingest.
+function mergeTrackerSnapshot(disk, body) {
+  const merged = { ...body };
+  const noteBlocks = notes => [...String(notes || '').matchAll(/\[interview:([^\]\r\n]+)\][\s\S]*?\[\/interview:\1\]/g)];
+  for (const [roleKey, previous] of Object.entries(disk)) {
+    const interviews = (Array.isArray(previous?.timeline) ? previous.timeline : [])
+      .filter(item => typeof item?.key === 'string' && item.key.startsWith('interview:'));
+    if (!Object.prototype.hasOwnProperty.call(body, roleKey)) {
+      if (interviews.length) merged[roleKey] = previous;
+      continue;
+    }
+    const next = { ...body[roleKey] };
+    const timeline = Array.isArray(next.timeline) ? [...next.timeline] : [];
+    for (const item of interviews) {
+      if (!timeline.some(existing => existing?.key === item.key)) {
+        insertTimeline(timeline, item);
+        next.timeline = timeline;
+      }
+    }
+    const presentBlocks = new Set(noteBlocks(next.notes).map(match => match[1]));
+    for (const [block, folder] of noteBlocks(previous?.notes)) {
+      if (presentBlocks.has(folder)) continue;
+      next.notes = next.notes ? `${next.notes}\n\n${block}` : block;
+      presentBlocks.add(folder);
+    }
+    merged[roleKey] = next;
+  }
+  return merged;
+}
+
 module.exports = {
   ROUND_RANK, STAGE_RANK, readTracker, writeTracker, ensureEntry, timelineEvent,
-  upsertTimeline, removeTimeline, applyStage, upsertRecruiterNotes,
+  upsertTimeline, removeTimeline, applyStage, upsertRecruiterNotes, mergeTrackerSnapshot,
 };

@@ -9,6 +9,28 @@ const {
 } = require('../lib/resume/master');
 const { loadMaster, tmpDir } = require('./helpers/resume-fixtures');
 
+test('master saves keep separate payloads when writes interleave', (t) => {
+  const dir = tmpDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'resume', 'master.json');
+  const first = { ...loadMaster(), headline: 'First resume' };
+  const second = { ...loadMaster(), headline: 'Second resume' };
+  const rename = fs.renameSync;
+  const temps = [];
+  t.mock.method(fs, 'renameSync', (temp, destination) => {
+    temps.push(temp);
+    if (temps.length === 1) {
+      const savedSecond = writeMaster(dir, second);
+      assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify(savedSecond, null, 2));
+    }
+    rename(temp, destination);
+  });
+  const savedFirst = writeMaster(dir, first);
+  assert.equal(new Set(temps).size, 2);
+  assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify(savedFirst, null, 2));
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['master.json']);
+});
+
 for (const [input, error] of [
   [{ experience: [null] }, 'experience[0]: must be an object'],
   [{ experience: [{ roles: 'x' }] }, 'experience[0].roles: must be an array'],

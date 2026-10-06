@@ -13,17 +13,28 @@ const ITEMS = [
   { dedupeKey: 'interview:f:2', text: 'Confirm the next round', due: '2026-10-09' },
 ];
 
-test('creates today and due-date files with the task schema', () => {
-  const { dataDir } = makeEnv();
-  assert.deepEqual(upsertTasks(dataDir, ITEMS, { now }), { added: ['interview:f:1', 'interview:f:2'], existing: [] });
+test('upsertTasks returns empty rejected lists for empty, added, and existing batches', (t) => {
+  const { dataDir } = tempEnv(t);
+  assert.deepEqual(upsertTasks(dataDir, [], { now }), { added: [], existing: [], rejected: [] });
+  assert.deepEqual(upsertTasks(dataDir, [ITEMS[0]], { now }), {
+    added: ['interview:f:1'], existing: [], rejected: [],
+  });
+  assert.deepEqual(upsertTasks(dataDir, [ITEMS[0]], { now }), {
+    added: [], existing: ['interview:f:1'], rejected: [],
+  });
+});
+
+test('creates today and due-date files with the task schema', (t) => {
+  const { dataDir } = tempEnv(t);
+  assert.deepEqual(upsertTasks(dataDir, ITEMS, { now }), { added: ['interview:f:1', 'interview:f:2'], existing: [], rejected: [] });
   assert.deepEqual(readJson(file(dataDir, '2026-10-05')), { date: '2026-10-05', tasks: [
     { text: 'Drill the per-copy variant', category: 'application', completed: false, content: 'From your coding round.', dedupeKey: 'interview:f:1', source: 'interview' },
   ] });
   assert.equal(readJson(file(dataDir, '2026-10-09')).tasks[0].dedupeKey, 'interview:f:2');
 });
 
-test('past, invalid, and malformed due dates fall back to today', () => {
-  const { dataDir } = makeEnv();
+test('past, invalid, and malformed due dates fall back to today', (t) => {
+  const { dataDir } = tempEnv(t);
   upsertTasks(dataDir, [
     { dedupeKey: 'k1', text: 'a', due: '2026-09-24' },
     { dedupeKey: 'k2', text: 'b', due: 'next week' },
@@ -34,36 +45,36 @@ test('past, invalid, and malformed due dates fall back to today', () => {
   assert.equal(isValidDate('2026-02-30'), false);
 });
 
-test('dedupes across all task files and never touches an existing task', () => {
-  const { dataDir } = makeEnv();
+test('dedupes across all task files and never touches an existing task', (t) => {
+  const { dataDir } = tempEnv(t);
   upsertTasks(dataDir, ITEMS, { now });
   const today = readJson(file(dataDir, '2026-10-05'));
   today.tasks[0].completed = true;
   fs.writeFileSync(file(dataDir, '2026-10-05'), JSON.stringify(today));
   const later = pinned('2026-10-07T09:00:00');
-  assert.deepEqual(upsertTasks(dataDir, ITEMS, { now: later }), { added: [], existing: ['interview:f:1', 'interview:f:2'] });
+  assert.deepEqual(upsertTasks(dataDir, ITEMS, { now: later }), { added: [], existing: ['interview:f:1', 'interview:f:2'], rejected: [] });
   assert.equal(fs.existsSync(file(dataDir, '2026-10-07')), false);
   assert.equal(readJson(file(dataDir, '2026-10-05')).tasks[0].completed, true);
 });
 
-test('appends to an existing daily file and keeps its tasks', () => {
-  const { dataDir } = makeEnv();
+test('appends to an existing daily file and keeps its tasks', (t) => {
+  const { dataDir } = tempEnv(t);
   fs.mkdirSync(path.join(dataDir, 'tasks'));
   fs.writeFileSync(file(dataDir, '2026-10-05'), JSON.stringify({ date: '2026-10-05', tasks: [{ text: 'Solve LRU', category: 'coding', completed: false }] }));
   upsertTasks(dataDir, [ITEMS[0]], { now });
   assert.deepEqual(readJson(file(dataDir, '2026-10-05')).tasks.map((t) => t.text), ['Solve LRU', 'Drill the per-copy variant']);
 });
 
-test('a corrupt daily file is never overwritten', () => {
-  const { dataDir } = makeEnv();
+test('a corrupt daily file is never overwritten', (t) => {
+  const { dataDir } = tempEnv(t);
   fs.mkdirSync(path.join(dataDir, 'tasks'));
   fs.writeFileSync(file(dataDir, '2026-10-05'), '{broken');
   assert.throws(() => upsertTasks(dataDir, [ITEMS[0]], { now }), /not valid JSON/);
   assert.equal(fs.readFileSync(file(dataDir, '2026-10-05'), 'utf-8'), '{broken');
 });
 
-test('missingTaskKeys reports keys whose task disappeared', () => {
-  const { dataDir } = makeEnv();
+test('missingTaskKeys reports keys whose task disappeared', (t) => {
+  const { dataDir } = tempEnv(t);
   upsertTasks(dataDir, ITEMS, { now });
   assert.deepEqual(missingTaskKeys(dataDir, ['interview:f:1', 'interview:f:2']), []);
   fs.rmSync(file(dataDir, '2026-10-05'));
@@ -93,7 +104,7 @@ test('preserves unknown daily and task fields and does not rewrite deduped files
   assert.equal(fs.readFileSync(file(dataDir, '2026-10-05'), 'utf8'), before);
 });
 
-test('scans every dated file, ignoring corrupt, non-date, and unusable other files', (t) => {
+test('dedupes across every parseable JSON task file regardless of filename date', (t) => {
   const { dataDir } = tempEnv(t);
   assert.deepEqual(missingTaskKeys(dataDir, ['absent']), ['absent']);
   fs.mkdirSync(path.join(dataDir, 'tasks'));
@@ -105,12 +116,25 @@ test('scans every dated file, ignoring corrupt, non-date, and unusable other fil
     '2026-10-03.json': 'null',
     'notes.json': JSON.stringify({ tasks: [{ dedupeKey: 'notes' }] }),
     '2026-02-30.json': JSON.stringify({ tasks: [{ dedupeKey: 'invalid-date' }] }),
+    'notes.txt': JSON.stringify({ tasks: [{ dedupeKey: 'text-file' }] }),
   })) fs.writeFileSync(path.join(dataDir, 'tasks', name), contents);
-  assert.deepEqual(missingTaskKeys(dataDir, ['old', 'future', 'notes', 'invalid-date']), ['notes', 'invalid-date']);
+  assert.deepEqual(missingTaskKeys(dataDir, ['old', 'future', 'notes', 'invalid-date', 'text-file']), ['text-file']);
   assert.deepEqual(upsertTasks(dataDir, [
-    { dedupeKey: 'old', text: 'old' }, { dedupeKey: 'future', text: 'future' }, ITEMS[0],
-  ], { now }), { added: ['interview:f:1'], existing: ['old', 'future'] });
+    ...['old', 'future', 'notes', 'invalid-date'].map((dedupeKey) => ({ dedupeKey, text: 'Existing' })), ITEMS[0],
+  ], { now }), { added: ['interview:f:1'], existing: ['old', 'future', 'notes', 'invalid-date'], rejected: [] });
   assert.equal(fs.readFileSync(file(dataDir, '2026-10-01'), 'utf8'), '{broken');
+});
+
+test('rejects tasks without dedupeKey without writing keyless tasks', (t) => {
+  const { dataDir } = tempEnv(t);
+  const items = [{ text: 'Missing' }, { dedupeKey: '', text: 'Empty' }, { dedupeKey: null, text: 'Null' }];
+  const rejected = items.map((item) => ({ item, reason: 'missing dedupeKey' }));
+  assert.deepEqual(upsertTasks(dataDir, items, { now }), { added: [], existing: [], rejected });
+  assert.equal(fs.existsSync(path.join(dataDir, 'tasks')), false);
+  assert.deepEqual(upsertTasks(dataDir, [...items, ITEMS[0]], { now }), {
+    added: ['interview:f:1'], existing: [], rejected,
+  });
+  assert.deepEqual(readJson(file(dataDir, '2026-10-05')).tasks.map((task) => task.dedupeKey), ['interview:f:1']);
 });
 
 test('dedupes a batch, defaults content, and reads the injected clock once', (t) => {
@@ -119,7 +143,7 @@ test('dedupes a batch, defaults content, and reads the injected clock once', (t)
   assert.deepEqual(upsertTasks(dataDir, [
     { dedupeKey: 'same', text: 'First', due: '2026-10-05' },
     { dedupeKey: 'same', text: 'Second', due: '2026-10-09' },
-  ], { now: () => { reads++; return now(); } }), { added: ['same'], existing: ['same'] });
+  ], { now: () => { reads++; return now(); } }), { added: ['same'], existing: ['same'], rejected: [] });
   assert.equal(reads, 1);
   assert.deepEqual(readJson(file(dataDir, '2026-10-05')).tasks, [
     { text: 'First', category: 'application', completed: false, content: '', dedupeKey: 'same', source: 'interview' },

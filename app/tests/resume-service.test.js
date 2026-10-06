@@ -188,9 +188,11 @@ test('an interrupted keyword write leaves no frozen file and a full run can reco
   const h = await keywordRun(t);
   const write = fs.writeFileSync;
   let interrupted = false;
+  let interruptedFile;
   const mock = t.mock.method(fs, 'writeFileSync', (file, data, options) => {
-    if (!interrupted && (file === h.kwFile || file === `${h.kwFile}.tmp`)) {
+    if (!interrupted && (file === h.kwFile || (file.startsWith(`${h.kwFile}.`) && file.endsWith('.tmp')))) {
       interrupted = true;
+      interruptedFile = file;
       write(file, '{"title":', options);
       throw new Error('simulated interrupted keyword write');
     }
@@ -202,10 +204,11 @@ test('an interrupted keyword write leaves no frozen file and a full run can reco
   assert.equal(failed.meta.status, 'failed');
   assert.match(failed.meta.error, /simulated interrupted keyword write/);
   assert.equal(fs.existsSync(h.kwFile), false, 'partial JSON must never be published as frozen keywords');
+  assert.equal(fs.existsSync(interruptedFile), false, 'failed temporary writes are cleaned up');
   const recovered = await h.run();
   assert.equal(recovered.meta.status, 'done');
   assert.deepEqual(recovered.keywords, loadKeywords());
-  assert.equal(fs.existsSync(`${h.kwFile}.tmp`), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(h.kwFile)).filter((name) => name.endsWith('.tmp')), []);
 });
 
 test('keywords created while the analyst runs are never overwritten', async (t) => {

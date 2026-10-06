@@ -46,8 +46,9 @@ test('homes honour INTERVIEW_HOME, JOB_QUEST_HOME, DATA_DIR', () => {
   assert.equal(c.dataDirFromEnv({ JOB_QUEST_HOME: '/tmp/jq' }), '/tmp/jq/data');
 });
 
-test('interviewInstalled checks for app/capture.py', () => {
+test('interviewInstalled checks for app/capture.py', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-iv-home-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   assert.equal(c.interviewInstalled(home), false);
   fs.mkdirSync(path.join(home, 'app'));
   fs.writeFileSync(path.join(home, 'app', 'capture.py'), '');

@@ -177,6 +177,8 @@ test('rejected qids do not force endless reapplication', async (t) => {
   });
   assert.match((await ingest()).summary, /1 grade\(s\) rejected/);
   const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  assert.deepEqual(rec.effects.progress.map((g) => g.qid), ['iv-202603140930-1']);
+  assert.deepEqual(rec.gradeRejected, [{ qid: 'iv-202603140930-2', reason: 'question does not exist in this workbook' }]);
   assert.equal(bridge.readProgress(dataDir, rec.workbookId).history['iv-202603140930-2'], undefined);
   assert.equal((await ingest()).status, 'unchanged');
   assert.equal(fakeCalls(work)['debrief-analyst'], 1);
@@ -199,7 +201,6 @@ test('practice falls back to the role workbook and repairs missing history throu
   const { dataDir, dir, ingest, work } = setup(t);
   const wb = seedWorkbook(dataDir);
   setSessionFields(dir, { practiceSet: path.join(dir, 'missing-practice.json'), practiceResults: [{ qid: 'c1', grade: 'got' }] });
-  t.mock.method(bridge, 'writeProgress', () => assert.fail('must use recordGrades'));
   const writer = t.mock.method(bridge, 'recordGrades');
   await ingest();
   assert.equal(writer.mock.calls.length, 1);
@@ -286,4 +287,150 @@ test('changing a session to practice does not retain a prior stage effect', asyn
   const result = await ingest();
   assert.equal(result.effects.stage, null);
   assert.deepEqual(result.effects.workbookQids, []);
+});
+
+
+test('clobbered recruiter notes are repaired without rerunning the analyst', async (t) => {
+  const { dataDir, dir, ingest, tracker, work } = setup(t);
+  setSessionFields(dir, { round: 'recruiter' });
+  fs.writeFileSync(path.join(dir, 'debrief.md'), '# Debrief\n\n## About the role\n\nPlatform team hiring.\n');
+  await ingest();
+  const entries = tracker();
+  entries[ROLE_KEY].notes = 'User edited notes';
+  seedTracker(dataDir, entries);
+  assert.equal((await ingest()).status, 'ingested');
+  assert.match(tracker()[ROLE_KEY].notes, /User edited notes/);
+  assert.ok(tracker()[ROLE_KEY].notes.includes(`[${KEY}]`));
+  assert.ok(tracker()[ROLE_KEY].notes.includes('Platform team hiring.'));
+  assert.ok(tracker()[ROLE_KEY].notes.includes(`[/${KEY}]`));
+  assert.equal(fakeCalls(work)['debrief-analyst'], 1);
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).effects.recruiterMemory, true);
+  assert.equal((await ingest()).status, 'unchanged');
+  // Older records predate the persisted recruiter-memory effect.
+  const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  delete rec.effects.recruiterMemory;
+  records.writeRecord(dataDir, rec);
+  entries[ROLE_KEY].notes = 'User edited notes again';
+  seedTracker(dataDir, entries);
+  assert.equal((await ingest()).status, 'ingested');
+  assert.ok(tracker()[ROLE_KEY].notes.includes(`[${KEY}]`));
+  assert.equal(fakeCalls(work)['debrief-analyst'], 1);
+});
+
+test('rejected grades cannot exempt a recorded progress effect from repair', async (t) => {
+  const { dataDir, ingest } = setup(t);
+  await ingest();
+  const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  const progressFile = path.join(bridge.findWorkbook(dataDir, ROLE_KEY).dir, 'progress.json');
+  const progress = readJson(progressFile);
+  const qid = rec.effects.progress[0].qid;
+  delete progress.history[qid];
+  fs.writeFileSync(progressFile, JSON.stringify(progress));
+  rec.gradeRejected = [{ qid, reason: 'old rejection' }];
+  assert.equal(require('../lib/interview/ingest').isApplied(dataDir, rec), false);
+});
+
+test('practice progress effects include only accepted grades and retain rejections for display', async (t) => {
+  const { dataDir, dir, ingest, work } = setup(t);
+  const wb = seedWorkbook(dataDir);
+  setSessionFields(dir, { practiceSet: path.join(dir, 'missing-practice.json'), practiceResults: [
+    { qid: 'c1', grade: 'got' }, { qid: 's1', grade: 'partial' },
+  ] });
+  const recordGrades = bridge.recordGrades;
+  t.mock.method(bridge, 'recordGrades', (dataDir, id, grades) => ({
+    ...recordGrades(dataDir, id, grades.filter((g) => g.qid === 'c1')),
+    rejected: [{ qid: 's1', reason: 'question does not exist in this workbook' }],
+  }));
+  const result = await ingest();
+  assert.deepEqual(result.effects.progress, [{ qid: 'c1', grade: 'got', at: '2026-03-14T14:30:00.000Z', source: 'interview-practice' }]);
+  assert.deepEqual(records.readRecord(dataDir, FIXTURE_FOLDER).gradeRejected, [{ qid: 's1', reason: 'question does not exist in this workbook' }]);
+  assert.equal(bridge.readProgress(dataDir, wb.id).history.s1, undefined);
+  assert.equal((await ingest()).status, 'unchanged');
+  assert.deepEqual(fakeCalls(work), {});
+});
+
+
+test('recruiter sessions without memory do not require a notes block', async (t) => {
+  const { dataDir, dir, ingest } = setup(t);
+  setSessionFields(dir, { round: 'recruiter' });
+  fs.writeFileSync(path.join(dir, 'debrief.md'), '# Debrief\n\nNo role details recorded.\n');
+  const runAgentFn = async ({ cwd }) => {
+    fs.writeFileSync(path.join(cwd, 'analysis.json'), JSON.stringify({ asked: [], weakSpots: [], followUps: [] }));
+    return { ok: true };
+  };
+  assert.equal((await ingest({ runAgentFn })).status, 'ingested');
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).effects.recruiterMemory, undefined);
+  assert.equal((await ingest({ runAgentFn })).status, 'unchanged');
+});
+
+for (const invalid of ['outside', 'traversal', 'symlink', 'directory-symlink', 'extension', 'resolved-extension', 'missing-workbook']) {
+  test(`practiceSet ${invalid} falls back to the role workbook and records why`, async (t) => {
+    const { dataDir, interviewHome, dir, ingest } = setup(t);
+    const wb = seedWorkbook(dataDir);
+    const other = seedWorkbook(dataDir, OTHER);
+    const practice = path.join(interviewHome, 'practice');
+    fs.mkdirSync(practice, { recursive: true });
+    let file = path.join(practice, 'set.json');
+    const set = { workbookId: other.id };
+    if (invalid === 'outside' || invalid === 'traversal') {
+      file = invalid === 'outside' ? path.join(interviewHome, 'outside.json') : `${practice}/../outside.json`;
+    } else if (invalid === 'extension') file = path.join(practice, 'set.txt');
+    else if (invalid === 'missing-workbook') set.workbookId = 'deleted-workbook';
+    if (invalid === 'symlink' || invalid === 'resolved-extension') {
+      const target = invalid === 'symlink' ? path.join(interviewHome, 'outside.json') : path.join(practice, 'set.txt');
+      fs.writeFileSync(target, JSON.stringify(set));
+      fs.symlinkSync(target, file);
+    } else if (invalid === 'directory-symlink') {
+      const target = path.join(interviewHome, 'outside');
+      fs.mkdirSync(target);
+      fs.writeFileSync(path.join(target, 'set.json'), JSON.stringify(set));
+      fs.symlinkSync(target, path.join(practice, 'linked'));
+      file = path.join(practice, 'linked', 'set.json');
+    } else fs.writeFileSync(file, JSON.stringify(set));
+    setSessionFields(dir, { practiceSet: file, practiceResults: [{ qid: 'c1', grade: 'got' }] });
+    const result = await ingest();
+    const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+    assert.equal(rec.workbookId, wb.id);
+    assert.equal(rec.dropped.length, 1);
+    assert.equal(rec.dropped[0].kind, 'practiceSet');
+    assert.match(rec.dropped[0].reason, invalid === 'missing-workbook' ? /workbook.*(missing|not found|no longer exists)/i
+      : /practice|\.json/i);
+    assert.match(result.summary, /practice set.*fall.*back/i);
+    assert.equal(bridge.readProgress(dataDir, wb.id).grades.c1.grade, 'got');
+    assert.equal(bridge.readProgress(dataDir, other.id).grades.c1, undefined);
+  });
+}
+
+test('practiceSet accepts a real path inside practice even when it names a different workbook', async (t) => {
+  const { dataDir, interviewHome, dir, ingest } = setup(t);
+  seedWorkbook(dataDir);
+  const wb = seedWorkbook(dataDir, OTHER);
+  const practice = path.join(interviewHome, 'practice');
+  fs.mkdirSync(practice, { recursive: true });
+  const target = path.join(practice, 'set.json');
+  const alias = path.join(practice, 'alias.json');
+  fs.writeFileSync(target, JSON.stringify({ workbookId: wb.id }));
+  fs.symlinkSync(target, alias);
+  setSessionFields(dir, { practiceSet: alias, practiceResults: [{ qid: 'c1', grade: 'got' }] });
+  await ingest();
+  const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  assert.equal(rec.workbookId, wb.id);
+  assert.deepEqual(rec.dropped, []);
+  assert.equal(bridge.readProgress(dataDir, wb.id).grades.c1.grade, 'got');
+});
+
+test('ingest completes pendingCleanup when the old workbook metadata is corrupt', async (t) => {
+  const { dataDir, interviewHome, ingest } = setup(t);
+  await ingest();
+  const previous = records.readRecord(dataDir, FIXTURE_FOLDER);
+  const oldDir = path.join(dataDir, 'workbooks', previous.workbookId);
+  fs.writeFileSync(path.join(oldDir, 'meta.json'), '{broken');
+  const lines = [];
+  t.mock.method(console, 'warn', (line) => lines.push(line));
+  const result = await linkSession({ dataDir, interviewHome, folder: FIXTURE_FOLDER, roleKey: OTHER, now });
+  assert.equal(result.status, 'ingested');
+  assert.equal(fs.existsSync(path.join(oldDir, 'content', bridge.INTERVIEW_CHAPTER_FILE)), false);
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).pendingCleanup, undefined);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes(previous.workbookId));
 });

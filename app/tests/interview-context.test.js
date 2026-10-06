@@ -6,6 +6,7 @@ const path = require('node:path');
 const { roleIds, writeInterviewContext } = require('../lib/interview/context');
 const { cheatsheetWorkDir } = require('../lib/interview/cheatsheet');
 const { MARKER_MD } = require('../lib/interview/contract');
+const { findTailored } = require('../lib/interview/resume-bridge');
 const { makeEnv, seedRole, seedWorkbook, installFake, withFakeAgent, readJson, fakeCalls, ROLE_KEY, FAKE_CHEATSHEET } = require('./helpers/interview-env');
 
 const ROLE_ID = 'acme-capital-software-engineer';
@@ -111,9 +112,23 @@ test('no round means no practice file; recruiter has no practice rule', async (t
   assert.deepEqual(rec.skipped, [{ path: p.practice, reason: 'no-practice-for-recruiter' }]);
 });
 
+test('empty round is treated as no round', async (t) => {
+  const { dataDir, interviewHome, p } = setup(t);
+  const r = await writeInterviewContext({ dataDir, interviewHome, roleKey: ROLE_KEY, round: '' });
+  assert.deepEqual(r.skipped, [{ path: p.practice, reason: 'no-round' }]);
+  assert.equal(r.practice, null);
+});
+
+test('roleKey preserves separators after the first one in the role title', async (t) => {
+  const { dataDir, interviewHome, p } = setup(t, { workbook: false, tailored: false });
+  const r = await writeInterviewContext({ dataDir, interviewHome, roleKey: 'Acme Capital|Engineer | Platform' });
+  assert.ok(r.written.includes(p.ctx('target.md')));
+  assert.match(fs.readFileSync(p.ctx('target.md'), 'utf-8'), /Title and level I am targeting: Engineer \| Platform/);
+});
+
 test('rejects a malformed roleKey and an unknown round', async (t) => {
   const { dataDir, interviewHome } = setup(t, { workbook: false });
-  for (const roleKey of ['NoPipe', '', '|Engineer', 'Acme| ', 'Acme|Engineer|Extra', {}, null]) {
+  for (const roleKey of ['NoPipe', '', '|Engineer', 'Acme| ', {}, null]) {
     await assert.rejects(writeInterviewContext({ dataDir, interviewHome, roleKey }), (e) => e.code === 'INPUT');
   }
   await assert.rejects(writeInterviewContext({ dataDir, interviewHome, roleKey: ROLE_KEY, round: 'lunch' }), (e) => e.code === 'INPUT');
@@ -205,6 +220,58 @@ test('invalid cheat sheet output is reported without blocking practice', async (
   assert.deepEqual(r.skipped, [{ path: p.cheatsheet, reason: 'cheatsheet-invalid: no cards' }]);
   assert.equal(r.practice, p.practice);
 });
+
+for (const ownership of ['owned', 'user-owned', 'blocked-sibling']) {
+  test(`stale cached cheat sheet is reported and respects ${ownership} files`, async (t) => {
+    const { dataDir, interviewHome, p } = setup(t);
+    await writeInterviewContext({ dataDir, interviewHome, roleKey: ROLE_KEY, round: 'coding' });
+    const previous = readJson(p.cheatsheet);
+    const wb = require('../lib/interview/workbook-bridge').findWorkbook(dataDir, ROLE_KEY);
+    fs.appendFileSync(path.join(wb.dir, 'content', '01-coding-basics.md'), '\nChanged workbook.\n');
+    const sibling = p.cheatsheet.replace(/\.json$/, '.jq.json');
+    if (ownership !== 'owned') fs.writeFileSync(p.cheatsheet, '{"mine":true}');
+    if (ownership === 'blocked-sibling') fs.writeFileSync(sibling, '{"mine":"sibling"}');
+    let calls = 0;
+    const r = await writeInterviewContext({ dataDir, interviewHome, roleKey: ROLE_KEY, round: 'coding',
+      runAgentFn: async () => { calls++; return { ok: false, code: 7 }; } });
+    assert.equal(calls, 2);
+    const stale = { path: p.cheatsheet, reason: 'cheatsheet-stale: cheatsheet-invalid: the agent exited with code 7' };
+    if (ownership === 'owned') {
+      assert.ok(r.written.includes(p.cheatsheet));
+      assert.deepEqual(readJson(p.cheatsheet), previous);
+      assert.deepEqual(r.skipped, [stale]);
+    } else {
+      assert.deepEqual(readJson(p.cheatsheet), { mine: true });
+      const ownershipNote = ownership === 'user-owned'
+        ? { path: p.cheatsheet, reason: 'user-owned', wroteInstead: sibling }
+        : { path: p.cheatsheet, reason: 'user-owned', wroteInstead: null, siblingUserOwned: true };
+      assert.deepEqual(r.skipped, [ownershipNote, stale]);
+      assert.deepEqual(readJson(sibling), ownership === 'user-owned' ? previous : { mine: 'sibling' });
+    }
+  });
+}
+
+for (const timestamp of ['updatedAt', 'createdAt', 'mtime']) {
+  test(`findTailored chooses the newest matching directory by ${timestamp}`, (t) => {
+    const { dataDir } = setup(t, { workbook: false, tailored: false });
+    for (const [id, date] of [['a-old', '2025-01-01T00:00:00.000Z'], ['z-new', '2026-01-01T00:00:00.000Z'], ['zz-other-role', '2027-01-01T00:00:00.000Z']]) {
+      const dir = path.join(dataDir, 'resume', 'tailored', id);
+      fs.mkdirSync(dir, { recursive: true });
+      const meta = { roleKeys: [id === 'zz-other-role' ? 'Other|Engineer' : ROLE_KEY], status: 'done' };
+      if (timestamp !== 'mtime') meta[timestamp] = date;
+      // updatedAt takes precedence over a later createdAt or filesystem timestamp.
+      if (timestamp === 'updatedAt') meta.createdAt = id === 'a-old' ? '2029-01-01T00:00:00.000Z' : '2024-01-01T00:00:00.000Z';
+      fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
+      fs.writeFileSync(path.join(dir, 'jd.txt'), `${id} description`);
+      const mtime = new Date(timestamp === 'mtime' ? date : (id === 'a-old' ? '2029-01-01' : '2024-01-01'));
+      fs.utimesSync(dir, mtime, mtime);
+    }
+    const result = findTailored(dataDir, ROLE_KEY);
+    assert.equal(result.id, 'z-new');
+    assert.equal(result.jdText, 'z-new description');
+    assert.equal(result.done, true);
+  });
+}
 
 test('blank-prompt workbook questions result in no-matching-questions', async (t) => {
   const { dataDir, interviewHome, p } = setup(t);

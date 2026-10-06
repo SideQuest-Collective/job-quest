@@ -9,6 +9,29 @@ const { createQueue } = require('../lib/jobs/queue');
 function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'jq-queue-')); }
 function clock(iso) { let t = new Date(iso); return { now: () => t, set: (s) => { t = new Date(s); } }; }
 
+test('queue saves keep separate payloads when writes interleave', (t) => {
+  const dir = tmp();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const first = createQueue({ dataDir: dir, handlers: {} });
+  const second = createQueue({ dataDir: dir, handlers: {} });
+  const file = path.join(dir, 'jobs', 'queue.json');
+  const opts = { auto: true, capName: 'workbooks', cap: 0 };
+  const rename = fs.renameSync;
+  const temps = [];
+  t.mock.method(fs, 'renameSync', (temp, destination) => {
+    temps.push(temp);
+    if (temps.length === 1) {
+      second.enqueue({ kind: 'w', key: 'second' }, opts);
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).jobs.map((job) => job.key), ['second']);
+    }
+    rename(temp, destination);
+  });
+  first.enqueue({ kind: 'w', key: 'first' }, opts);
+  assert.equal(new Set(temps).size, 2);
+  assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify({ jobs: first.list(), counts: {} }, null, 2));
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['queue.json']);
+});
+
 test('runs jobs FIFO, one at a time, and records results', async () => {
   const order = [];
   let running = 0, maxRunning = 0;

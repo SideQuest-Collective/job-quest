@@ -1,6 +1,7 @@
 // app/lib/resume/master.js
 const fs = require('fs');
 const path = require('path');
+const { writeFileAtomic } = require('../interview/atomic');
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -277,9 +278,7 @@ function writeMaster(dataDir, next) {
     err.validation = v.errors;
     throw err;
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(`${file}.tmp`, JSON.stringify(out, null, 2));
-  fs.renameSync(`${file}.tmp`, file);
+  writeFileAtomic(file, JSON.stringify(out, null, 2));
   return out;
 }
 

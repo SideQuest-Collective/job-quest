@@ -12,6 +12,7 @@ const OUT_FILE = 'cheatsheet.out.json';
 const FIELDS = ['title', 'category', 'bullets', 'code'];
 const MAX_CARDS = 40;
 const MAX_BULLET = 240;
+const diagnosticValue = (v) => JSON.stringify(typeof v === 'string' ? v.slice(0, 120) : v)?.slice(0, 160);
 
 function cheatsheetWorkDir(dataDir, roleId) {
   if (typeof roleId !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(roleId)) throw new Error(`invalid roleId: ${roleId}`);
@@ -28,7 +29,7 @@ function validateCheatsheet(data) {
     const at = `card ${i + 1}`;
     if (!c || typeof c !== 'object' || Array.isArray(c)) { errors.push(`${at}: not an object`); return; }
     if (typeof c.title !== 'string' || !c.title.trim()) errors.push(`${at}: missing title`);
-    if (!CATEGORIES.includes(c.category)) errors.push(`${at}: category "${c.category}" is not one of ${CATEGORIES.join(', ')}`);
+    if (!CATEGORIES.includes(c.category)) errors.push(`${at}: category ${diagnosticValue(c.category)} is not one of ${CATEGORIES.join(', ')}`);
     if (!Array.isArray(c.bullets) || c.bullets.length < 4 || c.bullets.length > 6) {
       errors.push(`${at}: needs 4 to 6 bullets, has ${Array.isArray(c.bullets) ? c.bullets.length : 0}`);
     } else {
@@ -39,7 +40,7 @@ function validateCheatsheet(data) {
     }
     if (c.code !== undefined && c.code !== null && typeof c.code !== 'string') errors.push(`${at}: code must be a string`);
     if (typeof c.code === 'string' && c.code.split('\n').length > 15) errors.push(`${at}: code has ${c.code.split('\n').length} lines > 15`);
-    for (const k of Object.keys(c)) if (!FIELDS.includes(k)) errors.push(`${at}: unknown field ${k}`);
+    for (const k of Object.keys(c)) if (!FIELDS.includes(k)) errors.push(`${at}: unknown field ${diagnosticValue(k)}`);
   });
   if (errors.length) return { ok: false, errors, cards: [] };
   return {
@@ -60,7 +61,7 @@ function readJsonSafe(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
 }
 
-async function buildCheatsheet({ dataDir, roleId, company, role, workbookId, noAgent = false, timeoutMs = 240000, runAgentFn = runAgent }) {
+async function buildCheatsheet({ dataDir, roleId, company, role, workbookId, noAgent = false, timeoutMs = 240000, runAgentFn = runAgent, now = () => new Date() }) {
   let dir;
   try { dir = cheatsheetWorkDir(dataDir, roleId); }
   catch (error) { return { ok: false, error: error.message }; }
@@ -83,13 +84,16 @@ async function buildCheatsheet({ dataDir, roleId, company, role, workbookId, noA
       company, role, categories: CATEGORIES.join(', '), chapters,
       errors: errors.length ? `Your previous file was rejected. Fix these problems:\n${errors.map((e) => `- ${e}`).join('\n')}` : '',
     });
-    const run = await runAgentFn({ agent: CHEATSHEET_AGENT, prompt, cwd: dir, profile: 'write', timeoutMs, logFile: path.join(dir, 'agent.log') });
-    if (!run.ok) { errors = [run.timedOut ? 'the agent timed out' : `the agent exited with code ${run.code}`]; continue; }
+    const run = await runAgentFn({ agent: CHEATSHEET_AGENT, prompt, cwd: dir, profile: 'write', timeoutMs, logFile: path.join(dir, 'agent.log'), env: { DATA_DIR: path.resolve(dataDir) } });
+    if (!run.ok) {
+      errors = [run.timedOut ? 'the agent timed out' : (run.signal ? `the agent terminated by ${run.signal}` : `the agent exited with code ${run.code}`)];
+      continue;
+    }
     const data = readJsonSafe(out);
     if (data === null) { errors = [`${OUT_FILE} is missing or not valid JSON`]; continue; }
     const v = validateCheatsheet(data);
     if (v.ok) {
-      fs.writeFileSync(cacheFile, JSON.stringify({ sourceHash, builtAt: new Date().toISOString(), cards: v.cards }, null, 2));
+      fs.writeFileSync(cacheFile, JSON.stringify({ sourceHash, builtAt: now().toISOString(), cards: v.cards }, null, 2));
       return { ok: true, cards: v.cards, cached: false, stale: false };
     }
     errors = v.errors;

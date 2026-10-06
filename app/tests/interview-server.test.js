@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const { withServer: withTestServer } = require('./helpers/server');
 const {
-  makeEnv, copyFixtureSession, seedRole, installFakeAnalyst, FAKE_AGENT, ROLE_KEY, FIXTURE_FOLDER,
+  makeEnv, copyFixtureSession, seedRole, installFakeAnalyst, withFakeAgent, FAKE_AGENT, ROLE_KEY, FIXTURE_FOLDER,
 } = require('./helpers/interview-env');
 
 async function withServer(env, fn) {
@@ -34,8 +34,9 @@ async function until(fn, ms = 5000) {
   }
 }
 
-function setup(opts) {
+function setup(t, opts) {
   const env = makeEnv(opts);
+  t.after(() => fs.rmSync(env.root, { recursive: true, force: true }));
   seedRole(env.dataDir, 'applied', { url: '' }); // no posting URL, so /api/interview/context never fetches over the network
   copyFixtureSession(env.interviewHome);
   installFakeAnalyst(env.dataDir);
@@ -64,7 +65,7 @@ test('server startup avoids an occupied legacy random port', async (t) => {
   assert.ok(port < 5200, 'a legacy port is available for the decoy');
   t.mock.method(Math, 'random', () => (port - 4800) / 400);
   try {
-    await withServer(setup(), async (base) => {
+    await withServer(setup(t), async (base) => {
       assert.equal((await get(`${base}/api/interview/status`)).body.installed, true);
     });
   } finally {
@@ -72,8 +73,8 @@ test('server startup avoids an occupied legacy random port', async (t) => {
   }
 });
 
-test('corrupt tracker sets lastError and successful re-ingest clears it', async () => {
-  const env = setup();
+test('corrupt tracker sets lastError and successful re-ingest clears it', async (t) => {
+  const env = setup(t);
   await withServer(env, async (base, logs) => {
     assert.equal((await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/link?wait=1`, { roleKey: ROLE_KEY })).body.status, 'ingested');
     const before = (await get(`${base}/api/interview/sessions/${FIXTURE_FOLDER}`)).body;
@@ -97,8 +98,8 @@ test('corrupt tracker sets lastError and successful re-ingest clears it', async 
   });
 });
 
-test('failed ingest of a never-scanned folder logs without creating a stub record', async () => {
-  const env = setup();
+test('failed ingest of a never-scanned folder logs without creating a stub record', async (t) => {
+  const env = setup(t);
   await withServer(env, async (base, logs) => {
     await until(async () => (await get(`${base}/api/interview/sessions`)).body.length);
     const folder = '2020-01-01_0000';
@@ -114,8 +115,8 @@ test('failed ingest of a never-scanned folder logs without creating a stub recor
   });
 });
 
-test('startup scan records the unlinked session; status reports it', async () => {
-  await withServer(setup(), async (base) => {
+test('startup scan records the unlinked session; status reports it', async (t) => {
+  await withServer(setup(t), async (base) => {
     const unlinked = await until(async () => {
       const r = await get(`${base}/api/interview/sessions?status=unlinked`);
       return r.body.length ? r.body : null;
@@ -133,8 +134,8 @@ test('startup scan records the unlinked session; status reports it', async () =>
   });
 });
 
-test('link ingests; role sessions, detail, and transcript render; re-ingest is unchanged', async () => {
-  await withServer(setup(), async (base) => {
+test('link ingests; role sessions, detail, and transcript render; re-ingest is unchanged', async (t) => {
+  await withServer(setup(t), async (base) => {
     const linked = await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/link?wait=1`, { roleKey: ROLE_KEY });
     assert.equal(linked.code, 200);
     assert.equal(linked.body.status, 'ingested');
@@ -156,8 +157,8 @@ test('link ingests; role sessions, detail, and transcript render; re-ingest is u
   });
 });
 
-test('rejects traversal in :folder and unknown folders', async () => {
-  await withServer(setup(), async (base) => {
+test('rejects traversal in :folder and unknown folders', async (t) => {
+  await withServer(setup(t), async (base) => {
     for (const bad of ['..%2F..%2Fetc', '%2Fetc%2Fpasswd', '.hidden', 'a..b']) {
       assert.equal((await get(`${base}/api/interview/sessions/${bad}`)).code, 400, bad);
       assert.equal((await get(`${base}/api/interview/sessions/${bad}/transcript`)).code, 400, bad);
@@ -171,8 +172,8 @@ test('rejects traversal in :folder and unknown folders', async () => {
   });
 });
 
-test('link and context validate their input', async () => {
-  await withServer(setup(), async (base) => {
+test('link and context validate their input', async (t) => {
+  await withServer(setup(t), async (base) => {
     const bad = await post(`${base}/api/interview/sessions/${FIXTURE_FOLDER}/link`, { roleKey: 'Nobody|Role' });
     assert.equal(bad.code, 400);
     assert.match(bad.body.error, /unknown roleKey/);
@@ -184,14 +185,14 @@ test('link and context validate their input', async () => {
   });
 });
 
-test('status reports not installed when capture.py is absent', async () => {
-  await withServer(setup({ installed: false }), async (base) => {
+test('status reports not installed when capture.py is absent', async (t) => {
+  await withServer(setup(t, { installed: false }), async (base) => {
     assert.equal((await get(`${base}/api/interview/status`)).body.installed, false);
   });
 });
 
-test('wait preserves ingest error codes; background failures are logged and pollable', async () => {
-  const env = setup();
+test('wait preserves ingest error codes; background failures are logged and pollable', async (t) => {
+  const env = setup(t);
   await withServer(env, async (base, logs) => {
     await until(async () => (await get(`${base}/api/interview/sessions`)).body.length);
     const file = path.join(env.interviewHome, 'sessions', FIXTURE_FOLDER, 'session.json');
@@ -232,8 +233,8 @@ test('wait preserves ingest error codes; background failures are logged and poll
   });
 });
 
-test('summary preserves every record status separately from the in-flight flag and returns raw markdown', async () => {
-  const env = setup();
+test('summary preserves every record status separately from the in-flight flag and returns raw markdown', async (t) => {
+  const env = setup(t);
   await withServer(env, async (base) => {
     await until(async () => (await get(`${base}/api/interview/sessions`)).body.length);
     const records = require('../lib/interview/records');
@@ -261,4 +262,86 @@ test('HTTP errors map real ingest codes and busy lock messages', () => {
   assert.equal(httpStatus(new ContractError('contract')), 409);
   assert.equal(httpStatus(new Error('busy: another ingest of session is running')), 409);
   assert.equal(httpStatus(new Error('unexpected')), 500);
+});
+
+
+test('unchanged ingest route does not rewrite the session record', async (t) => {
+  const env = setup(t);
+  const records = require('../lib/interview/records');
+  const routes = new Map();
+  const app = { get() {}, post(route, fn) { routes.set(route, fn); } };
+  require('../lib/interview/routes').registerInterviewRoutes(app, env);
+  await require('../lib/interview/ingest').ingestSession({ ...env, folder: FIXTURE_FOLDER });
+  const writer = t.mock.method(records, 'writeRecord');
+  let result;
+  await routes.get('/api/interview/sessions/:folder/ingest')(
+    { params: { folder: FIXTURE_FOLDER }, query: { wait: '1' } },
+    { json(body) { result = body; }, status(code) { assert.fail(`unexpected HTTP ${code}`); } },
+  );
+  assert.equal(result.status, 'unlinked');
+  assert.equal(writer.mock.calls.length, 0);
+});
+
+test('ingest route rejects a symlink immediately without wait=1', async (t) => {
+  const env = setup(t);
+  const alias = 'session-alias';
+  fs.symlinkSync(path.join(env.interviewHome, 'sessions', FIXTURE_FOLDER),
+    path.join(env.interviewHome, 'sessions', alias));
+  const routes = new Map();
+  const app = { get() {}, post(route, fn) { routes.set(route, fn); } };
+  const api = require('../lib/interview/routes').registerInterviewRoutes(app, env);
+  t.mock.method(console, 'error', () => {});
+  let code = 200;
+  let result;
+  const response = { json(body) { result = body; }, status(value) { code = value; return this; } };
+  await routes.get('/api/interview/sessions/:folder/ingest')(
+    { params: { folder: alias }, query: {} }, response,
+  );
+  await Promise.allSettled(api.inflight.values());
+  assert.equal(code, 400);
+  assert.match(result.error, /session folder must not be a symlink/);
+  assert.equal(require('../lib/interview/records').readRecord(env.dataDir, alias), null);
+});
+
+test('context route accepts an empty round and a role containing another separator', async (t) => {
+  const env = setup(t);
+  const roleKey = 'Acme Capital|Software Engineer | Platform';
+  fs.writeFileSync(path.join(env.dataDir, 'role-tracker.json'), JSON.stringify({
+    [roleKey]: { stage: 'applied', url: '' },
+  }));
+  const routes = new Map();
+  const app = { get() {}, post(route, fn) { routes.set(route, fn); } };
+  require('../lib/interview/routes').registerInterviewRoutes(app, env);
+  let code = 200;
+  let result;
+  const response = { json(body) { result = body; }, status(value) { code = value; return this; } };
+  await routes.get('/api/interview/context')({ body: { roleKey, round: '' } }, response);
+  assert.equal(code, 200);
+  assert.equal(result.practice, null);
+  const target = path.join(env.interviewHome, 'context', 'target.md');
+  assert.ok(result.written.includes(target));
+  assert.match(fs.readFileSync(target, 'utf8'), /Software Engineer \| Platform/);
+});
+
+test('link route accepts a role containing another separator', async (t) => {
+  withFakeAgent(t);
+  const env = setup(t);
+  const roleKey = 'Acme Capital|Software Engineer | Platform';
+  fs.writeFileSync(path.join(env.dataDir, 'role-tracker.json'), JSON.stringify({
+    [roleKey]: { stage: 'applied', url: '' },
+  }));
+  const routes = new Map();
+  const app = { get() {}, post(route, fn) { routes.set(route, fn); } };
+  require('../lib/interview/routes').registerInterviewRoutes(app, env);
+  let code = 200;
+  let result;
+  const response = { json(body) { result = body; }, status(value) { code = value; return this; } };
+  await routes.get('/api/interview/sessions/:folder/link')({
+    params: { folder: FIXTURE_FOLDER }, query: { wait: '1' }, body: { roleKey },
+  }, response);
+  assert.equal(code, 200);
+  assert.equal(result.status, 'ingested');
+  const record = require('../lib/interview/records').readRecord(env.dataDir, FIXTURE_FOLDER);
+  assert.equal(record.roleKey, roleKey);
+  assert.equal(record.link.roleKey, roleKey);
 });

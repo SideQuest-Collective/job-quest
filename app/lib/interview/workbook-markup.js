@@ -60,24 +60,4 @@ function renderChapter({ companySlug, sessions, questions }) {
   return `${head.join('\n')}\n${questions.map((q) => renderQuestion(q.item, { ...q, companySlug })).join('\n')}`;
 }
 
-function mergeGrades(progress, grades) {
-  const src = progress || {};
-  const out = {
-    version: 1, answers: {}, notes: {}, ...src,
-    grades: { ...(src.grades || {}) },
-    history: { ...(src.history || {}) },
-  };
-  for (const g of grades) {
-    const hist = (out.history[g.qid] || []).map((h) => ({ ...h }));
-    const entry = { grade: g.grade, at: g.at, source: g.source };
-    const i = hist.findIndex((h) => h.at === g.at && h.source === g.source);
-    if (i >= 0) hist[i] = entry; else hist.push(entry);
-    hist.sort((a, b) => String(a.at).localeCompare(String(b.at)));
-    out.history[g.qid] = hist;
-    const latest = hist[hist.length - 1];
-    out.grades[g.qid] = { grade: latest.grade, at: latest.at, source: latest.source };
-  }
-  return out;
-}
-
-module.exports = { CHAPTER_ID, CHAPTER_TITLE, ROUND_LABEL, qidFor, renderQuestion, renderChapter, mergeGrades };
+module.exports = { CHAPTER_ID, CHAPTER_TITLE, ROUND_LABEL, qidFor, renderQuestion, renderChapter };

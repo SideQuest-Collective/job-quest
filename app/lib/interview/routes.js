@@ -4,17 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const { CONTRACT, INTERVIEW_REPO, ROUNDS, InputError, NotFoundError, assertFolderName, interviewInstalled } = require('./contract');
 const records = require('./records');
-const { ingestSession, setLink } = require('./ingest');
+const { ingestSession, setLink, resolveFolder } = require('./ingest');
 const { writeInterviewContext } = require('./context');
-
-function isBusy(err) {
-  return /^busy:/.test(err.message || '');
-}
 
 function httpStatus(err) {
   if (err.code === 'INPUT') return 400;
   if (err.code === 'NOT_FOUND') return 404;
-  if (err.code === 'CONTRACT' || isBusy(err)) return 409;
+  if (err.code === 'CONTRACT' || records.isBusy(err)) return 409;
   return 500;
 }
 
@@ -54,17 +50,10 @@ function registerInterviewRoutes(app, { dataDir, interviewHome, now = () => new 
   const startIngest = (folder) => {
     if (!inflight.has(folder)) {
       const p = ingestSession({ dataDir, interviewHome, folder, now, runAgentFn })
-        .then(async (result) => {
-          await records.withLock(dataDir, folder, () => {
-            const rec = records.readRecord(dataDir, folder);
-            if (rec) records.writeRecord(dataDir, { ...rec, lastError: null });
-          });
-          return result;
-        })
         .catch(async (err) => {
           console.error(`[interview] ${folder}: ${err.message}`);
           // Do not overwrite an active ingest's record when its lock is busy.
-          if (!isBusy(err)) {
+          if (!records.isBusy(err)) {
             try {
               await records.withLock(dataDir, folder, () => {
                 const rec = records.readRecord(dataDir, folder);
@@ -125,7 +114,7 @@ function registerInterviewRoutes(app, { dataDir, interviewHome, now = () => new 
 
   app.post('/api/interview/sessions/:folder/ingest', handle(async (req) => {
     const folder = assertFolderName(req.params.folder);
-    if (!fs.existsSync(path.join(sessionDir(folder), 'session.json'))) throw new NotFoundError(`session folder not found: ${folder}`);
+    resolveFolder(interviewHome, folder);
     const p = startIngest(folder);
     return wait(req) ? p : { status: 'started', folder };
   }));
@@ -133,7 +122,7 @@ function registerInterviewRoutes(app, { dataDir, interviewHome, now = () => new 
   app.post('/api/interview/context', handle(async (req) => {
     const { roleKey, round } = req.body || {};
     if (!roleKey) throw new InputError('roleKey is required');
-    if (round != null && !ROUNDS.includes(round)) throw new InputError(`round must be one of ${ROUNDS.join(', ')}`);
+    if (round != null && round !== '' && !ROUNDS.includes(round)) throw new InputError(`round must be one of ${ROUNDS.join(', ')}`);
     return writeInterviewContext({ dataDir, interviewHome, roleKey, round: round || null, runAgentFn });
   }));
 

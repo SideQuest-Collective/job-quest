@@ -3,8 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { assertFolderName } = require('./contract');
+const { writeFileAtomic } = require('./atomic');
 
 function recordsDir(dataDir) { return path.join(dataDir, 'interview-sessions'); }
+
+function isBusy(err) { return /^busy:/.test(err?.message || ''); }
 
 function recordPath(dataDir, folder) {
   const name = assertFolderName(folder);
@@ -18,16 +21,7 @@ function readRecord(dataDir, folder) {
 
 function writeRecord(dataDir, record) {
   const file = recordPath(dataDir, record.folder);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.${crypto.randomBytes(16).toString('hex')}.tmp`;
-  try {
-    fs.writeFileSync(temp, JSON.stringify(record, null, 2));
-    fs.renameSync(temp, file);
-  } finally {
-    try { fs.unlinkSync(temp); } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-  }
+  writeFileAtomic(file, JSON.stringify(record, null, 2));
   return record;
 }
 
@@ -126,4 +120,4 @@ async function withLock(dataDir, folder, fn, { waitMs = 15000, staleMs = 900000 
   }
 }
 
-module.exports = { recordsDir, readRecord, writeRecord, listRecords, sessionHash, withLock };
+module.exports = { recordsDir, readRecord, writeRecord, listRecords, sessionHash, withLock, isBusy };

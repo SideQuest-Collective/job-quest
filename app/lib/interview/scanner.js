@@ -5,24 +5,21 @@ const fs = require('fs');
 const path = require('path');
 const { PLACEHOLDER, assertFolderName } = require('./contract');
 const { ingestSession } = require('./ingest');
+const records = require('./records');
 
 const SETTLE_MS = 30 * 60 * 1000;
 
 function eligibleFolders(interviewHome, { now = () => new Date(), settleMs = SETTLE_MS } = {}) {
   const root = path.join(interviewHome, 'sessions');
-  if (!fs.existsSync(root)) return [];
-  const realRoot = fs.realpathSync(root);
-  return fs.readdirSync(root).sort().filter((name) => {
+  let entries;
+  try { entries = fs.readdirSync(root); } catch { return []; }
+  return entries.sort().filter((name) => {
     try { assertFolderName(name); } catch { return false; }
     const dir = path.join(root, name);
     const debrief = path.join(dir, 'debrief.md');
     try {
       const stat = fs.lstatSync(dir);
-      if (stat.isSymbolicLink()) {
-        const relative = path.relative(realRoot, fs.realpathSync(dir));
-        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false;
-        if (!fs.statSync(dir).isDirectory()) return false;
-      } else if (!stat.isDirectory()) return false;
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
       if (!fs.existsSync(path.join(dir, 'session.json')) || !fs.existsSync(debrief)) return false;
       const fresh = now().getTime() - fs.statSync(debrief).mtimeMs < settleMs;
       return !(fresh && fs.readFileSync(debrief, 'utf-8').includes(PLACEHOLDER));
@@ -40,6 +37,10 @@ async function scanOnce({ dataDir, interviewHome, now = () => new Date(), runAge
       results.push({ folder, status: r.status });
       if (r.status === 'ingested') log(`[interview] ${r.summary}`);
     } catch (err) {
+      if (records.isBusy(err)) {
+        results.push({ folder, status: 'busy' });
+        continue;
+      }
       results.push({ folder, error: err.message });
       log(`[interview] ${folder}: ${err.message}`);
     }
@@ -48,14 +49,18 @@ async function scanOnce({ dataDir, interviewHome, now = () => new Date(), runAge
 }
 
 function startScanner({ dataDir, interviewHome, intervalMs = 600000, now, runAgentFn, log = (m) => console.log(m) }) {
-  const printed = new Set();
-  const once = (m) => { if (!printed.has(m)) { printed.add(m); log(m); } };
+  let previous = new Set();
   let running = null;
   const runNow = () => {
     if (!running) {
+      const seen = new Set();
+      const once = (m) => {
+        if (!previous.has(m) && !seen.has(m)) log(m);
+        seen.add(m);
+      };
       running = scanOnce({ dataDir, interviewHome, now, runAgentFn, log: once })
         .catch((err) => { once(`[interview] scan failed: ${err.message}`); return []; })
-        .finally(() => { running = null; });
+        .finally(() => { previous = seen; running = null; });
     }
     return running;
   };

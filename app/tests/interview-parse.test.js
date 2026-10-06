@@ -7,13 +7,14 @@ const { parseSessionFolder, extractSection } = require('../lib/interview/session
 const { InputError } = require('../lib/interview/contract');
 const { makeEnv, copyFixtureSession, setSessionFields, FIXTURE_FOLDER } = require('./helpers/interview-env');
 
-function fixture() {
-  const { interviewHome } = makeEnv();
+function fixture(t) {
+  const { root, interviewHome } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return copyFixtureSession(interviewHome);
 }
 
-test('endedAt zero is a valid end in epoch seconds and overrides the debrief', () => {
-  const dir = fixture();
+test('endedAt zero is a valid end in epoch seconds and overrides the debrief', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, {
     started_at: -120.5, endedAt: 0,
     phase_history: [{ phase: 'code', start: -120.5, end: null }],
@@ -24,8 +25,8 @@ test('endedAt zero is a valid end in epoch seconds and overrides the debrief', (
   assert.deepEqual(p.phases, [{ phase: 'code', minutes: 2 }]);
 });
 
-test('missing started_at is malformed instead of deriving a start from the folder or current time', () => {
-  const dir = fixture();
+test('missing started_at is malformed instead of deriving a start from the folder or current time', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, {
     started_at: undefined, endedAt: undefined,
     phase_history: [{ phase: 'code', start: 120, end: null }],
@@ -39,8 +40,8 @@ test('missing started_at is malformed instead of deriving a start from the folde
 });
 
 for (const startedAtJson of ['null', '"1773498600"', 'false', '1e400', '-1e400']) {
-  test(`started_at rejects ${startedAtJson} in current and legacy sessions`, () => {
-    const dir = fixture();
+  test(`started_at rejects ${startedAtJson} in current and legacy sessions`, (t) => {
+    const dir = fixture(t);
     for (const contractVersion of ['jq-interview/1', undefined]) {
       const sess = setSessionFields(dir, { contractVersion, started_at: undefined });
       fs.writeFileSync(path.join(dir, 'session.json'),
@@ -51,8 +52,8 @@ for (const startedAtJson of ['null', '"1773498600"', 'false', '1e400', '-1e400']
   });
 }
 
-test('parses an interviewer first name with Unicode letters', () => {
-  const dir = fixture();
+test('parses an interviewer first name with Unicode letters', (t) => {
+  const dir = fixture(t);
   fs.writeFileSync(path.join(dir, 'debrief.md'), '## Scorecard\n\nInterviewer: Élodie, platform team.\n');
   assert.equal(parseSessionFolder(dir).interviewer, 'Élodie');
 });
@@ -64,8 +65,8 @@ test('section extraction preserves subheadings and stops at the next level-two h
   assert.equal(extractSection('', 'Scorecard'), '');
 });
 
-test('parses the shared fixture', () => {
-  const p = parseSessionFolder(fixture());
+test('parses the shared fixture', (t) => {
+  const p = parseSessionFolder(fixture(t));
   assert.equal(p.folder, FIXTURE_FOLDER);
   assert.equal(p.legacy, false);
   assert.equal(p.contractVersion, 'jq-interview/1');
@@ -88,14 +89,50 @@ test('parses the shared fixture', () => {
   assert.equal(p.recruiterMemory, null);
 });
 
-test('a live question already archived is not listed twice', () => {
-  const dir = fixture();
+test('a live question already archived is not listed twice', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, { question: { id: 1, title: 'Rate limiter: sliding window', ts: '2026-03-14T14:31:00Z' } });
   assert.equal(parseSessionFolder(dir).questions.length, 1);
 });
 
-test('legacy sessions are read-only: roleKey ignored, end time taken from the debrief total', () => {
-  const dir = fixture();
+test('question id zero is preserved and an archived live question is not duplicated', (t) => {
+  const dir = fixture(t);
+  const question = { id: 0, title: 'First tracked question', ts: '2026-03-14T14:31:00Z' };
+  setSessionFields(dir, { questions: [question], question });
+  assert.deepEqual(parseSessionFolder(dir).questions, [question]);
+});
+
+test('a live question with id zero is preserved before it is archived', (t) => {
+  const dir = fixture(t);
+  const question = { id: 0, title: 'First tracked question', ts: '2026-03-14T14:31:00Z' };
+  setSessionFields(dir, { questions: [], question });
+  assert.deepEqual(parseSessionFolder(dir).questions, [question]);
+});
+
+for (const archived of [false, true]) {
+  test(`numeric string question ids are numbers when ${archived ? 'archived' : 'live'}`, (t) => {
+    const dir = fixture(t);
+    for (const id of ['0', '42', '-1', '1.5']) {
+      const question = { id, title: 'Tracked question', ts: '2026-03-14T14:31:00Z' };
+      setSessionFields(dir, { questions: archived ? [question] : [], question });
+      assert.deepEqual(parseSessionFolder(dir).questions, [{ ...question, id: Number(id) }]);
+    }
+  });
+}
+
+test('non-numeric string question ids remain null in archived and live questions', (t) => {
+  const dir = fixture(t);
+  for (const id of ['question-one', '', ' ', 'NaN', 'Infinity']) {
+    const question = { id, title: 'Tracked question', ts: '2026-03-14T14:31:00Z' };
+    for (const archived of [false, true]) {
+      setSessionFields(dir, { questions: archived ? [question] : [], question: archived ? null : question });
+      assert.deepEqual(parseSessionFolder(dir).questions, [{ ...question, id: null }]);
+    }
+  }
+});
+
+test('legacy sessions are read-only: roleKey ignored, end time taken from the debrief total', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, { contractVersion: undefined, practiceSet: undefined, practiceResults: undefined, endedAt: undefined, roleKey: 'Acme Capital|Software Engineer' });
   const p = parseSessionFolder(dir);
   assert.equal(p.legacy, true);
@@ -105,40 +142,40 @@ test('legacy sessions are read-only: roleKey ignored, end time taken from the de
   assert.deepEqual(p.phases.find((x) => x.phase === 'optimize'), { phase: 'optimize', minutes: 5 });
 });
 
-test('a different contract major is refused', () => {
-  const dir = fixture();
+test('a different contract major is refused', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, { contractVersion: 'jq-interview/2' });
   assert.throws(() => parseSessionFolder(dir), (e) => e.code === 'CONTRACT' && /jq-interview\/2/.test(e.message));
 });
 
-test('missing or malformed session.json is reported', () => {
-  const dir = fixture();
-  fs.writeFileSync(path.join(dir, 'session.json'), '{"round": "coding"}');
-  assert.throws(() => parseSessionFolder(dir), (e) => e.code === 'INPUT' && /needs "round" and "questions"/.test(e.message));
+test('missing or malformed session.json is reported', (t) => {
+  const dir = fixture(t);
+  fs.writeFileSync(path.join(dir, 'session.json'), '{"questions": []}');
+  assert.throws(() => parseSessionFolder(dir), (e) => e.code === 'INPUT' && /needs "round"/.test(e.message));
   fs.writeFileSync(path.join(dir, 'session.json'), '{nope');
   assert.throws(() => parseSessionFolder(dir), (e) => e.code === 'INPUT');
   fs.rmSync(path.join(dir, 'session.json'));
   assert.throws(() => parseSessionFolder(dir), (e) => e.code === 'NOT_FOUND');
 });
 
-test('a skeleton debrief has no scorecard and no interviewer', () => {
-  const dir = fixture();
+test('a skeleton debrief has no scorecard and no interviewer', (t) => {
+  const dir = fixture(t);
   fs.writeFileSync(path.join(dir, 'debrief.md'), '# Debrief\n\nRound: coding\n\nTotal session: 10:00.\n\n## Scorecard\n\n_(filled in by the /interview skill on stop)_\n');
   const p = parseSessionFolder(dir);
   assert.equal(p.scorecard, '');
   assert.equal(p.interviewer, null);
 });
 
-test('practice sessions carry their practice results', () => {
-  const dir = fixture();
+test('practice sessions carry their practice results', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, { practiceSet: '/tmp/practice/acme.json', practiceResults: [{ qid: 'c1', grade: 'missed', note: '' }] });
   const p = parseSessionFolder(dir);
   assert.equal(p.practice, true);
   assert.deepEqual(p.practiceResults, [{ qid: 'c1', grade: 'missed', note: '' }]);
 });
 
-test('recruiter rounds expose the memory panel sections', () => {
-  const dir = fixture();
+test('recruiter rounds expose the memory panel sections', (t) => {
+  const dir = fixture(t);
   setSessionFields(dir, { round: 'recruiter' });
   fs.writeFileSync(path.join(dir, 'debrief.md'), [
     '# Debrief', '', 'Round: recruiter', '', '## About the role', '', 'Platform team, new headcount.', '',
@@ -151,4 +188,35 @@ test('recruiter rounds expose the memory panel sections', () => {
     'Facts they said': '- Two technical rounds\n- Decision within a week',
   });
   assert.equal(extractSection(p.debrief, 'Follow-up'), 'Send the portfolio link.');
+});
+
+test('older sessions without question tracking parse as legacy with no tracked questions', (t) => {
+  const { root, interviewHome } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dir = path.join(interviewHome, 'sessions', '2025-12-14_0930');
+  fs.mkdirSync(dir);
+  const session = {
+    round: 'coding', started_at: 1765722600,
+    phase_history: [{ phase: 'code', start: 1765722600, end: 1765723200 }],
+    stages: [], summary: 'Discussed a rate limiter.', clip: '',
+  };
+  fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify(session));
+  fs.writeFileSync(path.join(dir, 'debrief.md'), '## Scorecard\n\nAsked how to build a rate limiter.\n');
+  const parsed = parseSessionFolder(dir);
+  assert.equal(parsed.legacy, true);
+  assert.equal(parsed.contractVersion, null);
+  assert.deepEqual(parsed.questions, []);
+  assert.match(parsed.scorecard, /rate limiter/);
+  for (const round of [undefined, null, 3]) {
+    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ ...session, round }));
+    assert.throws(() => parseSessionFolder(dir), (error) => error instanceof InputError && /"round"/.test(error.message));
+  }
+  for (const started_at of [undefined, null, '1765722600']) {
+    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ ...session, started_at }));
+    assert.throws(() => parseSessionFolder(dir), (error) => error instanceof InputError && /numeric "started_at"/.test(error.message));
+  }
+  for (const questions of [null, {}, 'question']) {
+    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ ...session, questions }));
+    assert.throws(() => parseSessionFolder(dir), (error) => error instanceof InputError && /"questions"/.test(error.message));
+  }
 });

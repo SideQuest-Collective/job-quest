@@ -23,14 +23,14 @@ function runAgent({ agent, prompt, cwd, profile, timeoutMs, logFile, env = {} })
       timedOut = true;
       try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
     }, timeoutMs);
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(timer);
       const durationMs = Date.now() - started;
       if (logFile) {
         fs.mkdirSync(path.dirname(logFile), { recursive: true });
-        fs.appendFileSync(logFile, `[${new Date().toISOString()}] agent=${agent} profile=${profile} code=${code} timedOut=${timedOut} ms=${durationMs}\n--- stdout\n${stdout.slice(-4000)}\n--- stderr\n${stderr.slice(-4000)}\n`);
+        fs.appendFileSync(logFile, `[${new Date().toISOString()}] agent=${agent} profile=${profile} code=${code} signal=${signal} timedOut=${timedOut} ms=${durationMs}\n--- stdout\n${stdout.slice(-4000)}\n--- stderr\n${stderr.slice(-4000)}\n`);
       }
-      resolve({ ok: code === 0 && !timedOut, code, timedOut, stdout, stderr, durationMs });
+      resolve({ ok: code === 0 && !timedOut, code, signal, timedOut, stdout, stderr, durationMs });
     });
   });
 }

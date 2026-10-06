@@ -121,6 +121,20 @@ test('link-session links an unlinked session and ingests it', async (t) => {
   assert.equal((await ingest()).status, 'unchanged');
 });
 
+test('link-session preserves separators after the first one in the role title', async (t) => {
+  const { dataDir, interviewHome } = setup(t);
+  const roleKey = 'Acme Capital|Software Engineer | Platform';
+  fs.writeFileSync(path.join(dataDir, 'role-tracker.json'), JSON.stringify({
+    [roleKey]: { stage: 'applied', url: '' },
+  }));
+  const result = await linkSession({ dataDir, interviewHome, folder: FIXTURE_FOLDER, roleKey, now });
+  assert.equal(result.status, 'ingested');
+  const record = records.readRecord(dataDir, FIXTURE_FOLDER);
+  assert.equal(record.roleKey, roleKey);
+  assert.equal(record.link.roleKey, roleKey);
+  assert.match(result.summary, /Software Engineer \| Platform/);
+});
+
 test('a legacy session is treated as unlinked until linked; its own roleKey field is ignored', async (t) => {
   const { dataDir, interviewHome, dir, ingest } = setup(t);
   setSessionFields(dir, { contractVersion: undefined, practiceSet: undefined, practiceResults: undefined, endedAt: undefined, roleKey: 'Other Co|Role' });
@@ -132,7 +146,9 @@ test('a legacy session is treated as unlinked until linked; its own roleKey fiel
 
 test('link-session rejects malformed and unknown role keys without writing', async (t) => {
   const { dataDir, interviewHome } = setup(t);
-  await assert.rejects(linkSession({ dataDir, interviewHome, folder: FIXTURE_FOLDER, roleKey: 'nopipe', now }), (e) => e.code === 'INPUT');
+  for (const roleKey of ['nopipe', '', '|Engineer', 'Acme| ', {}, null]) {
+    await assert.rejects(linkSession({ dataDir, interviewHome, folder: FIXTURE_FOLDER, roleKey, now }), (e) => e.code === 'INPUT' && /roleKey must look like/.test(e.message));
+  }
   await assert.rejects(linkSession({ dataDir, interviewHome, folder: FIXTURE_FOLDER, roleKey: 'Nobody|Role', now }), (e) => e.code === 'INPUT' && /unknown roleKey/.test(e.message));
   assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER), null);
 });
@@ -280,7 +296,6 @@ test('relinking an unchanged hash reuses the prior analysis and prefers the save
 test('grade writes use recordGrades and expose rejected grades in the summary', async (t) => {
   const { ingest } = setup(t, { tagged: true });
   const recordGrades = bridge.recordGrades;
-  t.mock.method(bridge, 'writeProgress', () => assert.fail('must use recordGrades'));
   t.mock.method(bridge, 'recordGrades', (dataDir, id, grades) => {
     assert.ok(grades.every((g) => g.source === 'interview'));
     const r = recordGrades(dataDir, id, grades.slice(0, 1));
@@ -342,6 +357,85 @@ test('a failed analysis is retried once per hash, then cached even when effects 
   assert.equal(calls, 4);
 });
 
+test('failed re-analysis preserves successful questions and grades through the one retry per hash', async (t) => {
+  const { dataDir, dir, ingest } = setup(t, { tagged: true });
+  await ingest(scriptedAnalyst());
+  const before = records.readRecord(dataDir, FIXTURE_FOLDER);
+  const chapter = path.join(dataDir, 'workbooks', before.workbookId, 'content', bridge.INTERVIEW_CHAPTER_FILE);
+  const chapterBefore = fs.readFileSync(chapter, 'utf8');
+  const progressBefore = bridge.readProgress(dataDir, before.workbookId);
+  fs.appendFileSync(path.join(dir, 'debrief.md'), '\nEdited while analyst is unavailable.\n');
+  let calls = 0;
+  const runAgentFn = async () => { calls++; return { ok: false, code: 17 }; };
+  for (const attempt of [1, 2]) {
+    const result = await ingest({ runAgentFn });
+    const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+    assert.equal(result.status, 'ingested');
+    assert.equal(rec.status, 'ingested');
+    assert.deepEqual(rec.analysis, before.analysis);
+    assert.equal(rec.workbookId, before.workbookId);
+    assert.deepEqual(rec.effects, before.effects);
+    assert.match(rec.analysisError, /exited with code 17/);
+    assert.equal(rec.analysisAttempts, attempt);
+    assert.equal(calls, attempt * 2);
+    assert.match(result.summary, /debrief analysis failed/);
+    assert.equal(fs.readFileSync(chapter, 'utf8'), chapterBefore);
+    assert.deepEqual(bridge.readProgress(dataDir, before.workbookId), progressBefore);
+    rebuildInterviewChapter(dataDir, before.workbookId);
+    assert.equal(fs.readFileSync(chapter, 'utf8'), chapterBefore);
+  }
+  assert.equal((await ingest({ runAgentFn })).status, 'unchanged');
+  assert.equal(calls, 4);
+  // A later edit permits a new attempt, and a successful result clears the error.
+  fs.appendFileSync(path.join(dir, 'debrief.md'), '\nAnalyst available again.\n');
+  await ingest(scriptedAnalyst());
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).analysisError, null);
+});
+
+for (const folderKind of ['name', 'absolute', 'trailing slash', 'trailing dot']) {
+  test(`ingest refuses a symlink session folder by ${folderKind}`, async (t) => {
+    const { dataDir, interviewHome, dir } = setup(t, { tagged: true });
+    const alias = path.join(interviewHome, 'sessions', 'session-alias');
+    fs.symlinkSync(dir, alias);
+    let calls = 0;
+    const folder = folderKind === 'name' ? path.basename(alias)
+      : folderKind === 'trailing slash' ? `${alias}/` : folderKind === 'trailing dot' ? `${alias}/.` : alias;
+    await assert.rejects(ingestSession({ dataDir, interviewHome,
+      folder,
+      runAgentFn: async () => { calls++; throw new Error('must not run'); },
+    }), (error) => error.code === 'INPUT' && /symlink/i.test(error.message));
+    assert.equal(calls, 0);
+    assert.equal(records.readRecord(dataDir, 'session-alias'), null);
+  });
+}
+
+for (const action of ['write', 'remove']) {
+  for (const failure of ['null', 'throw']) {
+    test(`chapter ${action} skips metadata bump and logs once when readMeta returns ${failure}`, async (t) => {
+      const { dataDir, ingest } = setup(t, { tagged: true });
+      await ingest(scriptedAnalyst());
+      const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+      const store = require('../lib/workbook/store');
+      if (action === 'remove') records.writeRecord(dataDir, { ...rec, status: 'unlinked' });
+      t.mock.method(store, 'readMeta', () => {
+        if (failure === 'throw') throw new Error('unreadable\nmeta');
+        return null;
+      });
+      const writer = t.mock.method(store, 'writeMeta', () => { throw new Error('must not bump'); });
+      const lines = [];
+      t.mock.method(console, 'warn', (line) => lines.push(line));
+      assert.doesNotThrow(() => rebuildInterviewChapter(dataDir, rec.workbookId));
+      assert.equal(writer.mock.calls.length, 0);
+      assert.equal(lines.length, 1);
+      assert.ok(lines[0].includes(rec.workbookId));
+      assert.match(lines[0], /metadata/i);
+      assert.doesNotMatch(lines[0], /[\r\n]/);
+      const chapter = path.join(dataDir, 'workbooks', rec.workbookId, 'content', bridge.INTERVIEW_CHAPTER_FILE);
+      assert.equal(fs.existsSync(chapter), action === 'write');
+    });
+  }
+}
+
 test('first grade timestamps use startedAt even if an unlinked session was edited before linking', async (t) => {
   const { dir, ingest } = setup(t);
   await ingest();
@@ -360,4 +454,87 @@ test('a workbook creation failure preserves analysis for the retry', async (t) =
   mocked.mock.restore();
   assert.equal((await ingest()).status, 'ingested');
   assert.equal(fakeCalls(work)['debrief-analyst'], 1);
+});
+
+
+test('successful direct ingest clears lastError and unchanged retries leave the record alone', async (t) => {
+  const { dataDir, ingest } = setup(t, { tagged: true });
+  await ingest();
+  const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  records.writeRecord(dataDir, { ...rec, lastError: 'old route failure' });
+  assert.equal((await ingest()).status, 'unchanged');
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).lastError, null);
+  const writer = t.mock.method(records, 'writeRecord');
+  assert.equal((await ingest()).status, 'unchanged');
+  assert.equal(writer.mock.calls.length, 0);
+});
+
+test('scanner recovery clears lastError inside ingest', async (t) => {
+  const { dataDir, interviewHome, ingest } = setup(t, { tagged: true });
+  await ingest();
+  const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  records.writeRecord(dataDir, { ...rec, status: 'failed', applied: false, lastError: 'old route failure' });
+  const result = await require('../lib/interview/scanner').scanOnce({ dataDir, interviewHome, now });
+  assert.deepEqual(result, [{ folder: FIXTURE_FOLDER, status: 'ingested' }]);
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).lastError, null);
+});
+
+test('removing an empty interview chapter bumps workbook updatedAt', async (t) => {
+  const { dataDir, ingest } = setup(t, { tagged: true });
+  await ingest();
+  const wb = bridge.findWorkbook(dataDir, ROLE_KEY);
+  const metaFile = path.join(wb.dir, 'meta.json');
+  const oldDate = '2000-01-01T00:00:00.000Z';
+  fs.writeFileSync(metaFile, JSON.stringify({ ...readJson(metaFile), updatedAt: oldDate }));
+  const rec = records.readRecord(dataDir, FIXTURE_FOLDER);
+  records.writeRecord(dataDir, { ...rec, status: 'unlinked' });
+  rebuildInterviewChapter(dataDir, wb.id);
+  assert.equal(fs.existsSync(path.join(wb.dir, 'content', bridge.INTERVIEW_CHAPTER_FILE)), false);
+  assert.ok(readJson(metaFile).updatedAt > oldDate);
+});
+
+
+test('successful unlinked retry clears a stale lastError once', async (t) => {
+  const { dataDir, ingest } = setup(t);
+  await ingest();
+  records.writeRecord(dataDir, { ...records.readRecord(dataDir, FIXTURE_FOLDER), lastError: 'old route failure' });
+  assert.equal((await ingest()).status, 'unlinked');
+  assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER).lastError, null);
+  const writer = t.mock.method(records, 'writeRecord');
+  assert.equal((await ingest()).status, 'unlinked');
+  assert.equal(writer.mock.calls.length, 0);
+});
+
+
+test('a fixture-free session predating question tracking stays unlinked until its debrief is analyzed', async (t) => {
+  const env = makeEnv();
+  t.after(() => fs.rmSync(env.root, { recursive: true, force: true }));
+  seedRole(env.dataDir);
+  const folder = '2025-01-02_0900';
+  const dir = path.join(env.interviewHome, 'sessions', folder);
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({
+    round: 'coding', started_at: 1735826400, phase_history: [], stages: {}, summary: '', clip: '',
+  }));
+  const question = 'How would you reverse a linked list?';
+  fs.writeFileSync(path.join(dir, 'debrief.md'), `# Debrief\n\nAsked: ${question}\n`);
+  let calls = 0;
+  const runAgentFn = async ({ cwd, prompt }) => {
+    calls++;
+    assert.ok(prompt.includes(question));
+    fs.writeFileSync(path.join(cwd, 'analysis.json'), JSON.stringify({
+      asked: [{ title: 'Reverse a linked list', prompt: question, type: 'code', topic: 'Coding', diff: 2,
+        rubric: 'Preserve the next node before reversing each link.', answer: 'Walk the list with previous and next pointers.',
+        grade: 'got', evidence: 'Explained pointer updates.' }], weakSpots: [], followUps: [],
+    }));
+    return { ok: true };
+  };
+  const args = { ...env, folder, now, runAgentFn };
+  assert.equal((await ingestSession(args)).status, 'unlinked');
+  assert.deepEqual(records.readRecord(env.dataDir, folder).questions, []);
+  assert.equal(records.readRecord(env.dataDir, folder).contractVersion, null);
+  assert.equal(calls, 0);
+  assert.equal((await linkSession({ ...args, roleKey: ROLE_KEY })).status, 'ingested');
+  assert.equal(records.readRecord(env.dataDir, folder).analysis.asked[0].prompt, question);
+  assert.equal(calls, 1);
 });

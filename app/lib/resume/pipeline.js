@@ -13,6 +13,8 @@ const { gradePdf, loadTellWords } = require('./grade');
 const { fetchJd } = require('./jdfetch');
 const { renderPrompt, extractJson, verifyKeywords, keywordCountsOk } = require('./agents');
 const { diffTailored, lineDiff } = require('./diff');
+const { readTracker, writeTracker } = require('../interview/tracker-effects');
+const { writeFileAtomic } = require('../interview/atomic');
 
 const TARGET = 90;
 const MAX_ROUNDS = 3;
@@ -31,9 +33,7 @@ function readJson(file, fallback = null) {
 }
 
 function writeJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
-  fs.renameSync(`${file}.tmp`, file);
+  writeFileAtomic(file, JSON.stringify(value, null, 2));
 }
 
 function tail(s, n = 600) {
@@ -393,16 +393,18 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     const meta = mustMeta(id);
     if (!meta.bestRound) throw new ServiceError(409, 'nothing to accept yet: no scored round');
     if (meta.accepted) return meta;
+    let tracker;
+    try { tracker = readTracker(dataDir); } catch (error) {
+      throw new ServiceError(500, `cannot read role-tracker.json: ${error.message}`);
+    }
     const updated = patchMeta(id, { accepted: true, acceptedAt: stamp() });
-    const trackerFile = path.join(dataDir, 'role-tracker.json');
-    const tracker = readJson(trackerFile, {});
     const actions = readJson(path.join(dataDir, 'role-actions.json'), { applied: [] });
     for (const key of meta.roleKeys) {
       const entry = tracker[key] || { stage: (actions.applied || []).includes(key) ? 'applied' : 'discovered', notes: '', checklist: [], timeline: [] };
       entry.timeline = [...(entry.timeline || []), { date: stamp(), event: `Resume tailored (${meta.bestScore})` }];
       tracker[key] = entry;
     }
-    writeJson(trackerFile, tracker);
+    writeTracker(dataDir, tracker);
     return updated;
   }
 

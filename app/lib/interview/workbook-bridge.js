@@ -8,6 +8,7 @@ const store = require('../workbook/store');
 const parse = require('../workbook/parse');
 const lint = require('../workbook/lint');
 const { CHAPTER_ID } = require('./workbook-markup');
+const { writeFileAtomic } = require('./atomic');
 
 const INTERVIEW_CHAPTER_ID = CHAPTER_ID;
 const INTERVIEW_CHAPTER_FILE = '99-asked-in-interviews.md';
@@ -20,10 +21,7 @@ function findWorkbook(dataDir, roleKey) {
 function ensureWorkbook(dataDir, { roleKey, company, role }) {
   const found = findWorkbook(dataDir, roleKey);
   if (found) return { ...found, created: false };
-  const meta = store.createWorkbook(dataDir, {
-    roleKeys: [roleKey], company, role, title: `${company}: ${role}`,
-    tier: 'screen', status: 'ready', source: 'interview', trigger: 'interview', researched: null,
-  });
+  const meta = store.createMinimalWorkbook(dataDir, { roleKey, company, role, title: `${company}: ${role}` });
   return { id: meta.id, dir: store.wbDir(dataDir, meta.id), meta, created: true };
 }
 
@@ -48,7 +46,7 @@ function normalizeQuestion(q) {
 function readWorkbook(dataDir, id) {
   const parsed = store.loadParsed(dataDir, id) || {};
   return {
-    chapters: (parsed.chapters || []).map((c) => ({ id: c.id, topic: c.topic || '', title: c.title || '', body: String(c.body || c.markdown || '') })),
+    chapters: (parsed.chapters || []).map((c) => ({ id: c.id, topic: c.topic || '', title: c.title || '', body: String(c.body || '') })),
     questions: (parsed.questions || []).map(normalizeQuestion),
     glossary: parsed.glossaryFiles || [],
   };
@@ -76,10 +74,9 @@ function chapterFile(dataDir, id) {
 }
 
 function writeInterviewChapter(dataDir, id, text) {
+  if (!workbookExists(dataDir, id)) throw new Error(`workbook ${id} not found`);
   const file = chapterFile(dataDir, id);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(`${file}.tmp`, text);
-  fs.renameSync(`${file}.tmp`, file);
+  writeFileAtomic(file, text);
   return file;
 }
 
@@ -87,10 +84,7 @@ function removeInterviewChapter(dataDir, id) {
   fs.rmSync(chapterFile(dataDir, id), { force: true });
 }
 
-function readProgress(dataDir, id) { return store.readProgress(dataDir, id) || {}; }
-// Compatibility with the plan's progress interface: P1 merges this snapshot,
-// ignoring incoming history and replacing latest grades only for newer at values.
-function writeProgress(dataDir, id, progress) { store.writeProgress(dataDir, id, progress); }
+function readProgress(dataDir, id) { return store.readProgress(dataDir, id); }
 
 // Ingestion/practice grade writes use this validated path. Callers supply at
 // explicitly (a changed grade needs a newer timestamp); return rejections too.
@@ -99,5 +93,5 @@ function recordGrades(dataDir, id, grades) { return store.recordGrades(dataDir, 
 module.exports = {
   INTERVIEW_CHAPTER_ID, INTERVIEW_CHAPTER_FILE,
   findWorkbook, ensureWorkbook, workbookExists, readWorkbook, contentHash, lintMarkup,
-  writeInterviewChapter, removeInterviewChapter, readProgress, writeProgress, recordGrades,
+  writeInterviewChapter, removeInterviewChapter, readProgress, recordGrades,
 };

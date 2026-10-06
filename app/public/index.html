@@ -2574,6 +2574,25 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   const [newCheckItem, setNewCheckItem] = useState('');
   const [newTimelineEvent, setNewTimelineEvent] = useState('');
   const saveTimer = useRef(null);
+  const trackerRevision = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const refreshTracker = () => {
+      if (document.visibilityState === 'hidden' || saveTimer.current) return;
+      const revision = trackerRevision.current;
+      api.get('/api/role-tracker').then(updated => {
+        if (active && !saveTimer.current && revision === trackerRevision.current) setRoleTracker(updated);
+      }).catch(error => console.error('Could not refresh role tracker', error));
+    };
+    window.addEventListener('focus', refreshTracker);
+    document.addEventListener('visibilitychange', refreshTracker);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshTracker);
+      document.removeEventListener('visibilitychange', refreshTracker);
+    };
+  }, [setRoleTracker]);
 
   // Build role list: all roles from all intel, merged with tracker data
   const allTips = allIntel.flatMap(r => r.tips || []);
@@ -2622,9 +2641,17 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
 
   // Save tracker with debounce
   const saveTracker = (updated) => {
+    trackerRevision.current++;
     setRoleTracker(updated);
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { api.post('/api/role-tracker', updated); }, 500);
+    const timer = setTimeout(async () => {
+      try {
+        await api.post('/api/role-tracker', updated);
+      } finally {
+        if (saveTimer.current === timer) saveTimer.current = null;
+      }
+    }, 500);
+    saveTimer.current = timer;
   };
 
   // Ensure tracker entry exists

@@ -34,18 +34,27 @@ async function fetchJdText(url, impl = jdfetch.fetchJd) {
 function findTailored(dataDir, roleKey) {
   const root = path.join(dataDir, 'resume', 'tailored');
   if (!fs.existsSync(root)) return null;
+  let latest = null;
+  let latestTime = -Infinity;
   for (const id of fs.readdirSync(root).sort()) {
     let meta;
     try { meta = JSON.parse(fs.readFileSync(path.join(root, id, 'meta.json'), 'utf-8')); } catch { continue; }
     if (!(meta.roleKeys || []).includes(roleKey)) continue;
-    const jdFile = path.join(root, id, 'jd.txt');
-    return {
-      id, meta,
-      jdText: fs.existsSync(jdFile) ? fs.readFileSync(jdFile, 'utf-8') : null,
-      done: ['done', 'below-target'].includes(meta.status),
-    };
+    const updated = Date.parse(meta.updatedAt);
+    const created = Date.parse(meta.createdAt);
+    const time = Number.isFinite(updated) ? updated : Number.isFinite(created) ? created : fs.statSync(path.join(root, id)).mtimeMs;
+    if (time > latestTime) {
+      latest = { id, meta };
+      latestTime = time;
+    }
   }
-  return null;
+  if (!latest) return null;
+  const jdFile = path.join(root, latest.id, 'jd.txt');
+  return {
+    ...latest,
+    jdText: fs.existsSync(jdFile) ? fs.readFileSync(jdFile, 'utf-8') : null,
+    done: ['done', 'below-target'].includes(latest.meta.status),
+  };
 }
 
 module.exports = { readMasterResume, renderResumeMarkdown, fetchJdText, findTailored };

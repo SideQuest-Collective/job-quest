@@ -137,14 +137,15 @@ async function analyzeDebrief({ dataDir, sessionDir, parsed, knownTopics = [], t
       ...vars,
       errors: JSON.stringify(errors),
     });
-    const run = await runAgentFn({ agent: ANALYST_AGENT, prompt, cwd: dir, profile: 'write', timeoutMs, logFile: path.join(dir, 'agent.log') });
-    if (!run.ok) { errors = [run.timedOut ? 'the agent timed out' : `the agent exited with code ${run.code}`]; continue; }
+    const run = await runAgentFn({ agent: ANALYST_AGENT, prompt, cwd: dir, profile: 'write', timeoutMs, logFile: path.join(dir, 'agent.log'), env: { DATA_DIR: path.resolve(dataDir) } });
+    if (!run.ok) { errors = [run.timedOut ? 'the agent timed out' : (run.signal ? `the agent terminated by ${run.signal}` : `the agent exited with code ${run.code}`)]; continue; }
     let raw;
     try { raw = JSON.parse(fs.readFileSync(out, 'utf-8')); } catch { errors = [`${OUT_FILE} is missing or not valid JSON`]; continue; }
     const v = validateAnalysis(raw, { folder: parsed.folder, round: parsed.round, date, knownTopics });
     errors = v.errors;
     if (!v.analysis) continue;
-    best = v;
+    if (!best || v.errors.length < best.errors.length
+      || (v.errors.length === best.errors.length && v.analysis.asked.length > best.analysis.asked.length)) best = v;
     if (!v.errors.length) break;
   }
   if (best) return { analysis: best.analysis, dropped: best.dropped, error: null };

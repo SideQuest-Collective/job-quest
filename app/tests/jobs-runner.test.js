@@ -49,6 +49,26 @@ test('non-zero exit is reported as not ok with stderr', async (t) => {
   assert.match(r.stderr, /agent broke/);
 });
 
+test('self-terminated fake agent reports its signal in the result and agent.log', async (t) => {
+  const cwd = tmp();
+  const fake = path.join(cwd, 'terminate.js');
+  fs.writeFileSync(fake, "process.kill(process.pid, 'SIGTERM');\n");
+  const previousFake = process.env.JOB_QUEST_FAKE_AGENT;
+  process.env.JOB_QUEST_FAKE_AGENT = fake;
+  t.after(() => {
+    if (previousFake === undefined) delete process.env.JOB_QUEST_FAKE_AGENT;
+    else process.env.JOB_QUEST_FAKE_AGENT = previousFake;
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+  const logFile = path.join(cwd, 'agent.log');
+  const result = await runAgent({ agent: 'terminate', prompt: 'x', cwd, profile: 'read', timeoutMs: 5000, logFile });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, null);
+  assert.equal(result.timedOut, false);
+  assert.equal(result.signal, 'SIGTERM');
+  assert.match(fs.readFileSync(logFile, 'utf-8'), /\bsignal=SIGTERM\b/);
+});
+
 test('run-agent.sh dry run builds per-profile tool flags for claude', async () => {
   const { execFileSync } = require('node:child_process');
   const script = path.resolve(__dirname, '..', '..', 'skill', 'bin', 'run-agent.sh');

@@ -8,7 +8,11 @@ const { MARKER_MD } = require('../lib/interview/contract');
 const { writeOwned, isOwned, siblingPath } = require('../lib/interview/markers');
 const render = require('../lib/interview/render-context');
 
-function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'jq-iv-render-')); }
+function tmp(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-iv-render-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
 const MD = `${MARKER_MD}\n# Generated\n`;
 const JSONDOC = `${JSON.stringify({ _generatedBy: 'job-quest', cards: [] })}\n`;
 
@@ -32,21 +36,21 @@ test('siblingPath inserts .jq before the extension', () => {
   assert.equal(siblingPath('/x/context/resume.md'), '/x/context/resume.jq.md');
 });
 
-test('an absent target is written', () => {
-  const f = path.join(tmp(), 'context', 'resume.md');
+test('an absent target is written', (t) => {
+  const f = path.join(tmp(t), 'context', 'resume.md');
   assert.deepEqual(writeOwned(f, MD), { written: f });
   assert.equal(fs.readFileSync(f, 'utf-8'), MD);
 });
 
-test('a marked markdown target is overwritten', () => {
-  const f = path.join(tmp(), 'target.md');
+test('a marked markdown target is overwritten', (t) => {
+  const f = path.join(tmp(t), 'target.md');
   fs.writeFileSync(f, `${MARKER_MD}\nold\n`);
   assert.deepEqual(writeOwned(f, MD), { written: f });
   assert.equal(fs.readFileSync(f, 'utf-8'), MD);
 });
 
-test('an unmarked markdown target is never modified; the .jq sibling is written and reported', () => {
-  const f = path.join(tmp(), 'target.md');
+test('an unmarked markdown target is never modified; the .jq sibling is written and reported', (t) => {
+  const f = path.join(tmp(t), 'target.md');
   fs.writeFileSync(f, '# My own notes\n');
   const r = writeOwned(f, MD);
   assert.deepEqual(r, { skipped: { path: f, reason: 'user-owned', wroteInstead: siblingPath(f) } });
@@ -57,8 +61,8 @@ test('an unmarked markdown target is never modified; the .jq sibling is written 
   assert.match(fs.readFileSync(siblingPath(f), 'utf-8'), /Newer/);
 });
 
-test('JSON ownership uses _generatedBy; a list-form user cheat sheet is not owned', () => {
-  const dir = tmp();
+test('JSON ownership uses _generatedBy; a list-form user cheat sheet is not owned', (t) => {
+  const dir = tmp(t);
   const mine = path.join(dir, 'mine.json');
   const theirs = path.join(dir, 'theirs.json');
   fs.writeFileSync(mine, JSONDOC);
@@ -69,39 +73,34 @@ test('JSON ownership uses _generatedBy; a list-form user cheat sheet is not owne
   assert.match(fs.readFileSync(theirs, 'utf-8'), /Hand made/);
 });
 
-test('writeOwned refuses content that does not carry the marker', () => {
-  const dir = tmp();
+test('writeOwned refuses content that does not carry the marker', (t) => {
+  const dir = tmp(t);
   assert.throws(() => writeOwned(path.join(dir, 'a.md'), '# no marker\n'), /unmarked/);
   assert.throws(() => writeOwned(path.join(dir, 'a.json'), '[]'), /unmarked/);
 });
 
-test('writeOwned preserves a user-owned .jq sibling when both paths are occupied', () => {
+test('writeOwned preserves a user-owned .jq sibling when both paths are occupied', (t) => {
   for (const [name, original, content] of [
     ['target.md', '# My own notes\n', MD],
     ['cards.json', JSON.stringify([{ title: 'Hand made' }]), JSONDOC],
   ]) {
-    const dir = tmp();
+    const dir = tmp(t);
     const file = path.join(dir, name);
     const sibling = siblingPath(file);
-    try {
-      fs.writeFileSync(file, original);
-      fs.writeFileSync(sibling, original);
-      const before = fs.readFileSync(file);
-      const siblingBefore = fs.readFileSync(sibling);
-      assert.deepEqual(writeOwned(file, content), {
-        skipped: { path: file, reason: 'user-owned', wroteInstead: null, siblingUserOwned: true },
-      });
-      assert.deepEqual(fs.readFileSync(file), before);
-      assert.deepEqual(fs.readFileSync(sibling), siblingBefore);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    fs.writeFileSync(file, original);
+    fs.writeFileSync(sibling, original);
+    const before = fs.readFileSync(file);
+    const siblingBefore = fs.readFileSync(sibling);
+    assert.deepEqual(writeOwned(file, content), {
+      skipped: { path: file, reason: 'user-owned', wroteInstead: null, siblingUserOwned: true },
+    });
+    assert.deepEqual(fs.readFileSync(file), before);
+    assert.deepEqual(fs.readFileSync(sibling), siblingBefore);
   }
 });
 
 test('atomic writes use distinct temporary paths even within the same millisecond', (t) => {
-  const dir = tmp();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tmp(t);
   const file = path.join(dir, 'target.md');
   const legacyTemp = `${file}.tmp`;
   fs.writeFileSync(legacyTemp, 'user scratch data');
@@ -117,8 +116,8 @@ test('atomic writes use distinct temporary paths even within the same millisecon
   writeOwned(file, MD);
   assert.equal(new Set(sources).size, 2);
   for (const source of sources) {
-    assert.ok(source.startsWith(`${file}.${process.pid}.123456789.`));
-    assert.match(source.slice(`${file}.${process.pid}.123456789.`.length), /^[^.]+\.tmp$/);
+    assert.ok(source.startsWith(`${file}.${process.pid}.`));
+    assert.match(source.slice(`${file}.${process.pid}.`.length), /^[a-f0-9]+\.tmp$/);
     assert.equal(fs.existsSync(source), false);
   }
   assert.equal(fs.readFileSync(legacyTemp, 'utf-8'), 'user scratch data');
@@ -127,8 +126,7 @@ test('atomic writes use distinct temporary paths even within the same millisecon
 
 for (const failure of ['write', 'rename']) {
   test(`atomic writes remove temporary files after a ${failure} failure`, (t) => {
-    const dir = tmp();
-    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const dir = tmp(t);
     const file = path.join(dir, 'target.md');
     const original = `${MARKER_MD}\noriginal\n`;
     fs.writeFileSync(file, original);
@@ -149,8 +147,7 @@ for (const failure of ['write', 'rename']) {
 }
 
 test('an existing directory is user-owned and writes go to its sibling', (t) => {
-  const dir = tmp();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tmp(t);
   const file = path.join(dir, 'target.md');
   fs.mkdirSync(file);
   assert.equal(isOwned(file), false);
@@ -163,8 +160,7 @@ test('an existing directory is user-owned and writes go to its sibling', (t) => 
 });
 
 test('an existing unreadable file is treated as user-owned', (t) => {
-  const dir = tmp();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tmp(t);
   const file = path.join(dir, 'target.md');
   fs.writeFileSync(file, MD);
   const read = fs.readFileSync;
@@ -181,8 +177,7 @@ test('an existing unreadable file is treated as user-owned', (t) => {
 });
 
 test('Markdown ownership requires an exact first-line marker and accepts CRLF', (t) => {
-  const dir = tmp();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tmp(t);
   const file = path.join(dir, 'target.md');
   const original = `${MARKER_MD}extra\nuser notes\n`;
   fs.writeFileSync(file, original);
@@ -230,4 +225,12 @@ test('renderTargetMd uses profile.comp when set and omits unknown lines', () => 
   assert.ok(!md.includes('## Notes from Job Quest'));
   assert.equal(render.formatComp('$180k-$210k'), '$180k-$210k');
   assert.equal(render.formatComp(''), null);
+});
+
+test('nested compensation objects render readable key-value pairs', () => {
+  const comp = { base: { min: '180k', max: '210k' }, equity: { annual: { target: '100k' } }, omitted: { empty: '', missing: null } };
+  assert.equal(render.formatComp(comp), 'base: min: 180k; max: 210k; equity: annual: target: 100k');
+  const md = render.renderTargetMd({ role: ROLE, profile: { comp } });
+  assert.match(md, /Compensation expectation: base: min: 180k; max: 210k; equity: annual: target: 100k/);
+  assert.ok(!md.includes('[object Object]'));
 });

@@ -15,6 +15,7 @@ const { createWorkbookHandler } = require('./lib/workbook/orchestrator');
 const { createAutoBuild } = require('./lib/workbook/autobuild');
 const { createResumeService } = require('./lib/resume/pipeline');
 const { readMaster, writeMaster } = require('./lib/resume/master');
+const { readTracker, writeTracker, mergeTrackerSnapshot } = require('./lib/interview/tracker-effects');
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '.env');
@@ -33,6 +34,8 @@ if (fs.existsSync(envPath)) {
 const app = express();
 const PORT = process.env.PORT || 3847;
 
+// Let the tracker route return its JSON validation error for null and primitives too.
+app.use('/api/role-tracker', express.json({ limit: '50mb', strict: false }));
 app.use(express.json({ limit: '50mb' }));
 
 const runtimeState = ensureRuntime({ write: true });
@@ -351,17 +354,20 @@ app.get('/api/role-tracker', (req, res) => {
 });
 
 app.post('/api/role-tracker', (req, res) => {
-  const file = path.join(DATA_DIR, 'role-tracker.json');
-  const prev = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
-  fs.writeFileSync(file, JSON.stringify(req.body, null, 2));
-  Object.keys(req.body).forEach(key => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'tracker body must be an object' });
+  }
+  const prev = readTracker(DATA_DIR);
+  const merged = mergeTrackerSnapshot(prev, req.body);
+  writeTracker(DATA_DIR, merged);
+  Object.keys(merged).forEach(key => {
     if (!prev[key]) {
-      logActivity('role_tracked', { role: key, stage: req.body[key].stage });
-    } else if (prev[key].stage !== req.body[key].stage) {
-      logActivity('role_stage_change', { role: key, from: prev[key].stage, to: req.body[key].stage });
+      logActivity('role_tracked', { role: key, stage: merged[key].stage });
+    } else if (prev[key].stage !== merged[key].stage) {
+      logActivity('role_stage_change', { role: key, from: prev[key].stage, to: merged[key].stage });
     }
   });
-  diffTracker(prev, req.body).applied.forEach((k) => roleEvents.emit('applied', k));
+  diffTracker(prev, merged).applied.forEach((k) => roleEvents.emit('applied', k));
   res.json({ success: true });
 });
 

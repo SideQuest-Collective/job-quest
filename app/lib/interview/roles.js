@@ -13,6 +13,7 @@ function readJson(file, fallback) {
 }
 
 function companyMatches(company, query) {
+  if (!/[a-z0-9]/i.test(String(query || ''))) return false;
   const c = slugify(company);
   const q = slugify(query);
   return c === q || c.startsWith(`${q}-`);
@@ -29,7 +30,7 @@ function listRolesForCompany(dataDir, company) {
   const applied = actions.applied || [];
   const keys = new Set([...Object.keys(tracker), ...(actions.saved || []), ...applied]);
   return [...keys]
-    .filter((k) => k.includes('|') && companyMatches(splitRoleKey(k).company, company))
+    .filter((k) => typeof k === 'string' && k.includes('|') && companyMatches(splitRoleKey(k).company, company))
     .map((k) => {
       const { company: co, role } = splitRoleKey(k);
       const t = tracker[k];

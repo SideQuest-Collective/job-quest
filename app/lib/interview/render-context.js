@@ -27,7 +27,8 @@ function formatComp(comp) {
   if (typeof comp === 'string') return comp.trim() || null;
   if (typeof comp === 'number') return String(comp);
   if (typeof comp === 'object') {
-    const parts = Object.entries(comp).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}: ${v}`);
+    const parts = Object.entries(comp).map(([k, v]) => [k, formatComp(v)])
+      .filter(([, v]) => v != null).map(([k, v]) => `${k}: ${v}`);
     return parts.length ? parts.join('; ') : null;
   }
   return String(comp);

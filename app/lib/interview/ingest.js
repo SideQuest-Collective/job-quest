@@ -2,7 +2,7 @@
 // Ingest one /interview session into Job Quest (spec §3). Code does every step except the debrief analysis.
 const fs = require('fs');
 const path = require('path');
-const { InputError, NotFoundError, assertFolderName } = require('./contract');
+const { InputError, NotFoundError, assertFolderName, assertRoleKey } = require('./contract');
 const { parseSessionFolder } = require('./session-parse');
 const records = require('./records');
 const trackerFx = require('./tracker-effects');
@@ -22,8 +22,13 @@ const localDate = (iso) => getLocalDateStamp(new Date(iso));
 
 function resolveFolder(interviewHome, folder) {
   const raw = String(folder || '');
-  const abs = path.isAbsolute(raw) ? raw : path.join(interviewHome, 'sessions', assertFolderName(raw));
+  const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.join(interviewHome, 'sessions', assertFolderName(raw));
   assertFolderName(path.basename(abs));
+  try {
+    if (fs.lstatSync(abs).isSymbolicLink()) throw new InputError(`session folder must not be a symlink: ${raw}`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   if (!fs.existsSync(path.join(abs, 'session.json'))) throw new NotFoundError(`session folder not found: ${raw}`);
   return abs;
 }
@@ -38,6 +43,18 @@ function rebuildInterviewChapter(dataDir, workbookId) {
   renderInterviewChapter(dataDir, workbookId);
 }
 
+function bumpWorkbookMeta(dataDir, workbookId) {
+  let meta;
+  let reason = 'missing or invalid metadata';
+  try { meta = store.readMeta(dataDir, workbookId); }
+  catch (error) { reason = error.message; }
+  if (!meta) {
+    console.warn(`[interview] ${workbookId}: skipped metadata bump (${String(reason).replace(/[\r\n]+/g, ' ')})`);
+    return;
+  }
+  store.writeMeta(dataDir, meta);
+}
+
 function renderInterviewChapter(dataDir, workbookId, pending) {
   if (!bridge.workbookExists(dataDir, workbookId)) return;
   // Include the current transaction without claiming ingestion succeeded before
@@ -47,7 +64,11 @@ function renderInterviewChapter(dataDir, workbookId, pending) {
   const recs = all
     .filter((r) => r.workbookId === workbookId && (r === pending || r.status === 'ingested') && !r.practice && r.analysis && r.analysis.asked.length)
     .sort((a, b) => a.folder.localeCompare(b.folder));
-  if (!recs.length) { bridge.removeInterviewChapter(dataDir, workbookId); return; }
+  if (!recs.length) {
+    bridge.removeInterviewChapter(dataDir, workbookId);
+    bumpWorkbookMeta(dataDir, workbookId);
+    return;
+  }
   const companySlug = slugify(splitRoleKey(recs[0].roleKey).company);
   const sessions = recs.map((r) => ({
     date: localDate(r.startedAt), round: r.round, interviewer: r.interviewer, durationMin: r.durationMin, count: r.analysis.asked.length,
@@ -56,7 +77,7 @@ function renderInterviewChapter(dataDir, workbookId, pending) {
     qid: markup.qidFor(r.folder, i + 1), item, date: localDate(r.startedAt), round: r.round,
   })));
   bridge.writeInterviewChapter(dataDir, workbookId, markup.renderChapter({ companySlug, sessions, questions }));
-  store.writeMeta(dataDir, store.readMeta(dataDir, workbookId));
+  bumpWorkbookMeta(dataDir, workbookId);
 }
 
 function readTracker(dataDir) {
@@ -65,11 +86,16 @@ function readTracker(dataDir) {
   }
 }
 
-function isApplied(dataDir, rec) {
+function isApplied(dataDir, rec, recruiterMemory = rec && rec.effects && rec.effects.recruiterMemory) {
   if (!rec || !rec.applied || !rec.effects) return false;
-  if (!rec.analysis && rec.analysisError && (rec.analysisAttempts || 0) < 2) return false;
+  if (rec.analysisError && (rec.analysisAttempts || 0) < 2) return false;
   const entry = readTracker(dataDir)[rec.roleKey];
   if (!entry || !Array.isArray(entry.timeline) || !entry.timeline.some((e) => e && e.key === `interview:${rec.folder}`)) return false;
+  if (rec.round === 'recruiter' && !rec.practice && recruiterMemory) {
+    const notes = String(entry.notes || '');
+    const start = notes.indexOf(`[interview:${rec.folder}]`);
+    if (start < 0 || notes.indexOf(`[/interview:${rec.folder}]`, start) < 0) return false;
+  }
   const stage = rec.effects.stage;
   // Off-ladder stages (offer/rejected/etc.) remain user-owned, as in applyStage.
   if (stage && Object.prototype.hasOwnProperty.call(trackerFx.STAGE_RANK, entry.stage) &&
@@ -80,9 +106,8 @@ function isApplied(dataDir, rec) {
     if (!rec.effects.workbookQids.every((qid) => qids.has(qid))) return false;
   }
   if (rec.workbookId && rec.effects.progress.length && bridge.workbookExists(dataDir, rec.workbookId)) {
-    const history = bridge.readProgress(dataDir, rec.workbookId).history || {};
-    const rejected = new Set((rec.gradeRejected || []).map((g) => g.qid));
-    if (!rec.effects.progress.every((p) => rejected.has(p.qid) || (history[p.qid] || [])
+    const history = bridge.readProgress(dataDir, rec.workbookId).history;
+    if (!rec.effects.progress.every((p) => (history[p.qid] || [])
       .some((h) => h.at === p.at && h.grade === p.grade && h.source === (p.source || 'interview')))) return false;
   }
   return true;
@@ -99,12 +124,21 @@ function progressEffects(record, prev, now) {
   }) : [];
 }
 
-function practiceWorkbookId(dataDir, practiceSet, roleKey) {
+function practiceWorkbookId(dataDir, interviewHome, practiceSet, roleKey, dropped) {
   try {
-    const set = JSON.parse(fs.readFileSync(practiceSet, 'utf-8'));
+    if (typeof practiceSet !== 'string' || !practiceSet.endsWith('.json')) throw new Error('practiceSet must name a .json file');
+    const root = fs.realpathSync(path.join(interviewHome, 'practice'));
+    const file = fs.realpathSync(practiceSet);
+    const relative = path.relative(root, file);
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('practiceSet must resolve inside the interview practice directory');
+    }
+    if (!file.endsWith('.json')) throw new Error('practiceSet must resolve to a .json file');
+    const set = JSON.parse(fs.readFileSync(file, 'utf-8'));
     if (set && set.workbookId && bridge.workbookExists(dataDir, set.workbookId)) return set.workbookId;
-  } catch {
-    // Missing or unreadable practice sets fall back to the linked role.
+    throw new Error(`practiceSet workbook not found: ${set && set.workbookId || '(unspecified)'}`);
+  } catch (error) {
+    dropped.push({ kind: 'practiceSet', reason: `${error.message}; falling back to the role workbook` });
   }
   const wb = bridge.findWorkbook(dataDir, roleKey);
   return wb ? wb.id : null;
@@ -135,10 +169,8 @@ function applyEffects({ dataDir, parsed, record, prev, role, now }) {
   const change = trackerFx.applyStage(entry, record.round, record.practice);
   effects.stage = change || effects.stage;
   if (record.round === 'recruiter' && !record.practice && parsed.recruiterMemory) {
-    const stripMarkers = (text) => String(text).replace(/\[\/?interview:[^\]\r\n]*\]/g, '');
-    const memory = Object.fromEntries(Object.entries(parsed.recruiterMemory)
-      .map(([title, body]) => [stripMarkers(title), stripMarkers(body)]));
-    trackerFx.upsertRecruiterNotes(entry, record.folder, localDate(record.startedAt), memory);
+    trackerFx.upsertRecruiterNotes(entry, record.folder, localDate(record.startedAt), parsed.recruiterMemory);
+    effects.recruiterMemory = true;
   }
   trackerFx.writeTracker(dataDir, tracker);
 
@@ -146,6 +178,8 @@ function applyEffects({ dataDir, parsed, record, prev, role, now }) {
     renderInterviewChapter(dataDir, record.workbookId, record);
     const { rejected } = bridge.recordGrades(dataDir, record.workbookId, grades);
     record.gradeRejected = rejected;
+    const rejectedQids = new Set(rejected.map((g) => g.qid));
+    effects.progress = effects.progress.filter((g) => !rejectedQids.has(g.qid));
   }
   for (const old of record.pendingCleanup) {
     if (old.workbookId && old.workbookId !== record.workbookId) rebuildInterviewChapter(dataDir, old.workbookId);
@@ -186,6 +220,7 @@ function summarize(rec, role) {
   if (e.stage) parts.push(`stage ${e.stage.from} -> ${e.stage.to}`);
   if (e.workbookQids.length) parts.push(`${e.workbookQids.length} question(s) in the workbook`);
   if (rec.practice) parts.push(`${e.progress.length} practice grade(s) recorded`);
+  for (const drop of rec.dropped || []) if (drop.kind === 'practiceSet') parts.push(`practice set: ${drop.reason}`);
   if (e.tasks.length) parts.push(`${e.tasks.length} follow-up task(s)`);
   if (rec.gradeRejected && rec.gradeRejected.length) {
     parts.push(`${rec.gradeRejected.length} grade(s) rejected (${rec.gradeRejected.map((g) => `${g.qid}: ${g.reason}`).join('; ')})`);
@@ -196,7 +231,7 @@ function summarize(rec, role) {
   return `Ingested ${rec.folder} into ${role.company} — ${role.role}: ${parts.join(', ')}.`;
 }
 
-async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
+async function ingestLocked({ dataDir, interviewHome, dir, name, now, runAgentFn }) {
   const parsed = parseSessionFolder(dir);
   const hash = records.sessionHash(dir);
   const prev = records.readRecord(dataDir, name);
@@ -213,8 +248,10 @@ async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
     if (!(prev && prev.status === 'unlinked' && prev.hash === hash)) {
       records.writeRecord(dataDir, {
         ...base, status: 'unlinked', analysis: null, dropped: [], analysisError: null, analysisAttempts: 0,
-        workbookId: null, effects: emptyEffects(), applied: false, ingestedAt: now().toISOString(),
+        workbookId: null, effects: emptyEffects(), applied: false, lastError: null, ingestedAt: now().toISOString(),
       });
+    } else if (prev.lastError != null) {
+      records.writeRecord(dataDir, { ...prev, lastError: null });
     }
     return {
       status: 'unlinked', folder: name, effects: emptyEffects(),
@@ -224,7 +261,11 @@ async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
 
   if (prev && prev.status === 'ingested' && prev.hash === hash && prev.roleKey === roleKey) {
     try {
-      if (isApplied(dataDir, prev)) return { status: 'unchanged', folder: name, effects: prev.effects, summary: `${name} is already ingested; nothing changed.` };
+      // Parsed memory also covers records created before that effect was stored.
+      if (isApplied(dataDir, prev, parsed.recruiterMemory)) {
+        if (prev.lastError != null) records.writeRecord(dataDir, { ...prev, lastError: null });
+        return { status: 'unchanged', folder: name, effects: prev.effects, summary: `${name} is already ingested; nothing changed.` };
+      }
     } catch (error) {
       records.writeRecord(dataDir, { ...prev, status: 'failed', applied: false });
       throw error;
@@ -237,7 +278,7 @@ async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
   let analysisError = null;
   let analysisAttempts = 0;
   if (!parsed.practice) {
-    if (sameInputs && (prev.analysis || prev.analysisAttempts >= 2)) {
+    if (sameInputs && ((prev.analysis && !prev.analysisError) || prev.analysisAttempts >= 2)) {
       analysis = prev.analysis;
       dropped = (prev.dropped || []).filter((d) => d.kind !== 'practiceResult');
       analysisError = prev.analysisError || null;
@@ -248,6 +289,10 @@ async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
       analysis = r.analysis;
       dropped = r.dropped;
       analysisError = r.error;
+      if (!analysis && analysisError && prev && prev.analysis) {
+        analysis = prev.analysis;
+        dropped = (prev.dropped || []).filter((d) => d.kind !== 'practiceResult' && d.kind !== 'practiceSet');
+      }
     }
   }
 
@@ -269,12 +314,13 @@ async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
   records.writeRecord(dataDir, record);
   try {
     if (analysis && analysis.asked.length) record.workbookId = bridge.ensureWorkbook(dataDir, { roleKey, company: role.company, role: role.role }).id;
-    else if (parsed.practice) record.workbookId = practiceWorkbookId(dataDir, parsed.practiceSet, roleKey);
+    else if (parsed.practice) record.workbookId = practiceWorkbookId(dataDir, interviewHome, parsed.practiceSet, roleKey, dropped);
     const { effects, practiceDropped } = applyEffects({ dataDir, parsed, record, prev, role, now });
     record.effects = effects;
     record.dropped = dropped.concat(practiceDropped);
     record.applied = true;
     record.status = 'ingested';
+    record.lastError = null;
     delete record.pendingCleanup;
     records.writeRecord(dataDir, record);
     return { status: 'ingested', folder: name, effects, summary: summarize(record, role) };
@@ -287,13 +333,11 @@ async function ingestLocked({ dataDir, dir, name, now, runAgentFn }) {
 async function ingestSession({ dataDir, interviewHome, folder, now = () => new Date(), runAgentFn, lockWaitMs = 15000 }) {
   const dir = resolveFolder(interviewHome, folder);
   const name = path.basename(dir);
-  return records.withLock(dataDir, name, () => ingestLocked({ dataDir, dir, name, now, runAgentFn }), { waitMs: lockWaitMs });
+  return records.withLock(dataDir, name, () => ingestLocked({ dataDir, interviewHome, dir, name, now, runAgentFn }), { waitMs: lockWaitMs });
 }
 
 async function setLink({ dataDir, interviewHome, folder, roleKey, now = () => new Date() }) {
-  if (typeof roleKey !== 'string' || roleKey.split('|').length !== 2 || roleKey.split('|').some((part) => !part.trim())) {
-    throw new InputError('roleKey must look like "Company|Role"');
-  }
+  assertRoleKey(roleKey);
   if (!isKnownRole(dataDir, roleKey)) throw new InputError(`unknown roleKey: ${roleKey}`);
   const dir = resolveFolder(interviewHome, folder);
   const name = path.basename(dir);

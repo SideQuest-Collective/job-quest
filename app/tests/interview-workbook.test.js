@@ -45,26 +45,9 @@ test('renderChapter has the required sections, a session list, and grade counts'
   assert.ok(text.includes('@@q id=iv-202603140930-1 '));
 });
 
-test('mergeGrades appends, replaces the same at+source, and keeps the newest as latest', () => {
-  let p = markup.mergeGrades({}, [{ qid: 'q1', grade: 'missed', at: AT, source: 'interview' }]);
-  assert.deepEqual(p.grades.q1, { grade: 'missed', at: AT, source: 'interview' });
-  p = markup.mergeGrades(p, [{ qid: 'q1', grade: 'partial', at: AT, source: 'interview' }]);
-  assert.equal(p.history.q1.length, 1);
-  assert.equal(p.grades.q1.grade, 'partial');
-  p.history.q1.push({ grade: 'got', at: '2026-10-01T00:00:00.000Z', source: 'dashboard' });
-  p = markup.mergeGrades(p, [{ qid: 'q1', grade: 'missed', at: AT, source: 'interview' }]);
-  assert.equal(p.history.q1.length, 2);
-  assert.deepEqual(p.grades.q1, { grade: 'got', at: '2026-10-01T00:00:00.000Z', source: 'dashboard' });
-});
-
-test('mergeGrades does not mutate its input', () => {
-  const before = { version: 1, grades: {}, history: {} };
-  markup.mergeGrades(before, [{ qid: 'q1', grade: 'got', at: AT, source: 'interview' }]);
-  assert.deepEqual(before, { version: 1, grades: {}, history: {} });
-});
-
-test('ensureWorkbook creates once with source interview; findWorkbook finds it', () => {
-  const { dataDir } = makeEnv();
+test('ensureWorkbook creates once with source interview; findWorkbook finds it', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.equal(bridge.findWorkbook(dataDir, ROLE_KEY), null);
   const a = bridge.ensureWorkbook(dataDir, ROLE);
   assert.equal(a.created, true);
@@ -78,8 +61,9 @@ test('ensureWorkbook creates once with source interview; findWorkbook finds it',
   assert.equal(bridge.workbookExists(dataDir, 'nope'), false);
 });
 
-test('an interview chapter written by the bridge parses and lints clean through P1', () => {
-  const { dataDir } = makeEnv();
+test('an interview chapter written by the bridge parses and lints clean through P1', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const wb = bridge.ensureWorkbook(dataDir, ROLE);
   const text = markup.renderChapter({
     companySlug: 'acme-capital',
@@ -104,8 +88,9 @@ test('lintMarkup still reports a question without @@answer', () => {
   assert.ok(bridge.lintMarkup(bad, 'bad.md').length > 0);
 });
 
-test('contentHash ignores the interview chapter and tracks generated content', () => {
-  const { dataDir } = makeEnv();
+test('contentHash ignores the interview chapter and tracks generated content', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const wb = seedWorkbook(dataDir);
   const h1 = bridge.contentHash(dataDir, wb.id);
   bridge.writeInterviewChapter(dataDir, wb.id, 'anything');
@@ -117,8 +102,9 @@ test('contentHash ignores the interview chapter and tracks generated content', (
   assert.equal(fs.existsSync(path.join(wb.dir, 'content', '01-coding-basics.md')), true);
 });
 
-test('readWorkbook normalizes P1 questions', () => {
-  const { dataDir } = makeEnv();
+test('readWorkbook normalizes P1 questions', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const wb = seedWorkbook(dataDir);
   const { questions } = bridge.readWorkbook(dataDir, wb.id);
   assert.deepEqual(questions.map((q) => [q.id, q.type, q.topic, q.diff]), [
@@ -127,24 +113,26 @@ test('readWorkbook normalizes P1 questions', () => {
   assert.match(questions[1].answer, /token bucket/i);
 });
 
-test('progress round-trips through the bridge', () => {
-  const { dataDir } = makeEnv();
-  const wb = bridge.ensureWorkbook(dataDir, ROLE);
-  const p = markup.mergeGrades(bridge.readProgress(dataDir, wb.id), [{ qid: 'q1', grade: 'missed', at: AT, source: 'interview' }]);
-  bridge.writeProgress(dataDir, wb.id, p);
-  assert.equal(bridge.readProgress(dataDir, wb.id).grades.q1.source, 'interview');
+test('recordGrades progress round-trips through the bridge', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const wb = seedWorkbook(dataDir);
+  const grade = { qid: 'c1', grade: 'missed', at: AT, source: 'interview' };
+  assert.deepEqual(bridge.recordGrades(dataDir, wb.id, [grade]).recorded, ['c1']);
+  assert.deepEqual(bridge.readProgress(dataDir, wb.id).grades.c1, { grade: 'missed', at: AT, source: 'interview' });
 });
 
-test('findTailored reads meta.json and jd.txt by the resume spec layout', () => {
-  const { dataDir } = makeEnv();
+test('findTailored reads meta.json and jd.txt by the resume spec layout', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.equal(resume.findTailored(dataDir, ROLE_KEY), null);
   const dir = path.join(dataDir, 'resume', 'tailored', 'acme-capital-software-engineer');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ id: 'acme-capital-software-engineer', roleKeys: [ROLE_KEY], status: 'done' }));
   fs.writeFileSync(path.join(dir, 'jd.txt'), 'Build trading tools.');
-  const t = resume.findTailored(dataDir, ROLE_KEY);
-  assert.equal(t.jdText, 'Build trading tools.');
-  assert.equal(t.done, true);
+  const tailored = resume.findTailored(dataDir, ROLE_KEY);
+  assert.equal(tailored.jdText, 'Build trading tools.');
+  assert.equal(tailored.done, true);
 });
 
 test('fetchJdText normalizes string, object, failure, and throw', async () => {
@@ -154,8 +142,9 @@ test('fetchJdText normalizes string, object, failure, and throw', async () => {
   assert.deepEqual(await resume.fetchJdText('u', async () => { throw new Error('ENOTFOUND'); }), { ok: false, error: 'ENOTFOUND' });
 });
 
-test('readMasterResume returns null when there is no master', () => {
-  const { dataDir } = makeEnv();
+test('readMasterResume returns null when there is no master', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.equal(resume.readMasterResume(dataDir), null);
 });
 
@@ -256,4 +245,25 @@ test('readMasterResume and renderResumeMarkdown use an existing P2 master', (t) 
   fs.writeFileSync(path.join(dataDir, 'resume', 'master.json'), JSON.stringify(master));
   assert.deepEqual(resume.readMasterResume(dataDir), master);
   assert.equal(resume.renderResumeMarkdown(master), '# Test Candidate\n\n**Software Engineer**\n\n## Summary\n\nBuild reliable tools.\n');
+});
+
+test('writeInterviewChapter refuses a missing workbook without creating a ghost directory', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const id = 'missing-workbook';
+  assert.throws(() => bridge.writeInterviewChapter(dataDir, id, 'content'), /workbook missing-workbook not found/);
+  assert.equal(fs.existsSync(path.join(dataDir, 'workbooks', id)), false);
+});
+
+test('writeInterviewChapter preserves unrelated temp files and leaves no write temp behind', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const wb = bridge.ensureWorkbook(dataDir, ROLE);
+  const file = path.join(wb.dir, 'content', bridge.INTERVIEW_CHAPTER_FILE);
+  const unrelated = `${file}.tmp`;
+  fs.writeFileSync(unrelated, 'another writer');
+  assert.equal(bridge.writeInterviewChapter(dataDir, wb.id, 'chapter text'), file);
+  assert.equal(fs.readFileSync(file, 'utf-8'), 'chapter text');
+  assert.equal(fs.readFileSync(unrelated, 'utf-8'), 'another writer');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), [path.basename(file), path.basename(unrelated)]);
 });

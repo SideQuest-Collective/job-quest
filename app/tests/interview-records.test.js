@@ -8,8 +8,16 @@ const { spawnSync } = require('node:child_process');
 const records = require('../lib/interview/records');
 const { makeEnv, copyFixtureSession } = require('./helpers/interview-env');
 
-test('sessionHash is sha256(session.json + debrief.md) and tracks edits to either', () => {
-  const { interviewHome } = makeEnv();
+test('isBusy consistently identifies lock contention and ignores unrelated errors', () => {
+  assert.equal(records.isBusy(new Error('busy: another ingest of f1 is running')), true);
+  assert.equal(records.isBusy(new Error('busy: lock is still held')), true);
+  for (const error of [new Error('unrelated'), new Error('not busy: lock failed'), {}, null, undefined]) {
+    assert.equal(records.isBusy(error), false);
+  }
+});
+
+test('sessionHash is sha256(session.json + debrief.md) and tracks edits to either', (t) => {
+  const { interviewHome } = tempEnv(t);
   const dir = copyFixtureSession(interviewHome);
   const expected = crypto.createHash('sha256')
     .update(fs.readFileSync(path.join(dir, 'session.json')))
@@ -24,8 +32,8 @@ test('sessionHash is sha256(session.json + debrief.md) and tracks edits to eithe
   assert.equal(records.sessionHash(dir), h2);
 });
 
-test('records round-trip and list newest folder first, ignoring temp and lock files', () => {
-  const { dataDir } = makeEnv();
+test('records round-trip and list newest folder first, ignoring temp and lock files', (t) => {
+  const { dataDir } = tempEnv(t);
   records.writeRecord(dataDir, { folder: '2026-03-07_1030', status: 'unlinked' });
   records.writeRecord(dataDir, { folder: '2026-03-14_0930', status: 'ingested' });
   fs.writeFileSync(path.join(records.recordsDir(dataDir), 'junk.json.tmp'), '{');
@@ -36,8 +44,8 @@ test('records round-trip and list newest folder first, ignoring temp and lock fi
   assert.throws(() => records.readRecord(dataDir, '../x'), (e) => e.code === 'INPUT');
 });
 
-test('withLock serializes callers on the same folder', async () => {
-  const { dataDir } = makeEnv();
+test('withLock serializes callers on the same folder', async (t) => {
+  const { dataDir } = tempEnv(t);
   const order = [];
   const slow = records.withLock(dataDir, 'f1', async () => { order.push('a-start'); await new Promise((r) => setTimeout(r, 150)); order.push('a-end'); });
   await new Promise((r) => setTimeout(r, 20));
@@ -46,8 +54,8 @@ test('withLock serializes callers on the same folder', async () => {
   assert.deepEqual(order, ['a-start', 'a-end', 'b']);
 });
 
-test('withLock with waitMs 0 reports busy; a stale lock is broken', async () => {
-  const { dataDir } = makeEnv();
+test('withLock with waitMs 0 reports busy; a stale lock is broken', async (t) => {
+  const { dataDir } = tempEnv(t);
   let release;
   const held = records.withLock(dataDir, 'f2', () => new Promise((r) => { release = r; }));
   await new Promise((r) => setTimeout(r, 20));

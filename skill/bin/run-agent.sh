@@ -30,16 +30,26 @@ else
   job_quest_load_runtime --require-registration
 fi
 
-# Narrow agent writes to scratch inside a workbook. The OS guard also covers
-# relative ../ paths and symlink escapes; runtime state outside the workbook is
-# still available to the CLI. Codex additionally uses workspace-write.
+# Narrow agent writes to their scratch directory inside workbook/interview work.
+# The OS guard covers relative ../ paths and symlink escapes; runtime state
+# outside the fenced root remains available. Codex also uses workspace-write.
 run_in_scratch() {
+  local scratch fence_root="" interview_root=""
+  if [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR/interview-work" ]; then
+    interview_root="$(cd "$DATA_DIR/interview-work" && pwd -P)"
+  fi
   cd "$WORK_DIR"
-  if [[ "$(basename "$WORK_DIR")" =~ ^(drafts|research)$ ]] && [ -x /usr/bin/sandbox-exec ]; then
-    local scratch workbook
-    scratch="$(pwd -P)"
-    workbook="$(cd .. && pwd -P)"
-    /usr/bin/sandbox-exec -D "SCRATCH=$scratch" -D "WORKBOOK=$workbook" -p '(version 1) (allow default) (deny file-write* (require-all (subpath (param "WORKBOOK")) (require-not (subpath (param "SCRATCH")))))' "${CMD[@]}" < "$PROMPT_FILE"
+  scratch="$(pwd -P)"
+  if [[ "$scratch" =~ ^(.*/interview-work)/(cheatsheets|sessions)/[^/]+$ ]]; then
+    # CLI callers may not export DATA_DIR; the canonical cwd identifies its root.
+    fence_root="${BASH_REMATCH[1]}"
+  elif [ -n "$interview_root" ] && [[ "$scratch" == "$interview_root/"* ]]; then
+    fence_root="$interview_root"
+  elif [[ "$(basename "$WORK_DIR")" =~ ^(drafts|research)$ ]]; then
+    fence_root="$(cd .. && pwd -P)"
+  fi
+  if [ -n "$fence_root" ] && [ -x /usr/bin/sandbox-exec ]; then
+    /usr/bin/sandbox-exec -D "SCRATCH=$scratch" -D "FENCE_ROOT=$fence_root" -p '(version 1) (allow default) (deny file-write* (require-all (subpath (param "FENCE_ROOT")) (require-not (subpath (param "SCRATCH")))))' "${CMD[@]}" < "$PROMPT_FILE"
   else
     "${CMD[@]}" < "$PROMPT_FILE"
   fi

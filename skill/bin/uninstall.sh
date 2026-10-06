@@ -50,10 +50,37 @@ if [ "$AUTO_YES" = false ]; then
   echo ""
 fi
 
-PID="$(lsof -ti :3847 2>/dev/null || true)"
-if [ -n "$PID" ]; then
-  kill "$PID" 2>/dev/null || true
-fi
+stop_dashboard_server() {
+  local pids pid comm attempt term_pids=" "
+  pids="$(lsof -nP -t -iTCP:3847 -sTCP:LISTEN 2>/dev/null || true)"
+  [ -n "$pids" ] || return 0
+
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
+    if [ "${comm##*/}" = node ]; then
+      kill "$pid" 2>/dev/null || true
+      term_pids+="$pid "
+    fi
+  done <<< "$pids"
+
+  # Allow listeners time to exit, without waiting indefinitely on another app.
+  for attempt in 1 2 3 4 5; do
+    [ -n "$(lsof -nP -t -iTCP:3847 -sTCP:LISTEN 2>/dev/null || true)" ] || return 0
+    sleep 1
+  done
+
+  # Force-stop only original TERM targets that are still listening as node.
+  pids="$(lsof -nP -t -iTCP:3847 -sTCP:LISTEN 2>/dev/null || true)"
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
+    if [ "${comm##*/}" = node ] && [[ "$term_pids" == *" $pid "* ]]; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done <<< "$pids"
+}
+stop_dashboard_server
 
 SCHEDULE_REMOVER="$BIN_DIR/install-schedule.sh"
 if [ -x "$SCHEDULE_REMOVER" ]; then

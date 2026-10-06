@@ -1,11 +1,10 @@
-// Follow-ups become daily tasks, deduped by key across all dated task files.
+// Follow-ups become daily tasks, deduped by key across all JSON task files.
 const fs = require('fs');
 const path = require('path');
-const { randomBytes } = require('crypto');
+const { writeFileAtomic } = require('./atomic');
 const { getLocalDateStamp } = require('../local-date');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const FILE_RE = /^\d{4}-\d{2}-\d{2}\.json$/;
 
 function isValidDate(s) {
   if (typeof s !== 'string' || !DATE_RE.test(s)) return false;
@@ -23,7 +22,7 @@ function existingKeys(dataDir) {
   const dir = tasksDir(dataDir);
   if (!fs.existsSync(dir)) return keys;
   for (const name of fs.readdirSync(dir)) {
-    if (!FILE_RE.test(name) || !isValidDate(name.slice(0, -5))) continue;
+    if (!name.endsWith('.json')) continue;
     let data;
     try { data = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf-8')); } catch { continue; }
     if (!data || !Array.isArray(data.tasks)) continue;
@@ -37,8 +36,10 @@ function upsertTasks(dataDir, items, { now = () => new Date() } = {}) {
   const today = getLocalDateStamp(now());
   const added = [];
   const existing = [];
+  const rejected = [];
   const byDate = new Map();
   for (const item of items) {
+    if (!item?.dedupeKey) { rejected.push({ item, reason: 'missing dedupeKey' }); continue; }
     if (have.has(item.dedupeKey)) { existing.push(item.dedupeKey); continue; }
     const date = isValidDate(item.due) && item.due > today ? item.due : today;
     if (!byDate.has(date)) byDate.set(date, []);
@@ -66,18 +67,9 @@ function upsertTasks(dataDir, items, { now = () => new Date() } = {}) {
     if (data.date === undefined) data.date = date;
     if (data.tasks === undefined) data.tasks = [];
     data.tasks.push(...tasks);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const temp = `${file}.${process.pid}.${randomBytes(16).toString('hex')}.tmp`;
-    try {
-      fs.writeFileSync(temp, JSON.stringify(data, null, 2));
-      fs.renameSync(temp, file);
-    } finally {
-      try { fs.unlinkSync(temp); } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-      }
-    }
+    writeFileAtomic(file, JSON.stringify(data, null, 2));
   }
-  return { added, existing };
+  return { added, existing, rejected };
 }
 
 function missingTaskKeys(dataDir, keys) {

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { splitRoleKey } = require('../jobs/roles');
 
 const CONTRACT = 'jq-interview/1';
 const CONTRACT_MAJOR = 1;
@@ -34,6 +35,13 @@ function assertFolderName(name) {
   return s;
 }
 
+function assertRoleKey(roleKey) {
+  if (typeof roleKey !== 'string' || Object.values(splitRoleKey(roleKey)).some((part) => !part.trim())) {
+    throw new InputError('roleKey must look like "Company|Role"');
+  }
+  return roleKey;
+}
+
 function expandHome(p) { return String(p).replace(/^~(?=$|\/)/, os.homedir()); }
 
 function interviewHome(env = process.env) {
@@ -56,6 +64,6 @@ function dataDirFromEnv(env = process.env) {
 module.exports = {
   CONTRACT, CONTRACT_MAJOR, MARKER_MD, GENERATED_BY, ROUNDS, INTERVIEW_REPO, PLACEHOLDER,
   ContractError, InputError, NotFoundError,
-  contractMajor, assertContract, assertFolderName,
+  contractMajor, assertContract, assertFolderName, assertRoleKey,
   interviewHome, interviewInstalled, jobQuestHome, dataDirFromEnv,
 };

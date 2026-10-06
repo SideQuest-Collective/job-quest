@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createQueue } = require('../lib/jobs/queue');
-const { createResumeService } = require('../lib/resume/pipeline');
+const { createResumeService, ServiceError } = require('../lib/resume/pipeline');
 const { writeMaster } = require('../lib/resume/master');
 const { loadMaster, loadKeywords, jdText, identityTailored, analystReply, tmpDir } = require('./helpers/resume-fixtures');
 
@@ -333,6 +333,105 @@ test('injected date strings and numbers normalize every timestamp to ISO', async
     const tracker = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'role-tracker.json'), 'utf8'));
     assert.equal(tracker[ROLE].timeline[0].date, expected);
   }
+});
+
+test('resume metadata writes preserve another writer temporary file', async (t) => {
+  const h = harness({ scores: [90] });
+  t.after(() => fs.rmSync(h.dataDir, { recursive: true, force: true }));
+  const r = await run(h);
+  const metaFile = path.join(h.recDir(r.meta.id), 'meta.json');
+  const sharedTemp = `${metaFile}.tmp`;
+  const pending = '{"another":"writer"}';
+  fs.writeFileSync(sharedTemp, pending);
+  const original = fs.readFileSync(metaFile, 'utf8');
+  const rename = fs.renameSync;
+  let publications = 0;
+  t.mock.method(fs, 'renameSync', (source, destination) => {
+    if (destination === metaFile) {
+      publications++;
+      assert.equal(fs.readFileSync(metaFile, 'utf8'), original);
+      assert.equal(fs.readFileSync(sharedTemp, 'utf8'), pending);
+      assert.equal(path.dirname(source), path.dirname(metaFile));
+      assert.notEqual(source, sharedTemp);
+    }
+    return rename(source, destination);
+  });
+  const accepted = h.service.accept(r.meta.id);
+  assert.equal(publications, 1);
+  assert.equal(fs.readFileSync(metaFile, 'utf8'), JSON.stringify(accepted, null, 2));
+  assert.equal(fs.readFileSync(sharedTemp, 'utf8'), pending);
+  assert.deepEqual(fs.readdirSync(h.recDir(r.meta.id)).filter((name) => name.endsWith('.tmp')), ['meta.json.tmp']);
+});
+
+test('accept atomically publishes tracker changes through an isolated temporary file', async (t) => {
+  const h = harness({ scores: [90], now: () => '2026-10-06T12:00:00Z' });
+  const r = await run(h);
+  const trackerFile = path.join(h.dataDir, 'role-tracker.json');
+  const sharedTemp = `${trackerFile}.tmp`;
+  const existing = {
+    [ROLE]: { stage: 'onsite', notes: 'Keep notes', checklist: ['resume'], timeline: [{ key: 'interview:session-a', date: '2026-10-05', event: 'Interview' }] },
+    'Other|Role': { stage: 'saved', notes: 'Unchanged' },
+  };
+  const original = JSON.stringify(existing);
+  fs.writeFileSync(trackerFile, original);
+  fs.writeFileSync(sharedTemp, 'another writer');
+  const rename = fs.renameSync;
+  let publications = 0;
+  t.mock.method(fs, 'renameSync', (source, destination) => {
+    if (destination === trackerFile) {
+      publications++;
+      assert.equal(fs.readFileSync(trackerFile, 'utf8'), original);
+      assert.equal(path.dirname(source), h.dataDir);
+      assert.match(path.basename(source), /^role-tracker\.json\.\d+\.[a-f0-9]{32}\.tmp$/);
+      assert.equal(fs.readFileSync(sharedTemp, 'utf8'), 'another writer');
+      const pending = JSON.parse(fs.readFileSync(source, 'utf8'));
+      assert.deepEqual(pending, {
+        ...existing,
+        [ROLE]: { ...existing[ROLE], timeline: [...existing[ROLE].timeline, { date: '2026-10-06T12:00:00.000Z', event: 'Resume tailored (90)' }] },
+      });
+    }
+    return rename(source, destination);
+  });
+  const accepted = h.service.accept(r.meta.id);
+  assert.equal(accepted.accepted, true);
+  assert.equal(publications, 1);
+  assert.equal(JSON.parse(fs.readFileSync(trackerFile, 'utf8'))[ROLE].timeline.length, 2);
+  assert.deepEqual(fs.readdirSync(h.dataDir).filter((name) => name.startsWith('role-tracker.json.')), ['role-tracker.json.tmp']);
+  h.service.accept(r.meta.id);
+  assert.equal(publications, 1, 'accept stays idempotent');
+});
+
+test('accept rejects a corrupt tracker with 500 and leaves its bytes unchanged', async (t) => {
+  const h = harness({ scores: [90] });
+  t.after(() => fs.rmSync(h.dataDir, { recursive: true, force: true }));
+  const r = await run(h);
+  const trackerFile = path.join(h.dataDir, 'role-tracker.json');
+  const corrupt = Buffer.from('{"Other|Role":{"notes":"keep me"},\n');
+  fs.writeFileSync(trackerFile, corrupt);
+  const metaFile = path.join(h.recDir(r.meta.id), 'meta.json');
+  const beforeMeta = fs.readFileSync(metaFile);
+
+  assert.throws(() => h.service.accept(r.meta.id), (error) => {
+    assert.ok(error instanceof ServiceError);
+    assert.equal(error.status, 500);
+    assert.match(error.message, /^cannot read role-tracker\.json: /);
+    return true;
+  });
+  assert.deepEqual(fs.readFileSync(trackerFile), corrupt);
+  assert.deepEqual(fs.readFileSync(metaFile), beforeMeta, 'a failed accept remains retryable');
+});
+
+test('accept retains the missing tracker fallback and applied-stage default', async () => {
+  const h = harness({ scores: [90] });
+  const r = await run(h);
+  const trackerFile = path.join(h.dataDir, 'role-tracker.json');
+  fs.writeFileSync(path.join(h.dataDir, 'role-actions.json'), JSON.stringify({ applied: [ROLE] }));
+  h.service.accept(r.meta.id);
+  const tracker = JSON.parse(fs.readFileSync(trackerFile, 'utf8'));
+  assert.equal(tracker[ROLE].stage, 'applied');
+  assert.equal(tracker[ROLE].notes, '');
+  assert.deepEqual(tracker[ROLE].checklist, []);
+  assert.equal(tracker[ROLE].timeline[0].event, 'Resume tailored (90)');
 });
 
 test('malformed job ids never throw and public record lookups return a service error', async () => {

@@ -120,7 +120,7 @@ test('skeleton settling uses the injected clock, exact boundary, and settleMs ov
   assert.deepEqual(eligibleFolders(interviewHome, { now, settleMs: 1000 }), [FIXTURE_FOLDER]);
 });
 
-test('invalid names and escaping or broken symlinks are skipped without reading live', (t) => {
+test('invalid names and all symlinks are skipped without reading live or an in-tree alias', (t) => {
   const { interviewHome } = setup(t);
   const root = path.join(interviewHome, 'sessions');
   const dir = copyFixtureSession(interviewHome);
@@ -139,8 +139,19 @@ test('invalid names and escaping or broken symlinks are skipped without reading 
     reads.push(fs.realpathSync(file));
     return read(file, ...args);
   });
-  assert.deepEqual(eligibleFolders(interviewHome, { now }), [FIXTURE_FOLDER, 'inside']);
+  assert.deepEqual(eligibleFolders(interviewHome, { now }), [FIXTURE_FOLDER]);
   assert.ok(reads.every((file) => file.startsWith(fs.realpathSync(root) + path.sep)));
+});
+
+test('scanner recognizes the shared busy error prefix without logging a failure', async (t) => {
+  const { dataDir, interviewHome } = setup(t);
+  copyFixtureSession(interviewHome);
+  t.mock.method(records, 'withLock', async () => { throw new Error('busy: lock is still held'); });
+  const lines = [];
+  assert.deepEqual(await scanOnce({ dataDir, interviewHome, now, log: (line) => lines.push(line) }), [
+    { folder: FIXTURE_FOLDER, status: 'busy' },
+  ]);
+  assert.deepEqual(lines, []);
 });
 
 test('a busy folder is reported without waiting and retried on the next pass', async (t) => {
@@ -150,15 +161,72 @@ test('a busy folder is reported without waiting and retried on the next pass', a
   const lines = [];
   await records.withLock(dataDir, FIXTURE_FOLDER, async () => {
     const results = await scanOnce({ dataDir, interviewHome, now, log: (m) => lines.push(m) });
-    assert.match(results[0].error, /^busy: another ingest/);
+    assert.deepEqual(results[0], { folder: FIXTURE_FOLDER, status: 'busy' });
     assert.deepEqual(results[1], { folder: '2026-09-22_0900', status: 'unlinked' });
     assert.equal(records.readRecord(dataDir, FIXTURE_FOLDER), null);
   });
-  assert.equal(lines.length, 1);
+  assert.equal(lines.length, 0);
   assert.deepEqual(await scanOnce({ dataDir, interviewHome, now }), [
     { folder: FIXTURE_FOLDER, status: 'unlinked' },
     { folder: '2026-09-22_0900', status: 'unlinked' },
   ]);
+});
+
+for (const code of ['EACCES', 'ENOENT']) {
+  test(`scanOnce skips a sessions directory when enumeration fails with ${code}`, async (t) => {
+    const { dataDir, interviewHome } = setup(t);
+    copyFixtureSession(interviewHome);
+    const root = path.join(interviewHome, 'sessions');
+    const readdir = fs.readdirSync;
+    t.mock.method(fs, 'readdirSync', (dir, ...args) => {
+      if (dir === root) throw Object.assign(new Error(`cannot enumerate sessions: ${code}`), { code });
+      return readdir(dir, ...args);
+    });
+    const lines = [];
+    assert.deepEqual(eligibleFolders(interviewHome, { now }), []);
+    assert.deepEqual(await scanOnce({ dataDir, interviewHome, now, log: (line) => lines.push(line) }), []);
+    assert.deepEqual(lines, []);
+  });
+}
+
+test('scanner logs a returning error after the error changes', async (t) => {
+  const { dataDir, interviewHome } = setup(t);
+  const dir = copyFixtureSession(interviewHome);
+  setSessionFields(dir, { contractVersion: 'jq-interview/2' });
+  const lines = [];
+  const scanner = startScanner({ dataDir, interviewHome, now, intervalMs: 60 * 60 * 1000, log: (line) => lines.push(line) });
+  t.after(() => scanner.stop());
+  await scanner.runNow();
+  await scanner.runNow();
+  assert.equal(lines.length, 1);
+  setSessionFields(dir, { contractVersion: 'jq-interview/3' });
+  await scanner.runNow();
+  assert.equal(lines.length, 2);
+  setSessionFields(dir, { contractVersion: 'jq-interview/2' });
+  await scanner.runNow();
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0], lines[2]);
+  await scanner.runNow();
+  assert.equal(lines.length, 3);
+});
+
+test('scanner forgets error messages after a pass without the error', async (t) => {
+  const { dataDir, interviewHome } = setup(t);
+  const dir = copyFixtureSession(interviewHome);
+  setSessionFields(dir, { contractVersion: 'jq-interview/2' });
+  const lines = [];
+  const scanner = startScanner({ dataDir, interviewHome, now, intervalMs: 60 * 60 * 1000, log: (line) => lines.push(line) });
+  t.after(() => scanner.stop());
+  await scanner.runNow();
+  assert.equal(lines.length, 1);
+  const debrief = path.join(dir, 'debrief.md');
+  const content = fs.readFileSync(debrief, 'utf-8');
+  fs.rmSync(debrief);
+  assert.deepEqual(await scanner.runNow(), []);
+  fs.writeFileSync(debrief, content);
+  await scanner.runNow();
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0], lines[1]);
 });
 
 test('every record status is revisited, including failed and stale ingesting records', async (t) => {

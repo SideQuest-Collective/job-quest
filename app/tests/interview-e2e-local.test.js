@@ -40,6 +40,7 @@ test('real session copy: link, ingest, verify effects, re-ingest is unchanged', 
   withFakeAgent(t);
   const before = { session: treeHash(REAL_SESSION), tracker: stamp(path.join(REAL_DATA, 'role-tracker.json')) };
   const env = makeEnv();
+  t.after(() => fs.rmSync(env.root, { recursive: true, force: true }));
   fs.cpSync(REAL_SESSION, path.join(env.interviewHome, 'sessions', FOLDER), { recursive: true });
   for (const f of ['role-tracker.json', 'role-actions.json', 'profile.json']) {
     if (fs.existsSync(path.join(REAL_DATA, f))) fs.copyFileSync(path.join(REAL_DATA, f), path.join(env.dataDir, f));

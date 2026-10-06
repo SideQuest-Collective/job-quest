@@ -77,6 +77,19 @@ test('interview-context returns written, skipped, cheatsheet, practice', (t) => 
   assert.equal(r.json.practice, null);
 });
 
+test('interview-context accepts an empty round and preserves separators in the role', (t) => {
+  const env = setup(t);
+  const roleKey = 'Acme Capital|Software Engineer | Platform';
+  fs.writeFileSync(path.join(env.dataDir, 'role-tracker.json'), JSON.stringify({
+    [roleKey]: { stage: 'applied', url: '' },
+  }));
+  const r = run(env, ['interview-context', roleKey, '--round=', '--no-agent']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.practice, null);
+  assert.match(fs.readFileSync(path.join(env.interviewHome, 'context', 'target.md'), 'utf8'),
+    /Software Engineer \| Platform/);
+});
+
 test('interview-context preserves target cheatsheet and reports written, alternate, or blocked practice', (t) => {
   const env = setup(t);
   seedWorkbook(env.dataDir);
@@ -126,6 +139,32 @@ test('ingest-session, link-session, then ingest-session again', (t) => {
   assert.equal(c.json.status, 'unchanged');
 });
 
+test('link-session accepts a role containing another separator through the CLI', (t) => {
+  const env = setup(t);
+  const roleKey = 'Acme Capital|Software Engineer | Platform';
+  fs.writeFileSync(path.join(env.dataDir, 'role-tracker.json'), JSON.stringify({
+    [roleKey]: { stage: 'applied', url: '' },
+  }));
+  const result = run(env, ['link-session', FIXTURE_FOLDER, roleKey]);
+  assert.equal(result.code, 0);
+  assert.equal(result.json.status, 'ingested');
+  assert.match(result.json.summary, /Software Engineer \| Platform/);
+});
+
+test('ingest-session refuses a symlink by name and absolute path with an input-error exit', (t) => {
+  const env = setup(t);
+  const name = 'session-alias';
+  const alias = path.join(env.interviewHome, 'sessions', name);
+  fs.symlinkSync(path.join(env.interviewHome, 'sessions', FIXTURE_FOLDER), alias);
+  for (const folder of [name, alias]) {
+    const r = run(env, ['ingest-session', folder]);
+    assert.equal(r.code, 2, folder);
+    assert.deepEqual(Object.keys(r.json), ['error']);
+    assert.match(r.json.error, /session folder must not be a symlink/);
+  }
+  assert.equal(fs.existsSync(path.join(env.dataDir, 'interview-sessions', `${name}.json`)), false);
+});
+
 test('usage errors exit 2, runtime errors exit 1, both with {"error"} on stdout', (t) => {
   const env = setup(t);
   const cases = [
@@ -141,7 +180,6 @@ test('usage errors exit 2, runtime errors exit 1, both with {"error"} on stdout'
     [['ingest-session', '../bad'], 2, /invalid session folder name/],
     [['ingest-session', '2020-01-01_0000'], 1, /session folder not found/],
     [['interview-context', ROLE_KEY, '--round', 'lunch'], 2, /round must be one of/],
-    [['interview-context', ROLE_KEY, '--round='], 2, /round must be one of/],
   ];
   for (const [args, code, re] of cases) {
     const r = run(env, args);

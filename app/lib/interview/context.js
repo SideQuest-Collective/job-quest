@@ -2,7 +2,7 @@
 // `jq interview-context`: writes the inbound files for one role. Never blocks on workbook generation.
 const fs = require('fs');
 const path = require('path');
-const { CONTRACT, GENERATED_BY, ROUNDS, InputError } = require('./contract');
+const { CONTRACT, GENERATED_BY, ROUNDS, InputError, assertRoleKey } = require('./contract');
 const { slugify } = require('../jobs/slug');
 const { resolveRole } = require('../jobs/roles');
 const { writeOwned } = require('./markers');
@@ -21,8 +21,8 @@ function roleIds(role) {
 }
 
 async function writeInterviewContext({ dataDir, interviewHome, roleKey, round = null, noAgent = false, fetchJd = resumeBridge.fetchJdText, runAgentFn }) {
-  if (typeof roleKey !== 'string' || roleKey.split('|').length !== 2 || roleKey.split('|').some((part) => !part.trim())) throw new InputError('roleKey must look like "Company|Role"');
-  if (round != null && !ROUNDS.includes(round)) throw new InputError(`round must be one of ${ROUNDS.join(', ')}`);
+  assertRoleKey(roleKey);
+  if (round != null && round !== '' && !ROUNDS.includes(round)) throw new InputError(`round must be one of ${ROUNDS.join(', ')}`);
   const role = resolveRole(dataDir, roleKey);
   const { companySlug, roleId } = roleIds(role);
   const written = [];
@@ -74,6 +74,7 @@ async function writeInterviewContext({ dataDir, interviewHome, roleKey, round = 
       const r = writeOwned(csPath, `${JSON.stringify(doc, null, 2)}\n`);
       note(r);
       cheatsheet = csPath;
+      if (cs.stale) skipped.push({ path: csPath, reason: `cheatsheet-stale: ${cs.error}` });
     } else {
       skipped.push({ path: csPath, reason: cs.error });
     }
