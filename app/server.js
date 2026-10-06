@@ -33,6 +33,11 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 const PORT = process.env.PORT || 3847;
+const SERVER_INFO = {
+  pid: process.pid,
+  startedAt: new Date().toISOString(),
+  version: require('./package.json').version,
+};
 
 // Let the tracker route return its JSON validation error for null and primitives too.
 app.use('/api/role-tracker', express.json({ limit: '50mb', strict: false }));
@@ -63,7 +68,8 @@ app.put('/api/settings', (req, res) => res.json(writeSettings(DATA_DIR, req.body
 // --- /interview integration (contract jq-interview/1; see CONTRACT.md) ---
 const { registerInterviewRoutes } = require('./lib/interview/routes');
 const { startScanner: startInterviewScanner } = require('./lib/interview/scanner');
-const { interviewHome: resolveInterviewHome } = require('./lib/interview/contract');
+const { interviewHome: resolveInterviewHome, interviewInstalled } = require('./lib/interview/contract');
+const interviewRecords = require('./lib/interview/records');
 const INTERVIEW_HOME = resolveInterviewHome(process.env);
 registerInterviewRoutes(app, { dataDir: DATA_DIR, interviewHome: INTERVIEW_HOME });
 
@@ -281,6 +287,56 @@ function calculateStreak(allTasks) {
   }
   return streak;
 }
+
+// Lightweight status for menu bar / xbar plugin
+app.get('/api/status', (req, res) => {
+  // A damaged data source should only affect its own status fields.
+  const read = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+  const array = (value) => Array.isArray(value) ? value : [];
+  const today = getLocalDateStamp();
+  const allTasks = read(() => readDataDir('tasks'), []);
+  const todayTasks = findRecordByDate(allTasks, today);
+  const tasks = array(todayTasks?.tasks);
+  const tasksTotal = tasks.length;
+  const tasksDone = tasks.filter(t => t?.completed).length;
+
+  const allIntel = read(() => readDataDir('intel'), []);
+  const todayIntel = preferTodayOrLatest(allIntel, today);
+  const roles = array(todayIntel?.roles);
+  const intelDate = typeof todayIntel?.date === 'string' ? todayIntel.date : null;
+  const intelIsToday = intelDate === today;
+
+  const allQuizzes = read(() => readDataDir('quizzes'), []);
+  const todayQuiz = preferTodayOrLatest(allQuizzes, today);
+  const quizQuestions = array(todayQuiz?.questions);
+
+  const progress = read(() => JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'progress.json'), 'utf-8')), null);
+  const todayQuizResults = array(progress?.quizResults?.[today]);
+  const quizAnswered = todayQuizResults.length;
+  const quizCorrect = todayQuizResults.filter(a => a?.isCorrect).length;
+
+  const roleActions = read(() => JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'role-actions.json'), 'utf-8')), null);
+  const unlinked = read(() => interviewInstalled(INTERVIEW_HOME)
+    ? interviewRecords.listRecords(DATA_DIR).filter(record => record.status === 'unlinked').length
+    : 0, 0);
+
+  res.json({
+    ok: true,
+    date: today,
+    intelDate,
+    intelIsToday,
+    rolesToday: roles.length,
+    tasks: { done: tasksDone, total: tasksTotal },
+    quiz: { answered: quizAnswered, total: quizQuestions.length, correct: quizCorrect },
+    roles: {
+      saved: array(roleActions?.saved).length,
+      applied: array(roleActions?.applied).length,
+    },
+    streak: read(() => calculateStreak(allTasks), 0),
+    interview: { unlinked },
+    server: SERVER_INFO,
+  });
+});
 
 // Get applications tracker data
 app.get('/api/applications', (req, res) => {

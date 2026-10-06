@@ -154,6 +154,10 @@ echo "Installing runtime-neutral helpers..."
 cp "$APP_DIR/skill/bin/generate-plan.sh" "$BIN_DIR/generate-plan.sh"
 cp "$APP_DIR/skill/bin/code-review.sh" "$BIN_DIR/code-review.sh"
 cp "$APP_DIR/skill/bin/start.sh" "$BIN_DIR/start.sh"
+cp "$APP_DIR/skill/bin/stop.sh" "$BIN_DIR/stop.sh"
+cp "$APP_DIR/skill/bin/restart.sh" "$BIN_DIR/restart.sh"
+mkdir -p "$BIN_DIR/lib"
+cp "$APP_DIR/skill/bin/lib/dashboard-control.sh" "$BIN_DIR/lib/dashboard-control.sh"
 cp "$APP_DIR/skill/bin/run-daily-intel.sh" "$BIN_DIR/run-daily-intel.sh"
 cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
 cp "$APP_DIR/skill/bin/run-interview-trainer.sh" "$BIN_DIR/run-interview-trainer.sh"
@@ -170,7 +174,10 @@ fi
 cp "$APP_DIR/skill/bin/update.sh" "$BIN_DIR/update.sh"
 cp "$APP_DIR/skill/bin/uninstall.sh" "$BIN_DIR/uninstall.sh"
 cp "$APP_DIR/skill/bin/reinstall.sh" "$BIN_DIR/reinstall.sh"
-chmod +x "$BIN_DIR/"*.sh
+cp "$APP_DIR/skill/bin/install-xbar.sh" "$BIN_DIR/install-xbar.sh"
+mkdir -p "$BIN_DIR/xbar"
+cp "$APP_DIR/skill/bin/xbar/job-quest.5m.sh" "$BIN_DIR/xbar/job-quest.5m.sh"
+chmod +x "$BIN_DIR/"*.sh "$BIN_DIR/lib/"*.sh "$BIN_DIR/xbar/"*.sh
 
 # Job Quest CLI for /interview (contract jq-interview/1; see CONTRACT.md).
 # Named jq by the contract. ~/.job-quest/bin is never added to PATH, so the jq JSON tool is unaffected;
@@ -220,3 +227,9 @@ echo ""
 echo "  /interview integration (optional):"
 echo "    ~/.job-quest/bin/jq  (Job Quest CLI, run by absolute path; not on PATH, does not replace the jq JSON tool)"
 echo ""
+if [ "$(uname -s)" = "Darwin" ]; then
+  echo "  Optional menu bar plugin (macOS, requires xbar):"
+  echo "    ~/.job-quest/bin/install-xbar.sh"
+  echo "    Adds 'JQ' to your menu bar so you can monitor and manage Job Quest."
+  echo ""
+fi

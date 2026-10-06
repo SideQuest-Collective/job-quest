@@ -627,8 +627,38 @@ const api = {
   post: (url, data) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
 };
 
+/* ===== PAGE HASH ROUTING ===== */
+const PAGE_IDS = new Set([
+  'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel',
+  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer',
+]);
+
+function readPageHash() {
+  const id = window.location.hash.slice(1);
+  return PAGE_IDS.has(id) ? id : null;
+}
+
+function usePageRouting() {
+  const [page, setPage] = useState(() => readPageHash() || 'dashboard');
+  useEffect(() => {
+    const onHashChange = () => {
+      const id = readPageHash();
+      if (id) setPage(id);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+  useEffect(() => {
+    if (page === 'dashboard' && window.location.hash === '') return;
+    if (PAGE_IDS.has(page) && window.location.hash !== `#${page}`) {
+      window.history.replaceState(window.history.state, '', `#${page}`);
+    }
+  }, [page]);
+  return [page, setPage];
+}
+
 function App() {
-  const [page, setPage] = useState('dashboard');
+  const [page, setPage] = usePageRouting();
   const [progress, setProgress] = useState({});
   const [todayTasks, setTodayTasks] = useState(null);
   const [todayQuiz, setTodayQuiz] = useState(null);
@@ -667,7 +697,7 @@ function App() {
     const sd = new URLSearchParams(window.location.search).get('sd');
     if (sd) {
       openSystemDesignTopic({ id: sd });
-      window.history.replaceState(null, '', window.location.pathname);
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}#sysdesign`);
     }
   }, []);
 

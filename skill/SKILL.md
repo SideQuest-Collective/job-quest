@@ -180,7 +180,7 @@ Write all outputs to `~/.job-quest/data/` in the correct JSON formats (see `refe
 
 Start the web dashboard via the installed helper:
 ```bash
-~/.job-quest/bin/start.sh &
+~/.job-quest/bin/start.sh --background
 ```
 
 Tell the user it's running at `http://localhost:3847` and give them a quick tour:
@@ -199,6 +199,20 @@ Tell the user it's running at `http://localhost:3847` and give them a quick tour
 
 Your daily intel agent is scheduled and will generate fresh content every [schedule]. Run `/job-quest` anytime to check in."
 
+### Phase 7 (macOS only, optional): Offer the Menu Bar Plugin
+
+After orienting the user, if they're on macOS, offer the optional xbar menu bar plugin. Use AskUserQuestion:
+
+> "Want to add a Job Quest icon to your menu bar? It shows today's role count, task progress, and lets you start, stop or restart the dashboard or refresh intel from anywhere. Requires xbar (free, open-source)."
+
+Options: "Install now", "Skip for now", "Tell me more".
+
+If they choose **Install now**, run `~/.job-quest/bin/install-xbar.sh`. The script checks for xbar and prints the `brew install --cask xbar` command if it's missing — relay that to the user if it errors. After install, tell them to look for the "JQ" item in their menu bar.
+
+If they choose **Tell me more**, explain: the plugin polls `/api/status` every 5 minutes: running shows progress, stopped shows **JQ ⏸**, and unresponsive shows **JQ ⚠**. It offers Start Server, Stop Server, Restart Server, and Refresh Intel Now; startup checks health and intel runs in the background. View Dashboard Log opens `~/.job-quest/data/logs/dashboard.log`; View Intel Log opens `daily-intel.log` in the same folder. Page shortcuts and unlinked interview sessions open the relevant dashboard page. Remove it with `~/.job-quest/bin/install-xbar.sh --uninstall`.
+
+If xbar isn't installed and the user wants the plugin, ask whether they want to install xbar via Homebrew now or skip until later.
+
 ## Returning User Flow
 
 When the user comes back (profile.json exists), read their profile and today's data, then ask what they want to focus on:
@@ -215,7 +229,8 @@ What do you want to work on?
 6. System design discussion
 7. Interview trainer (hourly questions via iMessage)
 8. Update my profile or schedule
-9. Manage installation (reinstall / uninstall)
+9. Install or remove the menu bar plugin (macOS)
+10. Manage installation (reinstall / uninstall)
 ```
 
 Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 options per question, split this into two questions or present it as a category chooser first ("What area?" → "Practice", "Review", "Manage setup") then drill into specifics. Then help them with whatever they chose — this skill is their ongoing job search companion, not just a one-time setup.
@@ -486,6 +501,15 @@ One-step clean reset — runs uninstall then re-runs `install.sh` from GitHub.
 ```bash
 ~/.job-quest/bin/reinstall.sh --yes
 ~/.job-quest/bin/reinstall.sh --yes --keep-data
+```
+
+### install-xbar.sh (macOS only)
+Installs the optional plugin into `~/Library/Application Support/xbar/plugins/job-quest.5m.sh`. Every 5 minutes it shows running progress, stopped (**JQ ⏸**), or unresponsive (**JQ ⚠**) status. Start Server launches in the background and checks health; Stop Server and Restart Server control the dashboard. Refresh Intel Now runs detached. View Dashboard Log opens `~/.job-quest/data/logs/dashboard.log`; View Intel Log opens `daily-intel.log` there. Links open Intel, Daily Tasks, Workbooks (including unlinked interviews), Code Lab, and Trainer. If xbar is missing, installation prints `brew install --cask xbar` and exits non-zero.
+
+```bash
+~/.job-quest/bin/install-xbar.sh             # install plugin and refresh xbar
+~/.job-quest/bin/install-xbar.sh --status    # print install state
+~/.job-quest/bin/install-xbar.sh --uninstall # remove plugin
 ```
 
 When the user asks to practice coding, prep for an interview, or start the dashboard, use these scripts rather than reimplementing the functionality. They handle runtime detection, shared-home paths, and error logging.

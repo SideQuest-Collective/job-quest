@@ -37,8 +37,9 @@ echo "  Product home: $PRODUCT_HOME"
 echo "  Claude skill: $CLAUDE_SKILL_DIR"
 echo "  Codex skill:  $CODEX_SKILL_DIR"
 echo "  Legacy shim:  $LEGACY_HOME"
-echo "  Server:       process on port 3847 (if running)"
+echo "  Server:       node listener on port ${JOB_QUEST_PORT:-${PORT:-3847}} (if running)"
 echo "  Schedule:     daily intel cron/launchd entry"
+echo "  Menu bar:     xbar plugin (if installed)"
 echo ""
 
 if [ "$AUTO_YES" = false ]; then
@@ -50,37 +51,21 @@ if [ "$AUTO_YES" = false ]; then
   echo ""
 fi
 
-stop_dashboard_server() {
-  local pids pid comm attempt term_pids=" "
-  pids="$(lsof -nP -t -iTCP:3847 -sTCP:LISTEN 2>/dev/null || true)"
-  [ -n "$pids" ] || return 0
-
-  while IFS= read -r pid; do
-    [ -n "$pid" ] || continue
-    comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
-    if [ "${comm##*/}" = node ]; then
-      kill "$pid" 2>/dev/null || true
-      term_pids+="$pid "
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Reinstall runs a temporary copy, so also look in the installed bin and checkout.
+for helper in "$SCRIPT_DIR/lib/dashboard-control.sh" "$BIN_DIR/lib/dashboard-control.sh" "$APP_DIR/skill/bin/lib/dashboard-control.sh"; do
+  if [ -f "$helper" ]; then
+    # shellcheck disable=SC1090
+    if source "$helper" && declare -F stop_dashboard_server >/dev/null; then
+      break
     fi
-  done <<< "$pids"
-
-  # Allow listeners time to exit, without waiting indefinitely on another app.
-  for attempt in 1 2 3 4 5; do
-    [ -n "$(lsof -nP -t -iTCP:3847 -sTCP:LISTEN 2>/dev/null || true)" ] || return 0
-    sleep 1
-  done
-
-  # Force-stop only original TERM targets that are still listening as node.
-  pids="$(lsof -nP -t -iTCP:3847 -sTCP:LISTEN 2>/dev/null || true)"
-  while IFS= read -r pid; do
-    [ -n "$pid" ] || continue
-    comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
-    if [ "${comm##*/}" = node ] && [[ "$term_pids" == *" $pid "* ]]; then
-      kill -9 "$pid" 2>/dev/null || true
-    fi
-  done <<< "$pids"
-}
-stop_dashboard_server
+  fi
+done
+if declare -F stop_dashboard_server >/dev/null; then
+  stop_dashboard_server || echo "  Warning: dashboard stop failed; continuing uninstall." >&2
+else
+  echo "  Warning: dashboard stop helper not found; skipping server stop." >&2
+fi
 
 SCHEDULE_REMOVER="$BIN_DIR/install-schedule.sh"
 if [ -x "$SCHEDULE_REMOVER" ]; then
@@ -107,6 +92,12 @@ else
   if crontab -l 2>/dev/null | grep -qe "# job-quest-interview-trainer" -e "# job-quest-trainer-replies"; then
     crontab -l 2>/dev/null | grep -v "# job-quest-interview-trainer" | grep -v "# job-quest-trainer-replies" | crontab - 2>/dev/null || true
   fi
+fi
+
+XBAR_PLUGIN="$HOME/Library/Application Support/xbar/plugins/job-quest.5m.sh"
+if [ -f "$XBAR_PLUGIN" ]; then
+  rm -f "$XBAR_PLUGIN"
+  open -g "xbar://app.xbarapp.com/refreshAllPlugins" >/dev/null 2>&1 || true
 fi
 
 rm -rf "$CLAUDE_SKILL_DIR" "$CODEX_SKILL_DIR"

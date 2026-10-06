@@ -25,6 +25,54 @@ if [ ! -d "$DASHBOARD_DIR" ]; then
   exit 1
 fi
 
+if [ "${1:-}" = --background ]; then
+  PORT="${JOB_QUEST_PORT:-${PORT:-3847}}"
+  export PORT
+  DATA_DIR="${DATA_DIR:-$JOB_QUEST_DATA_DIR}"
+  LOG_FILE="$DATA_DIR/logs/dashboard.log"
+
+  # Keep health-check, listener-check and spawn atomic across menu-bar clicks.
+  mkdir -p "$DATA_DIR/logs"
+  START_LOCK="$DATA_DIR/.start.lock"
+  if ! mkdir "$START_LOCK" 2>/dev/null; then
+    echo "Error: dashboard start is already in progress ($START_LOCK)." >&2
+    exit 1
+  fi
+  trap 'rmdir "$START_LOCK" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  dashboard_healthy() {
+    curl -fsS --connect-timeout 1 --max-time 1 "http://localhost:$PORT/api/status" 2>/dev/null |
+      node -e 'let body=""; process.stdin.on("data", chunk => body += chunk); process.stdin.on("end", () => { try { process.exit(JSON.parse(body).ok === true ? 0 : 1); } catch { process.exit(1); } });' >/dev/null 2>&1
+  }
+
+  if dashboard_healthy; then
+    echo "Job Quest dashboard is already running at http://localhost:$PORT"
+    exit 0
+  fi
+  if [ -n "$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)" ]; then
+    echo "Error: port $PORT is occupied but the dashboard is not healthy. See $LOG_FILE" >&2
+    exit 1
+  fi
+
+  cd "$DASHBOARD_DIR"
+  DATA_DIR="$DATA_DIR" nohup node server.js </dev/null >>"$LOG_FILE" 2>&1 &
+  disown "$!"
+
+  # One-second requests and a deadline bound even slow or unresponsive servers.
+  deadline=$((SECONDS + 15))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if dashboard_healthy; then
+      echo "Job Quest dashboard is running at http://localhost:$PORT"
+      exit 0
+    fi
+    [ "$SECONDS" -ge "$deadline" ] || sleep 1
+  done
+  echo "Error: dashboard did not become healthy within 15 seconds. See $LOG_FILE" >&2
+  exit 1
+fi
+
 echo ""
 echo "  Starting Job Quest Command Center..."
 echo "  Runtime:   $(job_quest_runtime_hint)"

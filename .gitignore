@@ -9,6 +9,9 @@ logs/
 # macOS
 .DS_Store
 
+# local agent scaffolding
+/.superpowers/
+
 # user data directories created when installed at ~/.claude/job-quest/
 # (anchored with leading / so they don't collide with app/ or skill/ subtrees)
 /bin/
