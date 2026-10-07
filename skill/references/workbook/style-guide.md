@@ -16,6 +16,8 @@ Assume nothing beyond the strengths above. Anything outside them is defined in p
 
 Write content that **teaches**. The goal is understanding, not a cheat sheet. Keep every fact tied to the research; don't invent facts about the company. You may add general, well-established technical explanation.
 
+Teach how to answer the interview questions, not what the company does. Don't write about the company's products, business, history, or news, and never ask a question whose answer is a fact about the company. A reported scenario can be the setting for a problem; the question tests the code or the design.
+
 ## Chapters
 
 Structure each chapter like this:
