@@ -172,6 +172,34 @@ test('completed review adds one activity event; retry, replay and summary recove
   assert.equal(events().length, 1); assert.equal(calls, 2);
   assert.equal(h.service.get(attempt.id).activityRecorded, true);
 });
+test('completed review migrates an empty legacy activity array and records once', async t => {
+  const h = harness(t);
+  const file = path.join(h.dir, 'activity.json');
+  fs.writeFileSync(file, '[]');
+  const { attempt } = h.service.submit('behavioral', answer);
+  await h.queue.drain();
+  const events = () => Object.values(read(file, {})).flatMap(day => day.events);
+  assert.equal(Array.isArray(read(file, {})), false);
+  assert.equal(events().length, 1);
+  assert.equal(events()[0].detail.attemptId, attempt.id);
+  const record = h.service.get(attempt.id);
+  delete record.activityRecorded;
+  write(path.join(h.dir, `feedback/${attempt.id}.json`), record);
+  h.service.recover();
+  assert.equal(events().length, 1);
+  assert.equal(h.service.get(attempt.id).activityRecorded, true);
+});
+test('nonempty legacy activity arrays are preserved when feedback completes', async t => {
+  const h = harness(t);
+  const file = path.join(h.dir, 'activity.json');
+  const original = '[{"legacy":"keep"}]';
+  fs.writeFileSync(file, original);
+  const { attempt } = h.service.submit('behavioral', answer);
+  await h.queue.drain();
+  assert.equal(h.service.get(attempt.id).status, 'done');
+  assert.ok(h.service.get(attempt.id).activityError);
+  assert.equal(fs.readFileSync(file, 'utf8'), original);
+});
 test('secondary activity failure preserves valid feedback and recovers without AI', async t => {
   let calls = 0;
   const h = harness(t, async () => { calls++; return grade(); });

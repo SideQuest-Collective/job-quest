@@ -135,8 +135,15 @@ function writeData(subdir, filename, data) {
 const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.json');
 
 function readActivity() {
-  if (fs.existsSync(ACTIVITY_FILE)) return JSON.parse(fs.readFileSync(ACTIVITY_FILE, 'utf-8'));
-  return {};
+  if (!fs.existsSync(ACTIVITY_FILE)) return {};
+  const activity = JSON.parse(fs.readFileSync(ACTIVITY_FILE, 'utf-8'));
+  // The original local migration wrote an empty array. JSON drops date-keyed
+  // properties added to arrays, so migrate that one empty shape on next write.
+  if (Array.isArray(activity) && activity.length === 0) return {};
+  if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
+    throw new Error('Activity journal has an unsupported shape; existing entries were preserved.');
+  }
+  return activity;
 }
 
 function logActivity(type, detail) {
@@ -149,6 +156,15 @@ function logActivity(type, detail) {
     timestamp: new Date().toISOString(),
   });
   fs.writeFileSync(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
+}
+
+function countActiveDays(activity, allTasks) {
+  const practiceEvents = new Set(['quiz_answer', 'problem_solved', 'code_review', 'task_update', 'behavioral_answer_reviewed', 'trainer_question_answered']);
+  const journalDays = Object.entries(activity)
+    .filter(([, day]) => day?.events?.some(event => practiceEvents.has(event.type)))
+    .map(([date]) => date);
+  const completedTaskDays = allTasks.filter(day => day.tasks?.some(task => task.completed)).map(day => day.date);
+  return new Set([...journalDays, ...completedTaskDays]).size;
 }
 
 // --- Auto-complete daily tasks helper ---
@@ -311,7 +327,7 @@ app.get('/api/progress', (req, res) => {
     ...progress,
     totalTasks, completedTasks,
     totalQuestions, correctAnswers,
-    daysActive: new Set([...Object.entries(readActivity()).filter(([,day]) => day?.events?.some(e => ['quiz_answer','code_solved','task_update','feedback_reviewed'].includes(e.type))).map(([date])=>date), ...allTasks.filter(day=>day.tasks?.some(t=>t.completed)).map(day=>day.date)]).size,
+    daysActive: countActiveDays(readActivity(), allTasks),
     quizDays: Object.keys(progress.quizResults || {}).length,
     streak: calculateStreak(allTasks)
   });

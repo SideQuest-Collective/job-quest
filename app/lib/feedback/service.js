@@ -67,7 +67,11 @@ function createFeedbackService({ dataDir, queue, handlers, evaluate = runEvaluat
     // valid review into a failed grade; recover() retries without re-running AI.
     try {
       const file = path.join(dataDir, 'activity.json');
-      const activity = read(file, {});
+      let activity = read(file, {});
+      if (Array.isArray(activity) && activity.length === 0) activity = {};
+      if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
+        throw new Error('Activity journal has an unsupported shape; existing entries were preserved.');
+      }
       const alreadyRecorded = Object.values(activity).some(day => (day?.events || []).some(event => event.detail?.attemptId === a.id));
       if (!alreadyRecorded) {
         const date = getLocalDateStamp(new Date(a.finishedAt));
