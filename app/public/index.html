@@ -779,7 +779,7 @@ function App() {
         {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover allRoles={allRoles} roleActions={roleActions} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
         {visited.current.has('tasks') && <section className="page-surface" hidden={page !== 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
-        {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} /></section>}
+        {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} /></section>}
         {visited.current.has('intel') && <section className="page-surface" hidden={page !== 'intel'}><Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} /></section>}
         {visited.current.has('workbooks') && <section className="page-surface" hidden={page !== 'workbooks'}><Workbooks setPage={setPage} /></section>}
         {visited.current.has('calendar') && <section className="page-surface" hidden={page !== 'calendar'}><Calendar progress={progress} /></section>}
@@ -1366,7 +1366,7 @@ function TexEditor({ code, onChange }) {
   return <div ref={ref} style={{height:'100%',width:'100%'}} />;
 }
 
-function Resume({ resume, setResume }) {
+function Resume({ resume, setResume, active }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -1628,7 +1628,7 @@ function Resume({ resume, setResume }) {
   const sortedDirs = Object.keys(tree).sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b));
   const canEdit = selectedFile && isTextFile(selectedFile);
 
-  if (view === 'home') return <window.ResumeHome onOpenLatex={() => { loadFiles(); setView('files'); }} onOpenMaster={() => setView('master')} />;
+  if (view === 'home') return <window.ResumeHome active={active} onOpenLatex={() => { loadFiles(); setView('files'); }} onOpenMaster={() => setView('master')} />;
   if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;
 
   // Empty state — show upload zone

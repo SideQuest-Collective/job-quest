@@ -1,5 +1,5 @@
 /* Regular resumes remain usable as originals; AI imports are reviewed before saving. */
-window.ResumeHome = function ResumeHome({ onOpenLatex, onOpenMaster }) {
+window.ResumeHome = function ResumeHome({ onOpenLatex, onOpenMaster, active = true }) {
   const { useState, useEffect, useRef } = React;
   const [files, setFiles] = useState([]), [selected, setSelected] = useState('');
   const [master, setMaster] = useState(null), [runtime, setRuntime] = useState('');
@@ -8,7 +8,7 @@ window.ResumeHome = function ResumeHome({ onOpenLatex, onOpenMaster }) {
   const [proposal, setProposal] = useState(null), [reviewed, setReviewed] = useState(false);
   const fileInput = useRef(null), reviewSection = useRef(null), inFlight = useRef(false);
   const request = async (url, method = 'GET', body) => {
-    const response = await fetch(url, { method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
+    const response = await fetch(url, { method, cache: 'no-store', ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
     const data = await response.json();
     if (!response.ok) throw Error([data.error || 'The request could not be completed.', ...(data.errors || [])].join(' '));
     return data;
@@ -28,7 +28,16 @@ window.ResumeHome = function ResumeHome({ onOpenLatex, onOpenMaster }) {
     if (failures.length) setError(failures.join(' '));
     setLoading(false);
   };
-  useEffect(() => { refresh(); }, []);
+  // Refresh shared saved data when this retained page becomes visible again.
+  // The unsaved import proposal remains separate and is never replaced here.
+  useEffect(() => {
+    if (!active) return;
+    const reload = () => { if (!inFlight.current && document.visibilityState !== 'hidden') refresh(); };
+    reload();
+    window.addEventListener('focus', reload);
+    document.addEventListener('visibilitychange', reload);
+    return () => { window.removeEventListener('focus', reload); document.removeEventListener('visibilitychange', reload); };
+  }, [active]);
   useEffect(() => {
     if (!proposal && !busy) return;
     const warn = event => { event.preventDefault(); event.returnValue = ''; };
