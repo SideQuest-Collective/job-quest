@@ -1709,6 +1709,9 @@ app.post('/api/resume/tailored', resumeRoute((req, res) => {
   if (result.created) logActivity('resume_tailor_requested', { roleKey, id: result.meta.id });
   res.status(result.created ? 201 : 200).json(result);
 }));
+app.get('/api/resume/library', resumeRoute((req, res) => res.json(resumeService.library())));
+app.put('/api/resume/tailored/:id/used', resumeRoute((req, res) => res.json(resumeService.setUsed(req.params.id, req.body ? req.body.used : undefined))));
+app.post('/api/resume/tailored/:id/run-now', resumeRoute((req, res) => res.json(resumeService.runNow(req.params.id))));
 app.get('/api/resume/tailored/:id', resumeRoute((req, res) => res.json(resumeService.getRecord(req.params.id))));
 app.put('/api/resume/tailored/:id/jd', resumeRoute((req, res) => res.json(resumeService.setJd(req.params.id, req.body && req.body.text))));
 app.post('/api/resume/tailored/:id/retry', resumeRoute((req, res) => res.json(resumeService.retry(req.params.id))));

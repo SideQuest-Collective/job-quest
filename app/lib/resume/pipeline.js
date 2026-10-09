@@ -437,6 +437,68 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     return { round: n, ...diffTailored(readMaster(dataDir), readJson(path.join(dir, `round-${n}`, 'tailored.json'))) };
   }
 
+  // A resume counts as used to apply when accepted, unless the user overrode it.
+  const isUsed = (meta) => (typeof meta.usedToApply === 'boolean' ? meta.usedToApply : !!meta.accepted);
+
+  function setUsed(id, used) {
+    mustMeta(id);
+    if (used !== true && used !== false && used !== null) throw new ServiceError(400, 'used must be true, false, or null');
+    return patchMeta(id, { usedToApply: used });
+  }
+
+  function runNow(id) {
+    const meta = mustMeta(id);
+    if (!meta.deferred) throw new ServiceError(409, 'only a resume waiting on the daily cap can be started now');
+    if (!queue || !queue.runNow(`resume:${id}`)) throw new ServiceError(409, 'no deferred job found for this resume');
+    return patchMeta(id, { deferred: false });
+  }
+
+  // Every tailored resume with its tracker stage, best-round breakdown, and queue position.
+  function library() {
+    let tracker = {};
+    try { tracker = readTracker(dataDir) || {}; } catch {}
+    const actions = readJson(path.join(dataDir, 'role-actions.json'), {}) || {};
+    const jobs = queue ? queue.list() : [];
+    const waiting = jobs.filter((j) => j.status === 'running' || j.status === 'queued');
+    const records = listMeta().map((meta) => {
+      const dir = recDir(meta.id);
+      const score = meta.bestRound ? readJson(path.join(dir, `round-${meta.bestRound}`, 'score.json')) : null;
+      const job = jobs.find((j) => j.key === `resume:${meta.id}` && ['queued', 'running', 'deferred'].includes(j.status)) || null;
+      let queueInfo = null;
+      if (job) {
+        const i = waiting.indexOf(job);
+        const ahead = i > 0 ? waiting.slice(0, i) : [];
+        queueInfo = {
+          status: job.status, startedAt: job.startedAt, progress: job.progress,
+          ahead: ahead.map((j) => ({ kind: j.kind, key: j.key, status: j.status })),
+        };
+      }
+      const stages = (meta.roleKeys || []).map((k) => (tracker[k] && tracker[k].stage)
+        || ((actions.applied || []).includes(k) ? 'applied' : (actions.saved || []).includes(k) ? 'saved' : null));
+      return {
+        ...meta,
+        used: isUsed(meta),
+        stage: stages.find(Boolean) || null,
+        categories: score ? score.categories : null,
+        roundCount: (meta.rounds || []).length,
+        queue: queueInfo,
+      };
+    });
+    const scored = records.filter((r) => typeof r.bestScore === 'number');
+    const summary = {
+      total: records.length,
+      active: records.filter((r) => ACTIVE.has(r.status)).length,
+      deferred: records.filter((r) => r.deferred).length,
+      atTarget: scored.filter((r) => r.bestScore >= TARGET).length,
+      belowTarget: scored.filter((r) => r.bestScore < TARGET).length,
+      failed: records.filter((r) => r.status === 'failed').length,
+      used: records.filter((r) => r.used).length,
+      avgScore: scored.length ? Math.round(scored.reduce((s, r) => s + r.bestScore, 0) / scored.length) : null,
+      target: TARGET,
+    };
+    return { records, summary };
+  }
+
   async function importLatex(texPath) {
     if (!fs.existsSync(texPath)) throw new ServiceError(404, `LaTeX file not found: ${path.basename(texPath)}`);
     const cwd = path.join(dataDir, 'resume', 'import');
@@ -456,7 +518,7 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
   }
 
   return {
-    tailoredDir, listMeta, requestTailor, autoTailor, runJob, getRecord, retry, setJd, accept, remove, pdfPath, diff, importLatex,
+    tailoredDir, listMeta, library, requestTailor, autoTailor, runJob, getRecord, retry, setJd, accept, setUsed, runNow, remove, pdfPath, diff, importLatex,
   };
 }
 
