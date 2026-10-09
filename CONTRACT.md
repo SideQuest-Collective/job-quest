@@ -20,13 +20,13 @@ Every subcommand prints one JSON value on stdout. On failure it exits non-zero a
 | Command | Output |
 |---|---|
 | `jq version` | `{"version": "<semver>", "contract": "jq-interview/1"}` |
-| `jq roles --company <name>` | `[{"roleKey", "company", "role", "stage", "hasWorkbook", "hasTailoredResume"}]` |
+| `jq roles --company <name>` or `jq roles --all` | `[{"roleKey", "company", "role", "stage", "hasWorkbook", "hasTailoredResume"}]` |
 | `jq interview-context <roleKey> [--round <round>] [--no-agent]` | `{"written": [path], "skipped": [{"path", "reason", "wroteInstead"?}], "cheatsheet": path or null, "practice": path or null}` |
 | `jq ingest-session <folder>` | `{"status": "ingested" or "unchanged" or "unlinked", "folder", "effects": {"timeline": [], "stage": {"from", "to"} or null, "workbookQids": [], "tasks": [], "progress": []}, "summary": "<one line>"}` |
 | `jq link-session <folder> <roleKey>` | same shape as `ingest-session` |
 
 - `roleKey` is `"Company|Role"`. `<round>` is one of `coding`, `system`, `behavioral`, `recruiter`, `screen`. `<folder>` is a folder name under `~/.interview/sessions/` or an absolute path to one.
-- `roles` matches the company case-insensitively: the company's slug equals the query's slug, or starts with it followed by a word break (`two` matches `Two Sigma`). Results are ordered by most recent tracker activity first.
+- `roles --company` matches the company case-insensitively: the company's slug equals the query's slug, or starts with it followed by a word break (`two` matches `Two Sigma`). `roles --all` lists every tracked, saved, or applied role across companies, including roles without an application. The two flags are mutually exclusive. Both forms return the same fields, ordered by most recent tracker activity first, then role key.
 - `interview-context` never blocks on building a workbook. When the role has none, it writes what it can and lists the gap under `skipped` with reason `no-workbook`. `cheatsheet` is the cheat-sheet path /interview should load (the target path whenever a file exists there); `practice` is the practice file Job Quest wrote, if any. `--no-agent` uses only cached cheat sheets.
 
 ## Inbound files (Job Quest writes into `~/.interview/`)
