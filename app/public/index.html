@@ -2054,6 +2054,7 @@ function MasterEditor({ onExit }) {
           <div key={e.id} style={{ borderTop: ei ? '1px solid var(--border)' : 'none', paddingTop: ei ? 12 : 0, marginTop: ei ? 12 : 0 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <RmField label="employer" value={e.employer} onChange={(v) => setListItem('experience', ei, { employer: v })} />
+              <RmField label="location" value={e.location || ''} onChange={(v) => setListItem('experience', ei, { location: v })} />
               <RmField label="start" value={e.start} placeholder="2019-03" onChange={(v) => setListItem('experience', ei, { start: v.trim() })} />
               <RmField label="end" value={e.end || ''} placeholder="Present" onChange={(v) => setListItem('experience', ei, { end: endOrNull(v) })} />
               <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ experience: rmMove(master.experience, ei, -1) })}>↑</button>
@@ -2123,6 +2124,16 @@ function MasterEditor({ onExit }) {
           </div>
         ))}
         <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ education: [...master.education, { school: '', degree: '', start: '', end: '' }] })}>+ Education</button>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Additional sections</div>
+        {(master.additionalSections || []).map((section, i) => <div key={i} style={{ marginBottom: 16 }}>
+          <RmField label="Section title" value={section.title} onChange={v => setListItem('additionalSections', i, { title: v })} />
+          <RmField label="Section content" value={section.body} multiline rows={4} onChange={v => setListItem('additionalSections', i, { body: v })} />
+          <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => removeListItem('additionalSections', i)}>Remove section</button>
+        </div>)}
+        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ additionalSections: [...(master.additionalSections || []), { title: '', body: '' }] })}>Add section</button>
       </div>
 
       <div style={rmCard}>

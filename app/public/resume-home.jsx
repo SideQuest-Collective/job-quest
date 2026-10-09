@@ -35,7 +35,7 @@ window.ResumeHome = function ResumeHome({ onOpenLatex, onOpenMaster }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [proposal, busy]);
-  const hasMaster = Boolean(master && (master.contact?.name || master.summary || master.experience?.length || master.education?.length));
+  const hasMaster = Boolean(master && (master.contact?.name || master.summary || master.experience?.length || master.education?.length || master.additionalSections?.length));
   const fileUrl = selected ? '/api/resume/file/' + selected.split('/').map(encodeURIComponent).join('/') : '';
   const leave = callback => { if (!proposal || window.confirm('Discard the unsaved import review? Your original file will stay saved.')) callback(); };
   const upload = async event => {
@@ -140,17 +140,18 @@ function ResumeReadableDocument({ data }) {
     <h3>{text(c.name) || 'Name not provided'}</h3>
     <p className="rh-muted">{[c.email, c.phone, c.location, c.linkedin, ...array(c.links)].map(text).filter(Boolean).join(' · ')}</p>
     {data.headline && <strong>{text(data.headline)}</strong>}{data.summary && <p>{text(data.summary)}</p>}
-    {array(data.experience).length > 0 && <><h4>Experience</h4>{data.experience.map((job, i) => <section key={i}><h5>{text(job.employer)}</h5><div className="rh-muted">{dates(job.start, job.end)}</div>{array(job.roles).map((role, j) => <div key={j}><strong>{text(role.title)}{role.team ? ' · ' + text(role.team) : ''}</strong><div className="rh-muted">{dates(role.start, role.end)}</div>{bullets(role.bullets)}</div>)}</section>)}</>}
+    {array(data.experience).length > 0 && <><h4>Experience</h4>{data.experience.map((job, i) => <section key={i}><h5>{text(job.employer)}</h5>{job.location && <div className="rh-muted">{text(job.location)}</div>}<div className="rh-muted">{dates(job.start, job.end)}</div>{array(job.roles).map((role, j) => <div key={j}><strong>{text(role.title)}{role.team ? ' · ' + text(role.team) : ''}</strong><div className="rh-muted">{dates(role.start, role.end)}</div>{bullets(role.bullets)}</div>)}</section>)}</>}
     {array(data.projects).length > 0 && <><h4>Projects</h4>{data.projects.map((project, i) => <section key={i}><h5>{text(project.name)}</h5><div className="rh-muted">{array(project.tech).map(text).join(', ')}</div>{bullets(project.bullets)}</section>)}</>}
-    {array(data.skills).length > 0 && <><h4>Skills</h4>{data.skills.map((group, i) => <p key={i}><strong>{text(group.group)}: </strong>{array(group.items).map(text).join(', ')}</p>)}</>}
+    {array(data.skills).length > 0 && <><h4>Skills</h4>{data.skills.map((group, i) => <p key={i}>{group.group && <strong>{text(group.group)}: </strong>}{array(group.items).map(text).join(', ')}</p>)}</>}
     {array(data.education).length > 0 && <><h4>Education</h4>{data.education.map((education, i) => <p key={i}><strong>{text(education.school)}</strong><br />{text(education.degree)}<br /><span className="rh-muted">{dates(education.start, education.end)}</span></p>)}</>}
     {array(data.certifications).length > 0 && <><h4>Certifications</h4>{data.certifications.map((certificate, i) => <p key={i}>{text(certificate.name)}{certificate.date ? ' · ' + text(certificate.date) : ''}</p>)}</>}
+    {array(data.additionalSections).map((section, i) => <section key={i}><h4>{text(section.title)}</h4><p>{text(section.body)}</p></section>)}
   </article>;
 }
 
 function ResumeImportFields({ data, patch, disabled }) {
   const hidden = new Set(['version', 'meta', 'id', 'variantOf']);
-  const labels = { contact: 'Contact details', name: 'Name', email: 'Email', phone: 'Phone', linkedin: 'LinkedIn', location: 'Location', links: 'Other links (one per line)', headline: 'Headline', summary: 'Summary', experience: 'Experience', employer: 'Employer', roles: 'Roles', title: 'Role title', team: 'Team', start: 'Start date', end: 'End date', bullets: 'Achievements', text: 'Achievement', projects: 'Projects', tech: 'Technologies (one per line)', skills: 'Skills', group: 'Skill group', items: 'Skills (one per line)', education: 'Education', school: 'School', degree: 'Degree', certifications: 'Certifications', date: 'Date' };
+  const labels = { contact: 'Contact details', name: 'Name', email: 'Email', phone: 'Phone', linkedin: 'LinkedIn', location: 'Location', links: 'Other links (one per line)', headline: 'Headline', summary: 'Summary', experience: 'Experience', employer: 'Employer', roles: 'Roles', title: 'Role title', team: 'Team', start: 'Start date', end: 'End date', bullets: 'Achievements', text: 'Achievement', projects: 'Projects', tech: 'Technologies (one per line)', skills: 'Skills', group: 'Skill group', items: 'Skills (one per line)', education: 'Education', school: 'School', degree: 'Degree', certifications: 'Certifications', date: 'Date', additionalSections: 'Additional sections', body: 'Section content' };
   const render = (value, path, label) => {
     const key = path.join('.');
     if (Array.isArray(value)) {
@@ -158,8 +159,8 @@ function ResumeImportFields({ data, patch, disabled }) {
       if (value.every(item => typeof item === 'string')) return <label key={key} className="rh-edit-wide">{label}<textarea disabled={disabled} value={value.join('\n')} onChange={event => patch(path, event.target.value.split('\n'))} /></label>;
       return <fieldset key={key} className="rh-edit-wide"><legend>{label}</legend>{value.map((item, index) => <fieldset key={index}><legend>{item?.employer || item?.title || item?.name || item?.school || `${index + 1}`}</legend>{render(item, [...path, index], '')}</fieldset>)}</fieldset>;
     }
-    if (value && typeof value === 'object') return <div key={key} className="rh-edit-grid">{Object.entries(value).filter(([name]) => !hidden.has(name)).map(([name, child]) => render(child, [...path, name], labels[name] || name))}</div>;
-    const multiline = ['summary', 'text'].includes(path[path.length - 1]);
+    if (value && typeof value === 'object') return <div key={key} className="rh-edit-grid">{Object.entries(value).filter(([name]) => !hidden.has(name)).map(([name, child]) => render(child, [...path, name], name === 'title' && path[0] === 'additionalSections' ? 'Section title' : labels[name] || name))}</div>;
+    const multiline = ['summary', 'text', 'body'].includes(path[path.length - 1]);
     const update = event => patch(path, event.target.value === '' && path[path.length - 1] === 'end' && path[0] === 'experience' ? null : event.target.value);
     return <label key={key} className={multiline ? 'rh-edit-wide' : ''}>{label}{multiline ? <textarea disabled={disabled} value={value ?? ''} onChange={update} /> : <input disabled={disabled} value={value ?? ''} onChange={update} />}</label>;
   };

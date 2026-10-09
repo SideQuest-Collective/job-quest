@@ -131,6 +131,7 @@ function validateMaster(m) {
     if (!e || typeof e !== 'object') return err(p, 'must be an object');
     str(e.id, `${p}.id`);
     str(e.employer, `${p}.employer`);
+    if (e.location !== undefined) str(e.location, `${p}.location`);
     ym(e.start, `${p}.start`, false);
     ym(e.end, `${p}.end`, true);
     const roles = list(e.roles, `${p}.roles`);
@@ -175,6 +176,12 @@ function validateMaster(m) {
     str(ct.name, `${p}.name`);
     str(ct.date, `${p}.date`);
   });
+  if (m.additionalSections !== undefined) list(m.additionalSections, 'additionalSections').forEach((section, i) => {
+    const p = `additionalSections[${i}]`;
+    if (!section || typeof section !== 'object') return err(p, 'must be an object');
+    str(section.title, `${p}.title`);
+    str(section.body, `${p}.body`);
+  });
   for (const v of variants) if (!ids.has(v.id)) err(v.p, `variantOf points at unknown bullet ${v.id}`);
   return { ok: errors.length === 0, errors };
 }
@@ -197,7 +204,7 @@ function masterBulletIndex(master) {
 function allMasterText(master) {
   const parts = [master.headline, master.summary];
   for (const e of master.experience || []) {
-    parts.push(e.employer, formatRange(e.start, e.end));
+    parts.push(e.employer, e.location, formatRange(e.start, e.end));
     for (const r of e.roles || []) {
       parts.push(r.title, r.team, formatRange(r.start, r.end));
       for (const b of r.bullets || []) parts.push(b.text);
@@ -208,8 +215,9 @@ function allMasterText(master) {
     for (const b of p.bullets || []) parts.push(b.text);
   }
   for (const g of master.skills || []) parts.push(g.group, (g.items || []).join(', '));
-  for (const ed of master.education || []) parts.push(ed.school, ed.degree, ed.end ? formatDate(ed.end) : '');
+  for (const ed of master.education || []) parts.push(ed.school, ed.degree, ed.start ? formatDate(ed.start) : '', ed.end ? formatDate(ed.end) : '');
   for (const ct of master.certifications || []) parts.push(ct.name, ct.date);
+  for (const section of master.additionalSections || []) parts.push(section.title, section.body);
   return parts.filter(Boolean).join('\n');
 }
 
@@ -224,7 +232,7 @@ function renderMarkdown(master) {
   if ((m.experience || []).length) {
     out.push('', '## Experience');
     for (const e of m.experience) {
-      out.push('', `### ${e.employer} (${formatRange(e.start, e.end)})`);
+      out.push('', `### ${e.employer}${e.location ? ` · ${e.location}` : ''} (${formatRange(e.start, e.end)})`);
       for (const r of e.roles || []) {
         out.push('', `**${r.title}**${r.team ? `, ${r.team}` : ''} (${formatRange(r.start, r.end)})`, '');
         for (const b of r.bullets || []) if (!b.variantOf) out.push(`- ${b.text}`);
@@ -244,12 +252,16 @@ function renderMarkdown(master) {
   }
   if ((m.education || []).length) {
     out.push('', '## Education', '');
-    for (const ed of m.education) out.push(`- ${ed.school}, ${ed.degree}${ed.end ? ` (${formatDate(ed.end)})` : ''}`);
+    for (const ed of m.education) {
+      const dates = [ed.start, ed.end].filter(Boolean).map(formatDate).join(' – ');
+      out.push(`- ${ed.school}, ${ed.degree}${dates ? ` (${dates})` : ''}`);
+    }
   }
   if ((m.certifications || []).length) {
     out.push('', '## Certifications', '');
     for (const ct of m.certifications) out.push(`- ${ct.name}${ct.date ? ` (${ct.date})` : ''}`);
   }
+  for (const section of m.additionalSections || []) out.push('', `## ${section.title}`, '', section.body);
   return `${out.join('\n')}\n`;
 }
 
