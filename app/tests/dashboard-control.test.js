@@ -7,6 +7,8 @@ const { spawn, spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '../..');
 const BIN = path.join(ROOT, 'skill/bin');
+const actualNode = process.execPath;
+const dashboardEntry = path.join(ROOT, 'app/server.js');
 
 function fixture(t, settings = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-dashboard-control-'));
@@ -60,6 +62,8 @@ fi`);
   printf 'export JOB_QUEST_APP_ROOT=%q\\n' "$TEST_REPO"
   printf 'export JOB_QUEST_DATA_DIR=%q\\n' "$TEST_DATA"
   echo 'export JOB_QUEST_ACTIVE_RUNTIME=codex JOB_QUEST_RUNTIME_DISPLAY_NAME=Codex'
+elif [ "$1" = - ]; then
+  exec "$TEST_ACTUAL_NODE" --require "$HOME/spawn-spy.cjs" "$@"
 elif [ "$1" = -e ]; then
   read -r response || true
   [[ "$response" = '{"ok":true}' ]]
@@ -72,19 +76,28 @@ else
   if [ "\${TEST_START_BARRIER:-}" = yes ]; then /bin/sleep 0.1; fi
   touch "$HOME/started"
 fi`);
-  write('nohup', `printf '%s\\n' "$*" >> "$HOME/nohup.log"
-exec "$@"`);
+  // Execute both actual stdin helpers; intercept only the server spawn so no real server or PID is touched.
+  fs.writeFileSync(path.join(home, 'spawn-spy.cjs'), `
+const fs = require('node:fs'), path = require('node:path'), cp = require('node:child_process');
+const originalSpawn = cp.spawn;
+cp.spawn = (command, args, options) => {
+  if (command !== process.execPath || args.length !== 1) throw Error('Unexpected dashboard launch command');
+  fs.appendFileSync(path.join(process.env.HOME, 'launch.log'), JSON.stringify({command, args, detached:options.detached, stdin:options.stdio[0], sameOutput:options.stdio[1] === options.stdio[2], logDescriptor:Number.isInteger(options.stdio[1])}) + '\\n');
+  return originalSpawn(path.join(process.env.HOME, 'stubs/node'), args, options);
+};
+`);
   const env = {
     HOME: home, PATH: `${stubs}:/opt/homebrew/bin:/usr/bin:/bin`, BASH_ENV: bashEnv,
     JOB_QUEST_SYSTEM_HOME: home, CODEX_HOME: path.join(home, '.codex'),
-    TEST_REPO: ROOT, TEST_DATA: data, TEST_HEALTH: 'after-start', ...settings,
+    TEST_REPO: ROOT, TEST_DATA: data, TEST_HEALTH: 'after-start', TEST_ACTUAL_NODE:actualNode, ...settings,
   };
   const lines = name => fs.existsSync(path.join(home, `${name}.log`))
     ? fs.readFileSync(path.join(home, `${name}.log`), 'utf8').trim().split('\n') : [];
   const run = (script, args = []) => spawnSync('/bin/bash', [path.join(BIN, script), ...args], {
     env, encoding: 'utf8', input: 'caller-input\n', timeout: 10000,
   });
-  return { home, data, env, lines, run };
+  const launches = () => lines('launch').map(line => JSON.parse(line));
+  return { home, data, env, lines, launches, run };
 }
 
 test('stop exits successfully without a listener and never signals a process', t => {
@@ -133,9 +146,9 @@ test('background start detaches, redirects stdin, appends both outputs to the da
   fs.writeFileSync(log, 'previous-run\n');
   const result = f.run('start.sh', ['--background']);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.lines('nohup'), ['node server.js']);
-  assert.equal(f.lines('disown').length, 1);
-  assert.deepEqual(f.lines('node'), ['server.js', `DATA_DIR=${f.data} PORT=4567`]);
+  assert.deepEqual(f.launches(), [{command:actualNode,args:[dashboardEntry],detached:true,stdin:'ignore',sameOutput:true,logDescriptor:true}]);
+  assert.deepEqual(f.lines('disown'), []);
+  assert.deepEqual(f.lines('node'), [dashboardEntry, `DATA_DIR=${f.data} PORT=4567`]);
   assert.equal(fs.readFileSync(log, 'utf8'), 'previous-run\nstdin-eof\ndashboard-output\ndashboard-error\n');
   assert.ok(f.lines('curl').length >= 2);
   assert.ok(f.lines('curl').every(args => args.includes('http://localhost:4567/api/status') && args.includes('--max-time')));
@@ -146,7 +159,7 @@ test('background start reuses an already healthy dashboard without launching ano
   const result = f.run('start.sh', ['--background']);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /already running/i);
-  assert.deepEqual(f.lines('nohup'), []);
+  assert.deepEqual(f.launches(), []);
   assert.deepEqual(f.lines('node'), []);
 });
 
@@ -183,21 +196,26 @@ test('concurrent background starts use one short lock and launch only one server
     fs.writeFileSync(path.join(f.home, 'release-probes'), '');
   }
   const results = await Promise.all([first.result, second.result]);
-  assert.deepEqual(f.lines('nohup'), ['node server.js']);
+  assert.deepEqual(f.launches(), [{command:actualNode,args:[dashboardEntry],detached:true,stdin:'ignore',sameOutput:true,logDescriptor:true}]);
   assert.deepEqual(results, [0, 1]);
   assert.match(second.output, /start is already in progress/i);
   assert.equal(fs.existsSync(path.join(f.data, '.start.lock')), false);
   assert.equal(f.run('start.sh', ['--background']).status, 0);
-  assert.deepEqual(f.lines('nohup'), ['node server.js']);
+  assert.deepEqual(f.launches(), [{command:actualNode,args:[dashboardEntry],detached:true,stdin:'ignore',sameOutput:true,logDescriptor:true}]);
 });
 
-test('background start honors an explicit DATA_DIR for the server and its log', t => {
+test('background start honors explicit DATA_DIR and its configured launcher for the server and log', t => {
   const f = fixture(t);
   const data = path.join(f.home, 'custom data');
   f.env.DATA_DIR = data;
+  fs.mkdirSync(data);
+  const configuredEntry = path.join(f.home, 'configured launcher.cjs');
+  fs.writeFileSync(configuredEntry, '// fixture-only launcher; spawn is redirected\n');
+  fs.writeFileSync(path.join(data, 'local-setup.json'), JSON.stringify({dashboardLauncher:configuredEntry}));
   const result = f.run('start.sh', ['--background']);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.lines('node'), ['server.js', `DATA_DIR=${data} PORT=3847`]);
+  assert.deepEqual(f.lines('node'), [configuredEntry, `DATA_DIR=${data} PORT=3847`]);
+  assert.deepEqual(f.launches(), [{command:actualNode,args:[configuredEntry],detached:true,stdin:'ignore',sameOutput:true,logDescriptor:true}]);
   assert.match(fs.readFileSync(path.join(data, 'logs/dashboard.log'), 'utf8'), /dashboard-output/);
 });
 
@@ -206,7 +224,7 @@ test('background start refuses an occupied unhealthy port without launching anot
   const result = f.run('start.sh', ['--background']);
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stdout + result.stderr, /port.*3847|3847.*port/i);
-  assert.deepEqual(f.lines('nohup'), []);
+  assert.deepEqual(f.launches(), []);
   assert.deepEqual(f.lines('kill'), []);
 });
 
@@ -215,7 +233,7 @@ test('background start fails after a bounded health wait and prints the dashboar
   const result = f.run('start.sh', ['--background']);
   assert.equal(result.status, 1, result.stderr);
   assert.ok((result.stdout + result.stderr).includes(path.join(f.data, 'logs/dashboard.log')));
-  assert.equal(f.lines('nohup').length, 1);
+  assert.equal(f.launches().length, 1);
   assert.ok(f.lines('curl').length >= 2 && f.lines('curl').length <= 17);
   assert.ok(f.lines('sleep').length <= 15);
   assert.equal(fs.existsSync(path.join(f.data, '.start.lock')), false);
@@ -227,16 +245,16 @@ test('plain start keeps foreground output and does not detach or poll', t => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /dashboard-output/);
   assert.match(result.stderr, /dashboard-error/);
-  assert.deepEqual(f.lines('nohup'), []);
+  assert.deepEqual(f.launches(), []);
   assert.deepEqual(f.lines('curl'), []);
-  assert.deepEqual(f.lines('node'), ['server.js', `DATA_DIR=${f.data} PORT=4568`]);
+  assert.deepEqual(f.lines('node'), [dashboardEntry, `DATA_DIR=${f.data} PORT=4568`]);
 });
 
 test('plain start leaves an absent PORT unset so the app can load its .env port', t => {
   const f = fixture(t);
   const result = f.run('start.sh');
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.lines('node'), ['server.js', `DATA_DIR=${f.data} PORT=`]);
+  assert.deepEqual(f.lines('node'), [dashboardEntry, `DATA_DIR=${f.data} PORT=`]);
 });
 
 test('restart safely stops listeners, launches detached and waits for the new dashboard health', t => {
@@ -244,7 +262,7 @@ test('restart safely stops listeners, launches detached and waits for the new da
   const result = f.run('restart.sh');
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(f.lines('kill'), ['1:101']);
-  assert.deepEqual(f.lines('nohup'), ['node server.js']);
+  assert.deepEqual(f.launches(), [{command:actualNode,args:[dashboardEntry],detached:true,stdin:'ignore',sameOutput:true,logDescriptor:true}]);
   assert.ok(f.lines('curl').length >= 2);
   assert.ok(f.lines('curl').every(args => args.includes('http://localhost:4568/api/status')));
 });
@@ -262,6 +280,6 @@ test('restart waits for a force-stopped listener to release the port before star
   const result = f.run('restart.sh');
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(f.lines('kill'), ['1:101', '2:-9 101']);
-  assert.deepEqual(f.lines('nohup'), ['node server.js']);
+  assert.deepEqual(f.launches(), [{command:actualNode,args:[dashboardEntry],detached:true,stdin:'ignore',sameOutput:true,logDescriptor:true}]);
   assert.ok(f.lines('sleep').length >= 6);
 });

@@ -4,7 +4,7 @@ window.dedupeJobQuestRoles = function dedupeJobQuestRoles(reports) {
   const canonical = value => {
     try {
       const url = new URL(value);
-      if (url.protocol !== 'https:') return null;
+      if (url.protocol !== 'https:' || url.username || url.password) return null;
       url.hash = '';
       url.pathname = url.pathname.replace(/\/+$/, '') || '/';
       for (const key of [...url.searchParams.keys()]) {
@@ -23,7 +23,7 @@ window.dedupeJobQuestRoles = function dedupeJobQuestRoles(reports) {
       const key = `${company}|${title}|${url || normalized(role.location)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      roles.push({ ...role, intelDate: report.date });
+      roles.push({ ...role, url: url ? role.url : null, intelDate: report.date });
     }
   }
   return roles;
@@ -39,8 +39,52 @@ window.mergeJobQuestDrafts = function mergeJobQuestDrafts(previous, previousServ
   return next;
 };
 
+window.copyJobQuestDraft = async function copyJobQuestDraft(item, drafts, clipboard) {
+  const draft = drafts[item.id] ?? item.draftReply ?? '';
+  if (!draft.trim()) throw Error('Write a reply before copying.');
+  await clipboard.writeText(draft);
+  return draft;
+};
+
+window.reconcileJobQuestSavedDraft = function reconcileJobQuestSavedDraft(previous, id, submitted, saved) {
+  // An edit made while the save was in flight still belongs to the user.
+  return previous[id] === submitted ? { ...previous, [id]: saved } : previous;
+};
+
+window.jobQuestPrimaryReplySources = function jobQuestPrimaryReplySources(item) {
+  const sources = item.replySources || [];
+  return ['email', 'linkedin'].map(channel => sources.find(source => source.channel === channel && source.url === item.recommendedReplyUrl)
+    || sources.find(source => source.channel === channel && source.canReply)
+    || sources.find(source => source.channel === channel)).filter(Boolean)
+    .sort((a, b) => Number(b.url === item.recommendedReplyUrl) - Number(a.url === item.recommendedReplyUrl));
+};
+
+window.matchJobQuestOutreachRole = function matchJobQuestOutreachRole(item, roles) {
+  const normalize = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const canonical = value => {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.username || url.password) return null;
+      url.hash = '';
+      url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+      for (const key of [...url.searchParams.keys()]) if (/^(utm_|gh_src$|source$|ref$|trk$|tracking)/i.test(key)) url.searchParams.delete(key);
+      url.searchParams.sort();
+      return url.href;
+    } catch { return null; }
+  };
+  const links = [item.relatedRoleUrl, ...(item.sourceLinks || [])].map(canonical).filter(Boolean);
+  const byListing = (roles || []).filter(role => canonical(role.url) && links.includes(canonical(role.url)));
+  if (byListing.length === 1) return byListing[0];
+  const company = normalize(item.company), title = normalize(item.role || item.title);
+  if (!company || !title) return null;
+  const exact = (byListing.length ? byListing : (roles || [])).filter(role => normalize(role.company) === company && normalize(role.role) === title);
+  return exact.length === 1 ? exact[0] : null;
+};
+
 window.filterJobQuestCards = function filterJobQuestCards(items, view, catchUp, now = Date.now()) {
-  const deferred = item => item.status?.startsWith('hold') || ['snoozed', 'declined', 'reconnect_scheduled'].includes(item.status);
+  const deferred = item => item.status?.startsWith('hold') || item.status === 'declined'
+    || (['snoozed', 'reconnect_scheduled'].includes(item.status)
+      && !(Number.isFinite(Date.parse(item.nextReminderAt)) && Date.parse(item.nextReminderAt) <= now));
   return items.filter(item => view === 'jobs' ? item.kind === 'job'
     : item.kind === 'recruiter' && (view === 'held' ? deferred(item) : !deferred(item)))
     .filter(item => !catchUp || view !== 'outreach' || (
@@ -51,7 +95,7 @@ window.filterJobQuestCards = function filterJobQuestCards(items, view, catchUp, 
       : (b.checkedAt || '').localeCompare(a.checkedAt || ''));
 };
 
-window.Opportunities = function Opportunities({ setPage }) {
+window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpenRole }) {
   const { useEffect, useState } = React;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -59,7 +103,10 @@ window.Opportunities = function Opportunities({ setPage }) {
   const [view, setView] = useState('outreach');
   const [catchUp, setCatchUp] = useState(false);
   const [drafts, setDrafts] = useState({});
+  const [copied, setCopied] = useState({});
   const [until, setUntil] = useState({});
+  const [sentChannels, setSentChannels] = useState({});
+  const [sentTimes, setSentTimes] = useState({});
   const [accountKind, setAccountKind] = useState('gmail');
   const [accountLabel, setAccountLabel] = useState('');
   const serverDrafts = React.useRef({});
@@ -82,7 +129,7 @@ window.Opportunities = function Opportunities({ setPage }) {
   const mutate = async (item, action, extra = {}) => {
     if (!item.revision) return;
     if (action !== 'draft' && drafts[item.id] !== item.draftReply) {
-      setError('Save the edited draft before changing this reminder.');
+      setError('Save the edited draft before changing this conversation’s status or reminders.');
       return;
     }
     setBusy(item.id);
@@ -94,6 +141,11 @@ window.Opportunities = function Opportunities({ setPage }) {
       });
       const result = await response.json();
       if (!response.ok) throw Error(result.error || 'Could not save this change.');
+      if (action === 'draft') {
+        const saved = result.item.draftReply || '';
+        setDrafts(previous => window.reconcileJobQuestSavedDraft(previous, item.id, extra.draftReply, saved));
+        serverDrafts.current[item.id] = saved;
+      }
       await load();
     } catch (cause) { setError(cause.message); if (cause.message.includes('Refresh')) await load({ clearError: false }); }
     finally { setBusy(null); }
@@ -127,8 +179,23 @@ window.Opportunities = function Opportunities({ setPage }) {
   };
 
   const copyDraft = async item => {
-    try { await navigator.clipboard.writeText(drafts[item.id] || ''); }
+    try {
+      const draft = await window.copyJobQuestDraft(item, drafts, navigator.clipboard);
+      setCopied(previous => ({ ...previous, [item.id]: draft }));
+      setError('');
+    }
     catch { setError('Could not copy the draft. Select the text and copy it manually.'); }
+  };
+
+  const reportSent = item => {
+    const sentChannel = sentChannels[item.id];
+    if (!sentChannel) { setError('Choose the channel you used to send the reply.'); return; }
+    const localTime = sentTimes[item.id];
+    const time = localTime ? Date.parse(localTime) : null;
+    if (localTime && (!Number.isFinite(time) || time > Date.now())) {
+      setError('Choose a valid sent time that is not in the future.'); return;
+    }
+    mutate(item, 'sent', { sentChannel, ...(localTime ? { sentAt: new Date(time).toISOString() } : {}) });
   };
 
   const items = data?.opportunities || [];
@@ -162,6 +229,10 @@ window.Opportunities = function Opportunities({ setPage }) {
       .jq-opps .secondary-panel { padding:10px 14px; font-size:13px; }
       .jq-opps .secondary-panel > summary { color:var(--text-secondary); min-height:40px; display:flex; align-items:center; }
       .jq-opps .detail-body { padding-top:10px; }
+      .jq-opps .reply-workflow { margin-top:12px; }
+      .jq-opps .reply-workflow label { display:block; margin-bottom:6px; font-size:14px; font-weight:600; }
+      .jq-opps .reply-help { font-size:13px; color:var(--text-secondary); margin:8px 0; }
+      .jq-opps .reply-feedback { font-size:13px; color:var(--amber); margin:8px 0; }
       .jq-opps textarea { box-sizing:border-box; width:100%; min-height:76px; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
       .jq-opps input,.jq-opps select { min-height:40px; padding:7px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); max-width:100%; box-sizing:border-box; }
       .jq-opps .account-form { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
@@ -169,23 +240,22 @@ window.Opportunities = function Opportunities({ setPage }) {
       .jq-opps .error { border-color:var(--rose); color:var(--rose); }
       @media(max-width:390px) { .jq-opps { padding:0 2px; } .jq-opps .panel { padding:13px; } .jq-opps .op-card { padding:12px 13px; } .jq-opps .actions button { flex:1 1 auto; } }
     `}</style>
-    <h2>Opportunities</h2>
-    <p className="intro">Review sourced roles and outreach. You choose when to reply, book, or apply.</p>
+    <h2>Recruiter outreach</h2>
+    <p className="intro">Review recruiter outreach and choose when to reply or book. Discover jobs opens your native job shortlist.</p>
     <div className="tabs" role="group" aria-label="Opportunity views">
       <button className={view === 'outreach' ? 'active' : ''} onClick={() => setView('outreach')}>Outreach</button>
-      <button className={view === 'jobs' ? 'active' : ''} onClick={() => setView('jobs')}>Jobs</button>
       <button className={view === 'held' ? 'active' : ''} onClick={() => setView('held')}>Paused</button>
+      {setPage && <button onClick={() => setPage('discover')}>Discover jobs</button>}
     </div>
     {error && <div role="alert" className="panel error">{error}</div>}
     {!data ? <div className="panel">Loading local opportunities…</div> : <>
-      {catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before a reply is considered due. Paused, snoozed and scheduled reconnects stay in their own view.</p>}
+      {catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before replying. Due snoozes and reconnects return for review; explicit holds remain paused.</p>}
       {data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
       {data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
       <details className="panel secondary-panel"><summary>Sources, accounts & more{data.sources.some(source => source.status === 'blocked') ? ` · ${data.sources.filter(source => source.status === 'blocked').length} blocked` : ''}</summary><div className="detail-body">
         <div className="actions">
           <button onClick={() => load()}>Refresh local results</button>
           <button className={catchUp ? 'active' : ''} onClick={() => { setView('outreach'); setCatchUp(!catchUp); }}>{catchUp ? 'Show recent order' : 'Review older outreach'}</button>
-          {setPage && <button onClick={() => setPage('discover')}>Native Discover</button>}
         </div>
         {data.generatedAt && <p className="muted">Brief generated {new Date(data.generatedAt).toLocaleString()}.</p>}
         {data.sources.length > 0 && <><h3>Source coverage</h3>
@@ -217,32 +287,55 @@ window.Opportunities = function Opportunities({ setPage }) {
         <div className="card-head"><div><h3>{item.title} · {item.company}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
           {(item.kind === 'job' ? item.availability : item.status && !['ready_for_review'].includes(item.status)) && <span className="status">{item.kind === 'job' ? item.availability : item.status.replaceAll('_', ' ')}</span>}
         </div>
+        {item.kind === 'recruiter' && (item.sourceAccounts?.length > 0 || item.sourceAccount) && <p className="reply-help">Source: {(item.sourceAccounts?.length ? item.sourceAccounts : [item.sourceAccount]).join(' · ')}</p>}
         {item.nextAction && <p className="next-action"><strong>From last check:</strong> {item.nextAction}</p>}
+        {['snoozed', 'reconnect_scheduled'].includes(item.status) && Number.isFinite(Date.parse(item.nextReminderAt)) && Date.parse(item.nextReminderAt) <= Date.now() && <p className="reply-help">{item.status === 'snoozed' ? 'Snooze ended' : 'Reconnect review due'} · check the latest conversation before acting.</p>}
         <div className="links primary-links">
-          {item.sourceLinks[0] && <a href={item.sourceLinks[0]} target="_blank" rel="noopener noreferrer">{item.kind === 'job' ? 'Open listing' : 'Open conversation'}</a>}
+          {item.kind === 'recruiter' && item.replySources?.length > 0 ? window.jobQuestPrimaryReplySources(item).map(source => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.channel === 'linkedin' ? 'Open LinkedIn to reply' : source.canReply ? 'Open email to reply' : 'Open Gmail source'}{source.url === item.recommendedReplyUrl ? ' · recommended' : ''}</a>) : item.sourceLinks[0] && <a href={item.sourceLinks[0]} target="_blank" rel="noopener noreferrer">{item.kind === 'job' ? 'Open listing' : 'Open conversation'}</a>}
           {item.schedulingUrl && <a href={item.schedulingUrl} target="_blank" rel="noopener noreferrer">Recruiter calendar</a>}
+          {item.kind === 'recruiter' && item.relatedRoleUrl && <a href={item.relatedRoleUrl} target="_blank" rel="noopener noreferrer">Related job listing</a>}
+          {item.kind === 'recruiter' && onOpenRole && window.matchJobQuestOutreachRole(item, nativeRoles) && <button onClick={() => onOpenRole(window.matchJobQuestOutreachRole(item, nativeRoles))}>Open role & prep</button>}
         </div>
-        <details className="op-details"><summary>{item.kind === 'recruiter' ? 'Review reply & details' : 'More role details'}</summary>
+        {item.kind === 'recruiter' && <div className="reply-workflow">
+          {item.replyChannelReason && <p className="reply-help">{item.replyChannelReason}{item.recommendedReplyChannel && !item.recommendedReplyUrl ? ' No direct link for that reply channel is saved.' : ''}</p>}
+          {!item.sourceLinks.length && <p className="reply-help">No conversation link saved. Open the original message in your inbox before replying.</p>}
+          <label htmlFor={`reply-${item.id}`}>Reply draft</label>
+          {!(drafts[item.id] ?? item.draftReply ?? '').trim() && <p className="reply-help">No prepared reply saved{item.editable ? '. Write a reply below.' : '.'}</p>}
+          <textarea id={`reply-${item.id}`} value={drafts[item.id] ?? item.draftReply} onChange={event => setDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} readOnly={!item.editable} maxLength={4000} aria-label={`Draft reply for ${item.company}`} placeholder={item.editable ? 'Write your reply…' : 'No prepared reply available'} />
+          <p className="reply-help">Copy your reply, open the conversation, then paste and send there.{!item.schedulingUrl && ' No recruiter calendar link saved.'}</p>
+          {!item.editable && <p className="reply-help">This draft is read-only until the conversation is connected to the reply queue.</p>}
+          <div className="actions">
+            <button disabled={!item.editable || busy === item.id || (drafts[item.id] ?? item.draftReply) === item.draftReply} onClick={() => mutate(item, 'draft', { draftReply: drafts[item.id] ?? item.draftReply })}>{busy === item.id ? 'Saving…' : 'Save draft'}</button>
+            <button disabled={!(drafts[item.id] ?? item.draftReply ?? '').trim()} onClick={() => copyDraft(item)}>Copy reply</button>
+          </div>
+          {copied[item.id] !== undefined && copied[item.id] === (drafts[item.id] ?? item.draftReply) && <p className="reply-feedback" role="status">Reply copied. Paste it into the conversation and send there.</p>}
+          {(drafts[item.id] ?? item.draftReply) !== item.draftReply && <p className="reply-help">Unsaved changes · save to continue this draft on another device.</p>}
+        </div>}
+        <details className="op-details"><summary>{item.kind === 'recruiter' ? 'More details & reminders' : 'More role details'}</summary>
           {item.queueOnly && <p className="muted">Queue history · review the original conversation for current status.</p>}
+          {item.duplicateConflicts?.length > 0 && <p className="reply-help">Related outreach has a separate saved reply or status. Review both cards before replying.</p>}
           {item.summary && <p>{item.summary}</p>}
           {item.fit && <p><strong>Fit:</strong> {item.fit}</p>}
           {item.concern && <p><strong>Consider:</strong> {item.concern}</p>}
           {item.nextAction && <p><strong>Full next action from last check:</strong> {item.nextAction}</p>}
           {item.nextReminderAt && <p className="muted">Reminder review: {new Date(item.nextReminderAt).toLocaleString()}</p>}
-          {item.sourceLinks.length > 1 && <div className="links">{item.sourceLinks.slice(1).map(url => <a key={url} href={url} target="_blank" rel="noopener noreferrer">Related source · {new URL(url).hostname.replace(/^www\./, '')}</a>)}</div>}
+          {item.sourceLinks.length > 1 && <div className="links">{item.sourceLinks.filter(url => item.replySources?.length ? !window.jobQuestPrimaryReplySources(item).some(source => source.url === url) : url !== item.sourceLinks[0]).map(url => <a key={url} href={url} target="_blank" rel="noopener noreferrer">Related source · {new URL(url).hostname.replace(/^www\./, '')}</a>)}</div>}
         {item.kind === 'recruiter' && <>
-          <label style={{ display:'block', marginTop: 12 }}>Suggested reply
-            <textarea value={drafts[item.id] ?? item.draftReply} onChange={event => setDrafts({ ...drafts, [item.id]: event.target.value })} readOnly={!item.editable} aria-label={`Draft reply for ${item.company}`} />
-          </label>
+          <p className="reply-help">After you send a reply, record it here. Copying a reply or opening a calendar does not mark it sent or booked.</p>
           <div className="actions">
-            <button disabled={!item.editable || busy === item.id || drafts[item.id] === item.draftReply} onClick={() => mutate(item, 'draft', { draftReply: drafts[item.id] })}>Save draft</button>
-            <button onClick={() => copyDraft(item)}>Copy reply</button>
-            <button disabled={!item.editable || busy === item.id} onClick={() => mutate(item, item.status?.startsWith('hold') ? 'reopen' : 'hold')}>{item.status?.startsWith('hold') ? 'Resume reminders' : 'Pause reminders'}</button>
-            <button disabled={!item.editable || busy === item.id || Boolean(item.sentAt)} onClick={() => mutate(item, 'sent')}>I sent this</button>
+            <button disabled={!item.editable || busy === item.id || Boolean(item.sentAt) || item.status === 'meeting_booked'} onClick={() => mutate(item, item.status?.startsWith('hold') || ['snoozed', 'declined', 'reconnect_scheduled'].includes(item.status) ? 'reopen' : 'hold')}>{item.status?.startsWith('hold') || ['snoozed', 'declined', 'reconnect_scheduled'].includes(item.status) ? 'Resume review now' : 'Pause reminders'}</button>
           </div>
+          {item.sentAt ? <p className="reply-help">Sent {new Date(item.sentAt).toLocaleString()}{item.sentChannel ? ` · ${item.sentChannel === 'email' ? 'email' : 'LinkedIn'}` : ''}{item.verification === 'user_reported' ? ' · reported by you' : ''}.</p> : item.status !== 'meeting_booked' && <div style={{ marginTop:12 }}>
+            <div className="actions">
+              <label>Channel used <select value={sentChannels[item.id] || ''} onChange={event => setSentChannels(previous => ({ ...previous, [item.id]: event.target.value }))} disabled={!item.editable || busy === item.id}><option value="">Choose channel</option><option value="email">Email</option><option value="linkedin">LinkedIn</option></select></label>
+              <label>Sent time (optional) <input type="datetime-local" value={sentTimes[item.id] || ''} onChange={event => setSentTimes(previous => ({ ...previous, [item.id]: event.target.value }))} disabled={!item.editable || busy === item.id} /></label>
+              <button disabled={!item.editable || busy === item.id || !sentChannels[item.id]} onClick={() => reportSent(item)}>I sent this</button>
+            </div>
+            <p className="reply-help">Record only after sending. If the time is blank, record it as sent now.</p>
+          </div>}
           <div className="actions" style={{ marginTop:8 }}>
             <label>Snooze until <input type="datetime-local" value={until[item.id] || ''} onChange={event => setUntil({ ...until, [item.id]: event.target.value })} /></label>
-            <button disabled={!item.editable || busy === item.id || !until[item.id]} onClick={() => mutate(item, 'snooze', { until: new Date(until[item.id]).toISOString() })}>Snooze</button>
+            <button disabled={!item.editable || busy === item.id || !until[item.id] || Boolean(item.sentAt) || item.status === 'meeting_booked'} onClick={() => mutate(item, 'snooze', { until: new Date(until[item.id]).toISOString() })}>Snooze</button>
             <button disabled={!item.editable || busy === item.id} onClick={() => mutate(item, 'skip')}>Skip</button>
           </div>
         </>}

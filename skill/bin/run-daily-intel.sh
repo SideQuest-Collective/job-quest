@@ -67,6 +67,14 @@ DEAL_BREAKERS="$(read_profile_list dealBreakers)"
 WEAK_SPOTS="$(read_profile_list interviewWeakSpots)"
 TODAY="$(date +%Y-%m-%d)"
 
+# A manual repeat must never replace the user's already generated daily work.
+for OUTPUT_KIND in intel quizzes tasks; do
+  if [ -e "$JOB_QUEST_DATA_DIR/$OUTPUT_KIND/$TODAY.json" ]; then
+    log "SKIP: existing $OUTPUT_KIND/$TODAY.json preserved. Review existing daily work before generating again."
+    exit 0
+  fi
+done
+
 PROMPT_FILE="$(mktemp)"
 cat > "$PROMPT_FILE" <<EOF
 You are ${NAME}'s automated daily job hunt intelligence agent. Today is ${TODAY}. Your job is to write fresh content for the Job Quest Command Center at ${JOB_QUEST_DATA_DIR}.
@@ -85,6 +93,9 @@ You are ${NAME}'s automated daily job hunt intelligence agent. Today is ${TODAY}
 
 ## Deduplication
 Read every JSON file in ${JOB_QUEST_DATA_DIR}/intel/ first. Match existing roles using canonical posting URL plus normalized company and title. Keep the same role identity when a listing changes; report material changes in availability or requirements rather than presenting a duplicate as new. Preserve saved/applied/skipped role state.
+
+## Preserve existing work
+Read existing dated tasks and quizzes before planning. Never overwrite, delete, or modify any existing intel, task, or quiz file, any role action/tracker state, coding progress, or saved practice. Suggest unfinished work in today's new tasks where helpful; do not mark older work complete. Keep all existing coding problems unchanged and append new problems only through add-problems.js. If any listed output file already exists, stop and report that it was preserved instead of replacing it.
 
 ## Tasks
 
@@ -117,7 +128,7 @@ STDERR_FILE="$(mktemp)"
 
 set +e
 if [ "$JOB_QUEST_ACTIVE_RUNTIME" = "codex" ]; then
-  job_quest_run_prompt_file "$PROMPT_FILE" --full-auto >"$STDOUT_FILE" 2>"$STDERR_FILE"
+  job_quest_run_prompt_file "$PROMPT_FILE" --approve-for-me >"$STDOUT_FILE" 2>"$STDERR_FILE"
   EXIT_CODE=$?
 else
   job_quest_run_prompt_file "$PROMPT_FILE" --allowed-tools Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Bash >"$STDOUT_FILE" 2>"$STDERR_FILE"

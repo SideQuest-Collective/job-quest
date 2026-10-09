@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { registerOpportunityRoutes } = require('../lib/opportunities/routes');
+const { registerOpportunityRoutes, editQueueItem } = require(process.env.OPPORTUNITIES_ROUTES_SOURCE || '../lib/opportunities/routes');
 
 function fixture(t, { brief = {}, queue = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jobquest-opportunities-'));
@@ -94,12 +94,15 @@ test('snooze, pause, resume, and sent are explicit; opening and copying have no 
   assert.equal(item.status, 'hold_user');
   action('reopen');
   assert.equal(item.status, 'ready_for_review');
-  action('sent');
+  action('sent', { sentChannel: 'email' });
   assert.equal(item.status, 'awaiting_recruiter');
   assert.ok(item.sentAt);
   assert.equal(item.nextReminderAt, null);
   const queue = JSON.parse(fs.readFileSync(f.queuePath));
   assert.equal(queue.items[0].verification, 'user_reported');
+  assert.equal(item.verification, 'user_reported');
+  assert.equal(item.userReportedReplyStatus, 'sent');
+  assert.equal(item.userReportedReplyStatusAt, item.sentAt);
   const repeat = invoke(f, 'patch', '/api/opportunities/:id', { revision: item.revision, action: 'sent' }, 'role-1');
   assert.equal(repeat.status, 400);
 });
@@ -190,7 +193,7 @@ test('queue-only unresolved outreach remains visible without inventing a due rep
 });
 
 test('native reports dedupe canonical URLs and local draft refresh preserves unsaved edits', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../public/opportunities.jsx'), 'utf8');
+  const source = fs.readFileSync(process.env.OPPORTUNITIES_UI_SOURCE || path.join(__dirname, '../public/opportunities.jsx'), 'utf8');
   const context = { window: {}, URL };
   vm.runInNewContext(source.slice(0, source.indexOf('window.Opportunities =')), context);
   const roles = context.window.dedupeJobQuestRoles([
@@ -219,4 +222,193 @@ test('native reports dedupe canonical URLs and local draft refresh preserves uns
   ];
   assert.deepEqual(JSON.parse(JSON.stringify(context.window.filterJobQuestCards(cards, 'outreach', true, now).map(card => card.id))), ['ready']);
   assert.deepEqual(JSON.parse(JSON.stringify(context.window.filterJobQuestCards(cards, 'held', false, now).map(card => card.id))).sort(), ['held', 'reconnect', 'skipped', 'snoozed']);
+});
+
+test('different-ID cross-channel outreach merges only with sender, role and conversation evidence', t => {
+  const shared = 'https://mail.example.com/thread/42';
+  const f = fixture(t, { brief: { opportunities: [
+    { id: 'mail', kind: 'recruiter', company: 'Example', title: 'Backend Engineer', recruiter: 'Alex Recruiter', sourceAccount: 'work', sourceUrl: shared },
+    { id: 'linkedin', kind: 'recruiter', company: 'Example', title: 'Backend Engineer', recruiter: 'Alex Recruiter', sourceAccount: 'personal', channel: 'linkedin', sourceUrl: 'https://linkedin.com/message/42' },
+  ] }, queue: { items: [{ id: 'linkedin', company: 'Example', title: 'Backend Engineer', recruiter: 'Alex Recruiter', status: 'ready_for_review', draftReply: 'Thanks, happy to chat.', emailSourceUrl: shared, sourceAccount: 'personal', channel: 'linkedin' }] } });
+  const before = fs.readFileSync(f.queuePath, 'utf8');
+  const cards = invoke(f, 'get', '/api/opportunities').body.opportunities;
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].id, 'linkedin', 'editable identity and revision remain authoritative');
+  assert.deepEqual(cards[0].relatedIds, ['mail', 'linkedin']);
+  assert.deepEqual(cards[0].sourceAccounts, ['work', 'personal']);
+  assert.ok(cards[0].sourceProvenance.some(source => source.account === 'personal' && source.channel === 'linkedin'));
+  assert.deepEqual(cards[0].sourceLinks, [shared, 'https://linkedin.com/message/42']);
+  assert.equal(fs.readFileSync(f.queuePath, 'utf8'), before, 'read reconciliation never rewrites queue decisions');
+});
+
+test('company or booking URL alone does not combine distinct roles, senders or unsupported matches', t => {
+  const base = { kind: 'recruiter', company: 'Example', title: 'Backend Engineer', recruiter: 'Alex', location: 'NYC', schedulingUrl: 'https://cal.example.com/alex' };
+  const f = fixture(t, { brief: { opportunities: [
+    { ...base, id: 'a', sourceUrl: 'https://mail.example.com/a' },
+    { ...base, id: 'role', title: 'Frontend Engineer', sourceUrl: 'https://mail.example.com/b' },
+    { ...base, id: 'sender', recruiter: 'Sam', sourceUrl: 'https://mail.example.com/c' },
+    { ...base, id: 'unknown', recruiter: '', sourceUrl: 'https://mail.example.com/d' },
+    { ...base, id: 'location', location: 'London', sourceUrl: 'https://mail.example.com/e' },
+  ] }, queue: { items: [] } });
+  assert.equal(invoke(f, 'get', '/api/opportunities').body.opportunities.length, 5);
+});
+
+test('matching editable records and conflicting drafts retain separate decisions and conflict metadata', t => {
+  const base = { kind: 'recruiter', company: 'Example', title: 'Engineer', recruiter: 'Alex', sourceUrl: 'https://mail.example.com/same' };
+  const f = fixture(t, { brief: { opportunities: [{ ...base, id: 'a' }, { ...base, id: 'b' }] }, queue: { items: [
+    { ...base, id: 'a', status: 'hold_user', draftReply: 'Edited hold draft', sourceAccount: 'work' },
+    { ...base, id: 'b', status: 'awaiting_recruiter', sentAt: '2026-10-01T12:00:00Z', draftReply: 'Sent draft', sourceAccount: 'personal' },
+  ] } });
+  const cards = invoke(f, 'get', '/api/opportunities').body.opportunities;
+  assert.equal(cards.length, 2);
+  assert.equal(cards[0].status, 'hold_user');
+  assert.equal(cards[1].status, 'awaiting_recruiter');
+  assert.equal(cards[0].draftReply, 'Edited hold draft');
+  assert.ok(cards[1].sentAt);
+  assert.equal(cards[0].duplicateConflicts[0].id, 'b');
+  assert.equal(cards[1].duplicateConflicts[0].id, 'a');
+  assert.notEqual(cards[0].revision, cards[1].revision);
+});
+
+test('queue-only records retain account, channel and source provenance', t => {
+  const f = fixture(t, { brief: { opportunities: [] }, queue: { items: [{ id: 'only', accountId: 'secondary', channel: 'gmail', sourceUrl: 'https://mail.example.com/only', status: 'hold_user' }] } });
+  const card = invoke(f, 'get', '/api/opportunities').body.opportunities[0];
+  assert.equal(card.sourceAccount, 'secondary');
+  assert.deepEqual(card.sourceAccounts, ['secondary']);
+  assert.equal(card.sourceProvenance[0].channel, 'gmail');
+  assert.deepEqual(card.sourceProvenance[0].links, ['https://mail.example.com/only']);
+});
+
+
+test('a shared inbox landing page is not evidence of the same conversation', t => {
+  const base = { kind: 'recruiter', company: 'Example', title: 'Engineer', recruiter: 'Alex', sourceUrl: 'https://mail.google.com/mail/u/0/#inbox' };
+  const f = fixture(t, { brief: { opportunities: [{ ...base, id: 'a' }, { ...base, id: 'b' }] }, queue: { items: [] } });
+  assert.equal(invoke(f, 'get', '/api/opportunities').body.opportunities.length, 2);
+});
+
+
+test('source verification provenance is read without inferring it from sent status', t => {
+  const f = fixture(t, { brief: { opportunities: [] }, queue: { items: [
+    { id: 'source', status: 'awaiting_recruiter', sentAt: '2026-10-01T12:00:00Z', verification: 'sent_thread_checked', verifiedAt: '2026-10-02T12:00:00Z' },
+    { id: 'unknown', status: 'awaiting_recruiter', sentAt: '2026-10-01T12:00:00Z' },
+  ] } });
+  const cards = invoke(f, 'get', '/api/opportunities').body.opportunities;
+  assert.equal(cards[0].verification, 'sent_thread_checked');
+  assert.equal(cards[0].verifiedAt, '2026-10-02T12:00:00Z');
+  assert.equal(cards[0].userReportedReplyStatus, null);
+  assert.equal(cards[1].verification, null);
+  assert.equal(cards[1].verifiedAt, null);
+});
+
+
+test('reply channel recommendations honor explicit recruiter and ongoing conversation signals before content needs', t => {
+  const f = fixture(t, { brief: { opportunities: [] }, queue: { items: [
+    { id: 'requested', channel: 'linkedin', sourceUrl: 'https://linkedin.com/message/requested', emailSourceUrl: 'https://mail.example.com/requested', requestedReplyChannel: 'linkedin', needsResume: true },
+    { id: 'ongoing', channel: 'gmail', sourceUrl: 'https://mail.example.com/ongoing', ongoingSubstantiveChannel: 'email', responseType: 'quick' },
+    { id: 'documents', channel: 'linkedin', sourceUrl: 'https://linkedin.com/message/docs', emailSourceUrl: 'https://mail.example.com/docs', needsDocuments: true },
+    { id: 'quick', channel: 'linkedin', sourceUrl: 'https://linkedin.com/message/quick', responseType: 'scheduled-time' },
+    { id: 'unknown', channel: 'linkedin', sourceUrl: 'https://linkedin.com/message/unknown' },
+  ] } });
+  const cards = invoke(f, 'get', '/api/opportunities').body.opportunities;
+  assert.deepEqual(cards.map(c => c.recommendedReplyChannel), ['linkedin', 'email', 'email', 'linkedin', 'linkedin']);
+  assert.equal(cards[0].recommendedReplyUrl, 'https://linkedin.com/message/requested');
+  assert.match(cards[0].replyChannelReason, /explicitly requested/);
+  assert.match(cards[1].replyChannelReason, /ongoing substantive/);
+  assert.equal(cards[2].recommendedReplyUrl, 'https://mail.example.com/docs');
+  assert.ok(cards[2].sourceLinks.includes('https://linkedin.com/message/docs'));
+  assert.ok(cards[2].sourceLinks.includes('https://mail.example.com/docs'));
+  assert.equal(cards[4].recommendedReplyUrl, 'https://linkedin.com/message/unknown');
+  assert.match(cards[4].replyChannelReason, /saved LinkedIn/);
+});
+
+test('merged source channel recommendations retain explicit signals and never invent a direct reply link', t => {
+  const base = { kind: 'recruiter', company: 'Example', title: 'Engineer', recruiter: 'Alex', sourceUrl: 'https://mail.example.com/thread' };
+  const f = fixture(t, { brief: { opportunities: [{ ...base, id: 'mail', channel: 'gmail' }, { ...base, id: 'linkedin', requestedReplyChannel: 'linkedin', needsResume: true }] }, queue: { items: [] } });
+  const card = invoke(f, 'get', '/api/opportunities').body.opportunities[0];
+  assert.equal(card.recommendedReplyChannel, 'linkedin');
+  assert.equal(card.recommendedReplyUrl, null, 'email source is not a LinkedIn reply link');
+  assert.equal(card.relatedIds.length, 2);
+});
+
+
+test('merge retains calendar fallback, source-link arrays and trusted recruiter recipient identity', t => {
+  const base = { kind: 'recruiter', company: 'Example', title: 'Engineer', recipientEmail: 'alex@example.com', sourceLinks: ['https://mail.example.com/shared'] };
+  const f = fixture(t, { brief: { opportunities: [
+    { ...base, id: 'email', sourceUrl: 'https://mail.example.com/a', schedulingUrl: 'https://cal.example.com/alex' },
+    { ...base, id: 'linkedin', sourceUrl: 'https://linkedin.com/message/a' },
+  ] }, queue: { items: [{ ...base, id: 'linkedin', status: 'ready_for_review' }] } });
+  const card = invoke(f, 'get', '/api/opportunities').body.opportunities[0];
+  assert.equal(card.schedulingUrl, 'https://cal.example.com/alex');
+  assert.equal(card.relatedIds.length, 2);
+  assert.ok(card.sourceLinks.includes('https://mail.example.com/shared'));
+});
+
+test('shared LinkedIn notification recipients are not recruiter identities', t => {
+  const base = { kind: 'recruiter', company: 'Example', title: 'Engineer', recipientEmail: 'inmail-hit-reply@linkedin.com', sourceUrl: 'https://mail.example.com/shared' };
+  const f = fixture(t, { brief: { opportunities: [{ ...base, id: 'a' }, { ...base, id: 'b' }] }, queue: { items: [] } });
+  assert.equal(invoke(f, 'get', '/api/opportunities').body.opportunities.length, 2);
+});
+
+test('reopening clears an old reminder date without erasing saved context or reminder history', () => {
+  const original = { id: 'held', status: 'hold_after_reminders', nextReminderAt: '2090-01-01T12:00:00Z', reminderCount: 2, lastNudgedAt: '2026-10-01T12:00:00Z', draftReply: 'Edited reply', followUpType: 'future_opportunities', custom: { preserve: true } };
+  const now = '2026-10-09T12:00:00Z';
+  const next = editQueueItem(original, { action: 'reopen' }, now);
+  assert.equal(next.status, 'ready_for_review');
+  assert.equal(next.nextReminderAt, null);
+  assert.equal(next.reviewResumedAt, now);
+  for (const field of ['draftReply', 'followUpType', 'custom']) assert.deepEqual(next[field], original[field]);
+  assert.equal(next.reminderCount, 0);
+  assert.equal(next.lastNudgedAt, null);
+  assert.deepEqual(next.reminderResumeHistory, [{ resumedAt: now, previousStatus: original.status, nextReminderAt: original.nextReminderAt, reminderCount: original.reminderCount, lastNudgedAt: original.lastNudgedAt }]);
+  assert.throws(() => editQueueItem({ ...original, reminderResumeHistory: {} }, { action: 'reopen' }, now), /Stored reminder history/);
+  assert.equal(original.nextReminderAt, '2090-01-01T12:00:00Z');
+});
+
+test('user-reported sent replies require the actual chosen channel and preserve actual sent time separately from report time', () => {
+  const now = '2026-10-09T12:00:00Z';
+  const original = { id: 'reply', status: 'ready_for_review', nextReminderAt: '2026-10-10T12:00:00Z', draftReply: 'My reply', sourceUrl: 'https://example.com/thread', schedulingUrl: 'https://example.com/calendar' };
+  assert.throws(() => editQueueItem(original, { action: 'sent' }, now), /Choose the channel/);
+  for (const sentAt of ['2090-01-01T00:00:00Z', 'invalid', '2026-10-08T12:00:00', 12]) assert.throws(() => editQueueItem(original, { action: 'sent', sentChannel: 'email', sentAt }, now), /valid sent time/);
+  const next = editQueueItem(original, { action: 'sent', sentChannel: 'linkedin', sentAt: '2026-10-08T10:30:00-04:00' }, now);
+  assert.equal(next.sentAt, '2026-10-08T14:30:00.000Z');
+  assert.equal(next.sentChannel, 'linkedin');
+  assert.equal(next.userReportedReplyChannel, 'linkedin');
+  assert.equal(next.userReportedReplyStatusAt, now);
+  assert.equal(next.verification, 'user_reported');
+  assert.equal(next.status, 'awaiting_recruiter');
+  assert.equal(next.nextReminderAt, null);
+  assert.equal(next.schedulingUrl, original.schedulingUrl);
+  assert.equal(next.draftReply, original.draftReply);
+  for (const action of ['snooze', 'hold', 'reopen']) assert.throws(() => editQueueItem(next, { action }, now), /already sent or booked/);
+  assert.equal(original.status, 'ready_for_review');
+  assert.equal(editQueueItem(original, { action: 'sent', sentChannel: 'email' }, now).sentAt, '2026-10-09T12:00:00.000Z');
+});
+
+test('actual saved draft and source evidence guide reply choices without turning notifications into reply destinations', t => {
+  const f = fixture(t, { brief: { opportunities: [] }, queue: { items: [
+    { id: 'notification', channel: 'linkedin_email', sourceUrl: 'https://www.linkedin.com/messaging/thread/1', emailSourceUrl: 'https://mail.google.com/mail/u/0/#all/notice', draftReply: 'Thanks! I would love to chat.' },
+    { id: 'documents-draft', channel: 'gmail', sourceUrl: 'https://mail.google.com/mail/u/0/#all/docs', linkedinSourceUrl: 'https://www.linkedin.com/messaging/thread/2', draftReply: 'Thanks! I can share my resume.', requestedReplyChannel: 'linkedin' },
+    { id: 'long-draft', channel: 'gmail', sourceUrl: 'https://mail.google.com/mail/u/0/#all/long', linkedinSourceUrl: 'https://www.linkedin.com/messaging/thread/3', draftReply: 'A detailed response. '.repeat(20) },
+    { id: 'inconsistent-channel', channel: 'gmail', sourceUrl: 'https://www.linkedin.com/messaging/thread/4', draftReply: 'Thanks! Let’s chat.' },
+  ] } });
+  const cards = invoke(f, 'get', '/api/opportunities').body.opportunities;
+  assert.equal(cards[0].recommendedReplyChannel, 'linkedin');
+  assert.deepEqual(cards[0].replySources.find(source => source.channel === 'email'), { channel: 'email', url: 'https://mail.google.com/mail/u/0/#all/notice', canReply: false });
+  assert.match(cards[0].replyChannelReason, /brief reply/);
+  assert.equal(cards[1].recommendedReplyChannel, 'linkedin', 'explicit request wins over draft references');
+  assert.equal(cards[1].replySources.length, 2);
+  assert.equal(cards[2].recommendedReplyChannel, 'email');
+  assert.match(cards[2].replyChannelReason, /longer draft/);
+  assert.equal(cards[3].recommendedReplyChannel, 'linkedin');
+  assert.equal(cards[3].replySources.length, 1, 'an old channel label must not relabel a LinkedIn URL as email');
+});
+
+test('recruiter related listing remains a typed source link through snapshot and draft edits', t => {
+  const f = fixture(t, { queue: { items: [{ id: 'role-1', draftReply: 'Saved reply', relatedRoleUrl: 'https://jobs.example.com/role' }] } });
+  const card = invoke(f, 'get', '/api/opportunities').body.opportunities.find(item => item.id === 'role-1');
+  assert.equal(card.relatedRoleUrl, 'https://jobs.example.com/role');
+  assert.ok(card.sourceLinks.includes(card.relatedRoleUrl));
+  const saved = invoke(f, 'patch', '/api/opportunities/:id', { action: 'draft', revision: card.revision, draftReply: 'Edited reply' }, card.id);
+  assert.equal(saved.status, 200);
+  assert.equal(invoke(f, 'get', '/api/opportunities').body.opportunities.find(item => item.id === card.id).relatedRoleUrl, card.relatedRoleUrl);
 });

@@ -685,7 +685,13 @@ function App() {
   const [resume, setResume] = useState(null);
   const [roleActions, setRoleActions] = useState({ saved: [], skipped: [], applied: [] });
   const [roleTracker, setRoleTracker] = useState({});
+  const roleTrackerPendingRef = useRef(false);
   const [jobStatus, setJobStatus] = useState(null);
+  const [roleLaunch, setRoleLaunch] = useState(null);
+  const openNativeRole = role => {
+    setRoleLaunch({ key: `${role.company}|${role.role}`, request: Date.now() });
+    setPage('intel');
+  };
   const [sdLaunchTopic, setSdLaunchTopic] = useState(null);
   // Lifted CodeLab session state — persists across page switches
   const codeLabSessionRef = useRef({});
@@ -700,7 +706,7 @@ function App() {
     api.get('/api/tasks').then(setAllTasks).catch(() => {});
     api.get('/api/resume').then(setResume).catch(() => {});
     api.get('/api/role-actions').then(setRoleActions).catch(() => {});
-    api.get('/api/role-tracker').then(setRoleTracker).catch(() => {});
+    api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); }).catch(() => {});
     api.get('/api/job-status').then(setJobStatus).catch(() => {});
   }, []);
 
@@ -733,14 +739,14 @@ function App() {
   const quizCount = todayQuiz?.questions?.length || 0;
   const newRoles = allRoles.filter(r => {
     const key = `${r.company}|${r.role}`;
-    return !roleActions.skipped.includes(key) && !roleActions.applied.includes(key) && !roleActions.saved.includes(key);
+    return !roleActions.skipped.includes(key) && !nativeRoleStatus(key, roleActions, roleTracker).pipelineStarted && !roleActions.saved.includes(key);
   });
 
   const navItems = [
     { id: 'dashboard', icon: Icons.target, label: 'Dashboard' },
     { id: 'practice', icon: Icons.play, label: 'Practice' },
     { id: 'learn', icon: Icons.lightbulb, label: 'Learn' },
-    { id: 'opportunities', icon: Icons.briefcase, label: 'Opportunities' },
+    { id: 'opportunities', icon: Icons.briefcase, label: 'Outreach' },
     { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
     { id: 'tasks', icon: Icons.checkSquare, label: 'Daily Tasks', badge: taskCount || null },
     { id: 'quiz', icon: Icons.brain, label: 'Quiz', badge: quizCount || null },
@@ -760,7 +766,7 @@ function App() {
   return (
     <div className="app">
       <nav className={`sidebar ${menuOpen ? 'menu-open' : ''}`} aria-label="Main navigation">
-        <div className="sidebar-brand"><h1>Job Quest</h1><div className="subtitle">Your next step</div></div>
+        <div className="sidebar-brand"><h1><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}>Job Quest</a></h1><div className="subtitle">Your next step</div></div>
         <div className="nav-section">
           {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider" /> : (
             <a key={n.id} href={`#${n.id}`} aria-current={page === n.id ? 'page' : undefined} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
@@ -771,16 +777,16 @@ function App() {
         </div>
         <div className="sidebar-footer">Local to your Mac</div>
       </nav>
-      <header className="mobile-header"><strong>Job Quest</strong><div style={{display:'flex',gap:8}}><button className="btn btn-secondary" onClick={() => window.location.reload()}>Refresh</button><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></div></header>
+      <header className="mobile-header"><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}><strong>Job Quest</strong></a><div style={{display:'flex',gap:8}}><button className="btn btn-secondary refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></div></header>
       <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
-        <div className="route-bar"><span>{navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh" onClick={() => window.location.reload()}>Refresh</button></div>
+        <div className="route-bar"><span>{navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
         {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
-        {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
-        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover allRoles={allRoles} roleActions={roleActions} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
+        {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
+        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
         {visited.current.has('tasks') && <section className="page-surface" hidden={page !== 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
         {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} /></section>}
-        {visited.current.has('intel') && <section className="page-surface" hidden={page !== 'intel'}><Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} /></section>}
+        {visited.current.has('intel') && <section className="page-surface" hidden={page !== 'intel'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} /></section>}
         {visited.current.has('workbooks') && <section className="page-surface" hidden={page !== 'workbooks'}><Workbooks setPage={setPage} /></section>}
         {visited.current.has('calendar') && <section className="page-surface" hidden={page !== 'calendar'}><Calendar progress={progress} /></section>}
         {visited.current.has('codelab') && <section className="page-surface" hidden={page !== 'codelab'}><CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} /></section>}
@@ -790,7 +796,7 @@ function App() {
         {visited.current.has('practice') && <section className="page-surface" hidden={page !== 'practice'}><window.Learning mode="practice" /></section>}
         {visited.current.has('learn') && <section className="page-surface" hidden={page !== 'learn'}><window.Learning mode="learn" /></section>}
         {visited.current.has('setup') && <section className="page-surface" hidden={page !== 'setup'}><LocalSetup setPage={setPage}/></section>}
-        {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities setPage={setPage} /></section>}
+        {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
 
       </div>
     </div>
@@ -1144,54 +1150,69 @@ function LocalSetup({setPage}) {
 function Dashboard(props) { return <window.DashboardHome {...props} />; }
 
 /* ===== DISCOVER CAROUSEL ===== */
-function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
+function nativeRoleStatus(key, actions, tracker) {
+  const entry = tracker?.[key];
+  const applied = Boolean(actions?.applied?.includes(key) || entry?.stage === 'applied' || entry?.applicationSubmitted === true);
+  const stage = applied && (!entry || ['discovered','researching','saved'].includes(entry.stage)) ? 'applied' : entry?.stage || 'discovered';
+  return { applied, stage, pipelineStarted: ['applied','phone-screen','onsite','offer','rejected'].includes(stage) };
+}
+
+function Discover({ allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole }) {
   const [viewMode, setViewMode] = useState('discover');
   const [currentIdx, setCurrentIdx] = useState(0);
   const [swipeDir, setSwipeDir] = useState(null);
   const [applyRole, setApplyRole] = useState(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const unseen = allRoles.filter(r => {
     const key = `${r.company}|${r.role}`;
-    return !roleActions.skipped.includes(key) && !roleActions.applied.includes(key) && !roleActions.saved.includes(key);
+    return !roleActions.skipped.includes(key) && !nativeRoleStatus(key, roleActions, roleTracker).pipelineStarted && !roleActions.saved.includes(key);
   });
   const savedRoles = allRoles.filter(r => roleActions.saved.includes(`${r.company}|${r.role}`));
-  const appliedRoles = allRoles.filter(r => roleActions.applied.includes(`${r.company}|${r.role}`));
+  const appliedRoles = allRoles.filter(r => nativeRoleStatus(`${r.company}|${r.role}`, roleActions, roleTracker).applied);
 
-  const doAction = (action) => {
-    if (!unseen[currentIdx]) return;
+  const doAction = async (action) => {
+    if (actionBusy || !unseen[currentIdx]) return;
     const role = unseen[currentIdx];
     const key = `${role.company}|${role.role}`;
     setSwipeDir(action === 'skip' ? 'left' : 'right');
-    setTimeout(() => {
+    setActionBusy(true); setActionError('');
+    try {
       const updated = { ...roleActions };
       if (action === 'skip') updated.skipped = [...updated.skipped, key];
       else if (action === 'save') updated.saved = [...updated.saved, key];
       else if (action === 'apply') { updated.applied = [...updated.applied, key]; updated.saved = updated.saved.filter(k => k !== key); }
+      await api.post('/api/role-actions', updated);
       setRoleActions(updated);
-      api.post('/api/role-actions', updated);
-      setSwipeDir(null);
-    }, 350);
+    } catch (error) { setActionError(error.message || 'Could not save this role. Retry.'); }
+    finally { setActionBusy(false); setSwipeDir(null); }
   };
 
   const handleApply = (role) => { setApplyRole(role); };
-  const confirmApply = () => {
-    if (!applyRole) return;
+  const confirmApply = async () => {
+    if (actionBusy || !applyRole) return;
     const key = `${applyRole.company}|${applyRole.role}`;
     const updated = { ...roleActions, applied: [...roleActions.applied, key], saved: roleActions.saved.filter(k => k !== key) };
+    setActionBusy(true); setActionError('');
+    try {
+    await api.post('/api/role-actions', updated);
     setRoleActions(updated);
-    api.post('/api/role-actions', updated);
     // Application state changes only through explicit submission confirmation.
     setApplyRole(null);
+    } catch (error) { setActionError(error.message || 'Could not record your application. Retry.'); }
+    finally { setActionBusy(false); }
   };
 
   return (
     <>
-      <div className="page-header anim-enter"><h2>Discover Roles</h2><div className="greeting-sub">Swipe through roles matched for you.</div></div>
+      <div className="page-header anim-enter"><h2>Discover Roles</h2><div className="greeting-sub">Find listings, assess fit, and save roles. Manage applications and preparation in Intel.</div></div>
+      {actionError && !applyRole && <p role="alert" style={{color:'var(--rose)'}}>{actionError}</p>}
       <div className="discover-container">
         <div className="discover-tabs anim-enter anim-delay-1">
-          <div className={`discover-tab ${viewMode==='discover'?'active':''}`} onClick={() => setViewMode('discover')}>New ({unseen.length})</div>
-          <div className={`discover-tab ${viewMode==='saved'?'active':''}`} onClick={() => setViewMode('saved')}>Saved ({savedRoles.length})</div>
-          <div className={`discover-tab ${viewMode==='applied'?'active':''}`} onClick={() => setViewMode('applied')}>Applied ({appliedRoles.length})</div>
+          <button type="button" className={`discover-tab ${viewMode==='discover'?'active':''}`} onClick={() => setViewMode('discover')}>New ({unseen.length})</button>
+          <button type="button" className={`discover-tab ${viewMode==='saved'?'active':''}`} onClick={() => setViewMode('saved')}>Saved ({savedRoles.length})</button>
+          <button type="button" className={`discover-tab ${viewMode==='applied'?'active':''}`} onClick={() => setViewMode('applied')}>Applied ({appliedRoles.length})</button>
         </div>
 
         {viewMode === 'discover' && (unseen.length > 0 ? (
@@ -1218,9 +1239,9 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
               })}
             </div>
             <div className="discover-actions anim-enter anim-delay-3">
-              <button className="discover-btn skip" onClick={() => doAction('skip')} aria-label="Skip role"><Icons.x /></button>
-              <button className="discover-btn save" onClick={() => doAction('save')} aria-label="Save role"><Icons.heart /></button>
-              <button className="discover-btn apply" onClick={() => handleApply(unseen[currentIdx])} aria-label="Review application status"><Icons.send /></button>
+              <button className="discover-btn skip" disabled={actionBusy} onClick={() => doAction('skip')} aria-label="Skip role"><Icons.x /></button>
+              <button className="discover-btn save" disabled={actionBusy} onClick={() => doAction('save')} aria-label="Save role"><Icons.heart /></button>
+              <button className="discover-btn apply" disabled={actionBusy} onClick={() => handleApply(unseen[currentIdx])} aria-label="Review application status"><Icons.send /></button>
             </div>
             <div className="discover-counter">{currentIdx + 1} / {unseen.length}</div>
           </>
@@ -1232,9 +1253,9 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
           <div className="saved-list anim-enter anim-delay-2">
             {savedRoles.length > 0 ? savedRoles.map((r, i) => (
               <div key={i} className="role-card" style={{marginBottom:8}}>
-                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{r.level} &middot; {r.location}</p></div>
+                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{[r.level, r.location].filter(Boolean).join(' · ')}</p></div>
                 <div style={{display:'flex',gap:8}}>
-                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
+                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => onOpenRole ? onOpenRole(r) : setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
                   <button className="btn btn-primary" style={{padding:'7px 14px',fontSize:12}} onClick={() => handleApply(r)}>Application status</button>
                 </div>
               </div>
@@ -1246,9 +1267,9 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
           <div className="saved-list anim-enter anim-delay-2">
             {appliedRoles.length > 0 ? appliedRoles.map((r, i) => (
               <div key={i} className="role-card" style={{marginBottom:8}}>
-                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{r.level} &middot; {r.location}</p></div>
+                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{[r.level, r.location].filter(Boolean).join(' · ')}</p></div>
                 <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
+                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => onOpenRole ? onOpenRole(r) : setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
                   <span style={{fontSize:11,color:'var(--emerald)',fontFamily:'var(--font-mono)',fontWeight:600,display:'flex',alignItems:'center',gap:4}}><Icons.check style={{width:14,height:14}} /> Applied</span>
                 </div>
               </div>
@@ -1257,14 +1278,14 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
         )}
       </div>
 
-      {applyRole && <ApplyModal role={applyRole} resume={resume} onClose={() => setApplyRole(null)} onApply={confirmApply} />}
+      {applyRole && <ApplyModal role={applyRole} resume={resume} busy={actionBusy} error={actionError} onClose={() => { if (!actionBusy) { setApplyRole(null); setActionError(''); } }} onApply={confirmApply} />}
     </>
   );
 }
 
 /* ===== APPLY MODAL ===== */
-function ApplyModal({ role, onClose, onApply }) {
-  return <div className="modal-overlay" onClick={e => {if(e.target === e.currentTarget) onClose();}}><div className="modal" role="dialog" aria-modal="true" aria-label="Application status"><h2>{role.company} — {role.role}</h2><p>Opening the listing does not submit an application. Confirm only after you have submitted it yourself.</p><div className="action-row">{role.url && <a className="btn btn-secondary" href={role.url} target="_blank" rel="noopener noreferrer">Open posting</a>}<button className="btn btn-primary" onClick={onApply}>I submitted this application</button><button className="btn btn-secondary" onClick={onClose} autoFocus>Close</button></div></div></div>;
+function ApplyModal({ role, onClose, onApply, busy = false, error = '' }) {
+  return <div className="modal-overlay" onClick={e => {if(e.target === e.currentTarget) onClose();}}><div className="modal" role="dialog" aria-modal="true" aria-label="Application status"><h2>{role.company} — {role.role}</h2><p>Opening the listing does not submit an application. Confirm only after you have submitted it yourself.</p>{error && <p role="alert" style={{color:'var(--rose)'}}>{error}</p>}<div className="action-row">{role.url && <a className="btn btn-secondary" href={role.url} target="_blank" rel="noopener noreferrer">Open posting</a>}<button className="btn btn-primary" disabled={busy} onClick={onApply}>{busy ? 'Saving…' : 'I submitted this application'}</button><button className="btn btn-secondary" disabled={busy} onClick={onClose} autoFocus>Close</button></div></div></div>;
 }
 
 /* ===== PDF Viewer (canvas-based via PDF.js) ===== */
@@ -2503,13 +2524,17 @@ const DEFAULT_CHECKLISTS = {
   rejected: [],
 };
 
-function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage }) {
+function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage, launchRole, roleTrackerPendingRef }) {
   const [selectedKey, setSelectedKey] = useState(null);
   const [filter, setFilter] = useState('all');
   const [newCheckItem, setNewCheckItem] = useState('');
   const [newTimelineEvent, setNewTimelineEvent] = useState('');
   const saveTimer = useRef(null);
   const trackerRevision = useRef(0);
+  const pendingTrackerRef = useRef(null);
+  const trackerSaveQueue = useRef(Promise.resolve());
+  const [trackerError, setTrackerError] = useState(null);
+  const [trackerSaving, setTrackerSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -2539,10 +2564,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
 
   // Determine stage for each role
   const getRoleStage = (key) => {
-    if (roleTracker[key]) return roleTracker[key].stage;
-    if (roleActions.applied?.includes(key)) return 'applied';
-    if (roleActions.saved?.includes(key)) return 'discovered';
-    return 'discovered';
+    return nativeRoleStatus(key, roleActions, roleTracker).stage;
   };
 
   const roles = Object.values(roleMap).map(r => ({
@@ -2564,9 +2586,17 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
     return true;
   }).sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
 
+  // A source-linked recruiter card opens the exact native role, without changing its status.
+  useEffect(() => {
+    if (launchRole?.key && roleMap[launchRole.key]) {
+      setFilter('all');
+      setSelectedKey(launchRole.key);
+    }
+  }, [launchRole?.request, allRoles.length]);
+
   // Auto-select first role
   useEffect(() => {
-    if (!selectedKey && filtered.length > 0) setSelectedKey(filtered[0].key);
+    if (!selectedKey && filtered.length > 0) setSelectedKey(launchRole?.key && roleMap[launchRole.key] ? launchRole.key : filtered[0].key);
   }, [filtered.length]);
 
   const selected = selectedKey ? roleMap[selectedKey] : null;
@@ -2574,16 +2604,35 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   const stage = selectedKey ? getRoleStage(selectedKey) : 'discovered';
   const companyTips = selected ? allTips.filter(t => t.company && selected.company.toLowerCase().includes(t.company.toLowerCase())) : [];
 
-  // Save tracker with debounce
+  // Retain unsaved edits and serialize writes so an older request cannot replace a newer edit.
   const saveTracker = (updated) => {
     trackerRevision.current++;
     setRoleTracker(updated);
+    pendingTrackerRef.current = updated;
+    roleTrackerPendingRef.current = true;
+    setTrackerError(null);
+    setTrackerSaving(true);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const timer = setTimeout(async () => {
-      try {
+      const request = trackerSaveQueue.current.catch(() => {}).then(async () => {
         await api.post('/api/role-tracker', updated);
+      });
+      trackerSaveQueue.current = request;
+      try {
+        await request;
+        if (pendingTrackerRef.current === updated) {
+          pendingTrackerRef.current = null;
+          roleTrackerPendingRef.current = false;
+          setTrackerError(null);
+          setTrackerSaving(false);
+        }
+      } catch (error) {
+        if (pendingTrackerRef.current === updated) {
+          setTrackerError(error.message || 'Could not save role changes.');
+          setTrackerSaving(false);
+        }
       } finally {
-        if (saveTimer.current === timer) saveTimer.current = null;
+        if (saveTimer.current === timer && !roleTrackerPendingRef.current) saveTimer.current = null;
       }
     }, 500);
     saveTimer.current = timer;
@@ -2609,6 +2658,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
     const t = ensureTracker();
     const now = new Date().toISOString();
     const entry = { ...t[selectedKey], stage: newStage };
+    if (newStage === 'applied') entry.applicationSubmitted = true;
     entry.timeline = [...(entry.timeline || []), { date: now, event: `Stage changed to ${STAGE_LABELS[newStage]}` }];
     // Add default checklist items for new stage if checklist is empty or all done
     const defaults = DEFAULT_CHECKLISTS[newStage] || [];
@@ -2671,10 +2721,16 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   return (
     <>
       <div className="codelab-toolbar anim-enter">
-        <h2>Intel</h2>
+        <h2>Intel</h2><p className="muted">Your role workspace: application status, interview preparation, workbooks and tailored resumes.</p>
         <div style={{flex:1}} />
-        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{roles.length} roles tracked</span>
+        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{roles.length} roles available</span>
       </div>
+
+      {trackerSaving && <p role="status" className="muted">Saving role changes…</p>}
+      {trackerError && <div role="alert" style={{marginBottom:12,color:'var(--rose)',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+        <span>Role changes are unsaved. {trackerError} Your edits are still here.</span>
+        <button type="button" className="btn btn-sm" onClick={() => saveTracker(pendingTrackerRef.current || roleTracker)}>Retry save</button>
+      </div>}
 
       <div className="intel-split anim-enter anim-delay-1" style={{border:'1px solid var(--border)',borderRadius:'var(--radius)',overflow:'hidden'}}>
         {/* Left Panel */}
@@ -2682,13 +2738,13 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
           <div className="intel-left-header">
             <div className="intel-filter-tabs">
               {[['all','All'],['saved','Saved'],['active','Active'],['applied','Applied'],['interviewing','Interview'],['archived','Archive']].map(([id,label]) => (
-                <div key={id} className={`intel-filter-tab ${filter===id?'active':''}`} onClick={() => setFilter(id)}>{label}</div>
+                <button type="button" key={id} className={`intel-filter-tab ${filter===id?'active':''}`} aria-pressed={filter===id} onClick={() => setFilter(id)}>{label}</button>
               ))}
             </div>
           </div>
           <div className="intel-role-list">
             {filtered.map(r => (
-              <div key={r.key} className={`intel-role-item ${selectedKey===r.key?'active':''}`} onClick={() => setSelectedKey(r.key)}>
+              <button type="button" key={r.key} className={`intel-role-item ${selectedKey===r.key?'active':''}`} aria-pressed={selectedKey===r.key} onClick={() => setSelectedKey(r.key)}>
                 <div className="iri-company">
                   <span className={`stage-dot stage-${r.stage}`} />
                   {r.company}
@@ -2696,12 +2752,11 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 </div>
                 <div className="iri-title">{r.role}</div>
                 <div className="iri-meta">
-                  <span>{r.level}</span>
-                  <span>&middot;</span>
+                  {r.level && <><span>{r.level}</span><span>&middot;</span></>}
                   <span>{STAGE_LABELS[r.stage]}</span>
                   {r.lastActivity && <><span>&middot;</span><span>{timeAgo(r.lastActivity)}</span></>}
                 </div>
-              </div>
+              </button>
             ))}
             {filtered.length === 0 && <div style={{padding:24,textAlign:'center',color:'var(--text-muted)',fontSize:13}}>No roles in this filter.</div>}
           </div>
@@ -2715,9 +2770,15 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
               <div style={{marginBottom:8}}>
                 <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:STAGE_COLORS[stage],fontWeight:600,textTransform:'uppercase',letterSpacing:1.5,marginBottom:4}}>{selected.company}</div>
                 <h3 style={{fontSize:22,fontWeight:700,marginBottom:4}}>{selected.role}</h3>
-                <div style={{fontSize:13,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{selected.level} &middot; {selected.location}</div>
+                <div style={{fontSize:13,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{[selected.level, selected.location].filter(Boolean).join(' · ')}</div>
               </div>
 
+              <p className="intel-current-stage">Application status: <strong>{STAGE_LABELS[stage]}</strong>. Change it after the corresponding step happens.</p>
+              <label className="intel-mobile-stage">Update application status
+                <select aria-label="Update application status" value={stage} onChange={e=>setStage(e.target.value)}>
+                  {STAGES.map(s=><option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+                </select>
+              </label>
               {/* Stage Stepper */}
               <div className="stage-stepper" style={{marginBottom:20}}>
                 {STAGES.filter(s => s !== 'rejected').map((s, i, arr) => {
@@ -2728,11 +2789,11 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                   return (
                     <div key={s} className="stage-step">
                       <div className="stage-step-wrap">
-                        <div className={`stage-step-dot ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}`}
+                        <button type="button" aria-label={`Mark role ${STAGE_LABELS[s]}`} aria-pressed={isCurrent} className={`stage-step-dot ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}`}
                           style={isCurrent ? {borderColor: STAGE_COLORS[s], background: `${STAGE_COLORS[s]}22`, color: STAGE_COLORS[s]} : {}}
                           onClick={() => setStage(s)}>
                           {isCompleted ? <Icons.check style={{width:12,height:12}} /> : (i + 1)}
-                        </div>
+                        </button>
                         <span className="stage-step-label">{STAGE_LABELS[s]}</span>
                       </div>
                       {i < arr.length - 1 && <div className={`stage-step-line ${isCompleted ? 'completed' : ''}`} />}
@@ -2741,9 +2802,9 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 })}
                 <div style={{marginLeft:8}}>
                   <div className="stage-step-wrap">
-                    <div className={`stage-step-dot ${stage === 'rejected' ? 'rejected' : ''}`} onClick={() => setStage(stage === 'rejected' ? 'discovered' : 'rejected')} style={{width:24,height:24,fontSize:9}}>
+                    <button type="button" aria-label={stage === 'rejected' ? 'Reopen role' : 'Mark role rejected'} className={`stage-step-dot ${stage === 'rejected' ? 'rejected' : ''}`} onClick={() => setStage(stage === 'rejected' ? 'discovered' : 'rejected')} style={{width:24,height:24,fontSize:9}}>
                       <Icons.x style={{width:10,height:10}} />
-                    </div>
+                    </button>
                     <span className="stage-step-label">Reject</span>
                   </div>
                 </div>
@@ -2791,7 +2852,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
               {/* Workbook */}
               <WorkbookRoleSection roleKey={selectedKey} />
 
-              <TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(setRoleTracker)} />
+              <TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); })} />
 
               {/* Notes */}
               <div className="mc-section">
@@ -3467,6 +3528,8 @@ function Behavioral() {
   const [generatingAll, setGeneratingAll] = useState(false);
   const saveTimer = useRef({});
   const revisions = useRef({});
+  const assistanceEvidence = useRef({});
+  const [answerAssistance, setAnswerAssistance] = useState({});
   const saveChains = useRef({});
   const feedback = useFeedbackReviews('behavioral', a => {if (!a.superseded) setEvaluations(prev => ({...prev,[a.questionId]:a.evaluation}));});
 
@@ -3474,7 +3537,7 @@ function Behavioral() {
     Promise.all([
       api.get('/api/tasks'),
       api.get('/api/behavioral/answers'),
-      api.get('/api/resume'),
+      api.get('/api/resume/master').then(master => master?.summary || master?.headline || ['experience','projects','skills','education','additionalSections'].some(key => master?.[key]?.length) ? master : api.get('/api/resume')),
     ]).then(([allTaskDays, savedAnswers, resume]) => {
       const seen = new Set();
       const bqs = [];
@@ -3498,6 +3561,18 @@ function Behavioral() {
         if (v.evaluation && !v.evaluation.error && Number.isFinite(v.evaluation.score)) restoredEvals[k] = v.evaluation;
       });
       bqs.forEach(q => {const draft=sessionStorage.getItem(`jq-behavioral-${q.key}`);if(draft!==null) restoredAnswers[q.key]=draft;});
+      const restoredHelp = {};
+      for (const key of new Set([...Object.keys(savedAnswers || {}), ...bqs.map(q => q.key)])) {
+        let local;try {local=JSON.parse(sessionStorage.getItem(`jq-behavioral-help-${key}`));}catch {}
+        const saved=savedAnswers?.[key]?.assistance || {};
+        const evidence={};
+        for (const flag of ['assisted','revealed']) {
+          if(saved[flag]===true || local?.[flag]===true)evidence[flag]=true;
+          else if(saved[flag]===false || local?.[flag]===false)evidence[flag]=false;
+        }
+        restoredHelp[key]=Object.keys(evidence).length ? evidence : null;
+      }
+      assistanceEvidence.current=restoredHelp;setAnswerAssistance(restoredHelp);
       setAnswers(restoredAnswers);
       setEvaluations(restoredEvals);
       setResumeData(resume);
@@ -3508,13 +3583,24 @@ function Behavioral() {
   const saveAnswer = (key, answer) => {
     const promise = (saveChains.current[key] || Promise.resolve()).catch(() => {}).then(async () => {
       const q = questions.find(q => q.key === key);
-      const result = await api.post('/api/behavioral/answers', {key,answer,question:q?.text,expectedRevision:revisions.current[key] || 0});
+      const result = await api.post('/api/behavioral/answers', {key,answer,question:q?.text,expectedRevision:revisions.current[key] || 0,assistance:assistanceEvidence.current[key] || null});
       revisions.current[key] = result.revision;
       if (sessionStorage.getItem(`jq-behavioral-${key}`) === answer) sessionStorage.removeItem(`jq-behavioral-${key}`);
       feedback.setReviewError('');
     });
     saveChains.current[key] = promise;
     return promise;
+  };
+  const recordHelp = (key, flags) => {
+    const old=assistanceEvidence.current[key] || {};
+    const next={...old};for(const flag of ['assisted','revealed'])if(flags[flag]===true)next[flag]=true;
+    assistanceEvidence.current[key]=next;setAnswerAssistance(prev => ({...prev,[key]:next}));
+    sessionStorage.setItem(`jq-behavioral-help-${key}`,JSON.stringify(next));
+  };
+  const revealGuidance = key => {
+    recordHelp(key,{revealed:true});setRevealedFrameworks(prev => ({...prev,[key]:true}));
+    clearTimeout(saveTimer.current[key]);
+    saveAnswer(key,sessionStorage.getItem(`jq-behavioral-${key}`) ?? answers[key] ?? '').catch(e => feedback.setReviewError(e.message));
   };
   const updateAnswer = (key,value) => {
     setAnswers(prev => ({...prev,[key]:value})); sessionStorage.setItem(`jq-behavioral-${key}`,value);
@@ -3526,7 +3612,7 @@ function Behavioral() {
     setEvaluatingKey(key); clearTimeout(saveTimer.current[key]);
     try {
       await saveAnswer(key,userAnswer);
-      const result=await api.post('/api/evaluate-answer',{key,question:q.text,userAnswer,sampleAnswer:q.content,category:'behavioral',expectedRevision:revisions.current[key],attemptId:crypto.randomUUID(),assistance:{assisted:draftMode[key]==='done',revealed:!!revealedFrameworks[key]}});
+      const result=await api.post('/api/evaluate-answer',{key,question:q.text,userAnswer,sampleAnswer:q.content,category:'behavioral',expectedRevision:revisions.current[key],attemptId:crypto.randomUUID(),assistance:assistanceEvidence.current[key] || null});
       revisions.current[key] = result.attempt.answerRevision;
       feedback.setReviewError(''); await feedback.refreshReviews();
     }catch(e){feedback.setReviewError(e.message);}
@@ -3550,6 +3636,7 @@ function Behavioral() {
         setDraftQuestions(prev => ({ ...prev, [key]: result.questions }));
         setDraftMode(prev => ({ ...prev, [key]: 'asking' }));
       } else if (result.draft) {
+        recordHelp(key,{assisted:true});
         updateAnswer(key, result.draft);
         setDraftMode(prev => ({ ...prev, [key]: 'done' }));
       }
@@ -3661,7 +3748,7 @@ function Behavioral() {
                 {selected.content && (
                   <div style={{marginBottom:24}}>
                     {!revealedFrameworks[key] ? (
-                      <button className="prep-reveal-btn" onClick={() => setRevealedFrameworks(prev => ({...prev, [key]: true}))}>
+                      <button className="prep-reveal-btn" onClick={() => revealGuidance(key)}>
                         Show Guidance & STAR Framework
                       </button>
                     ) : (
@@ -3674,6 +3761,8 @@ function Behavioral() {
                     )}
                   </div>
                 )}
+
+                {(answerAssistance[key]?.assisted || answerAssistance[key]?.revealed) && <p style={{fontSize:13,color:'var(--text-secondary)'}}>Help or guidance has been used for this answer. That context stays attached after hiding guidance or reloading.</p>}
 
                 {/* Q&A Flow - Claude needs more info */}
                 {mode === 'asking' && askQuestions.length > 0 && (

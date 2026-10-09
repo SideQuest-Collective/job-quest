@@ -285,11 +285,13 @@ function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}}
 const TO_SERVER={correct:'got',got:'got',partial:'partial',wrong:'missed',miss:'missed'};
 // Keep loaded grades intact when a save only changes answers or UI state.
-let loadedGrades={};
+let loadedGrades={},savedRevision=0,baselineProgress={},conflictProgress=null;
+const CONFLICT_BACKUP_KEY='workbook.'+WB_ID+'.conflict-backup';
 function fromServerGrade(qid,g){if(g==='partial')return g;if(QTYPE[qid]==='mcq')return g==='got'?'correct':'wrong';return g==='missed'?'miss':g;}
 function applyProgress(p){
   if(!p)return;
   loadedGrades=Object.assign({},p.grades||{});
+  savedRevision=Number.isSafeInteger(p.expectedRevision)?p.expectedRevision:Number.isSafeInteger(p.revision)?p.revision:0;
   const ui=p.ui||{};
   S.draft=Object.assign({},p.answers||{});S.last=p.lastChapter||null;
   S.read=Object.assign({},ui.read||{});S.flag=Object.assign({},ui.flag||{});S.legacyDone=!!ui.legacyDone;
@@ -307,21 +309,66 @@ function toProgress(){
         ?Object.assign({},original)
         :{grade:TO_SERVER[a.s],at:new Date(a.ts||Date.now()).toISOString(),source:'dashboard'};
     }});
-  return {answers:Object.assign({},S.draft),grades:grades,lastChapter:S.last,ui:{read:S.read,flag:S.flag,picks:picks,legacyDone:!!S.legacyDone}};
+  return {expectedRevision:savedRevision,answers:Object.assign({},S.draft),grades:grades,lastChapter:S.last,ui:{read:S.read,flag:S.flag,picks:picks,legacyDone:!!S.legacyDone}};
 }
 function setSync(msg){let el=document.getElementById('syncNote');if(!el){el=document.createElement('div');el.id='syncNote';el.className='note';el.style.cssText='position:fixed;right:16px;bottom:16px;z-index:40;max-width:340px';document.body.appendChild(el);}el.textContent=msg;el.classList.toggle('hidden',!msg);}
 let saveTimer=null,flushInFlight=Promise.resolve();
+function sameDraft(a,b){const clean=function(p){const c=Object.assign({},p);delete c.expectedRevision;delete c.revision;delete c.baseProgress;return JSON.stringify(c);};return clean(a)===clean(b);}
+function keepPending(){lsSet(PENDING_KEY,JSON.stringify(Object.assign({},toProgress(),{baseProgress:baselineProgress})));}
+function joinPicks(saved,local){const out=Object.assign({},saved||{});Object.keys(local||{}).forEach(function(qid){const a=out[qid]||{},b=local[qid]||{};out[qid]=Object.assign({},a,b);['assisted','revealed','hintUsed'].forEach(function(k){if(a[k]||b[k])out[qid][k]=true;});});return out;}
+function conflictMarkup(){
+  const current=conflictProgress||{},changed=Object.keys(S.draft).filter(function(qid){return S.draft[qid]!==((current.answers||{})[qid]||'');});
+  let h='<strong>Saved workbook progress changed</strong><p>Your draft is kept in this browser. Compare the responses before choosing. Nothing has been overwritten.</p>';
+  changed.forEach(function(qid){const q=QUESTIONS.find(function(v){return v.id===qid;});h+='<details><summary>'+esc((q&&q.body||qid).split('\n')[0].replace(/[*_`#]/g,'').slice(0,120))+'</summary><strong>This browser</strong><pre class="review-answer">'+esc(S.draft[qid]||'(blank)')+'</pre><strong>Saved version</strong><pre class="review-answer">'+esc((current.answers||{})[qid]||'(blank)')+'</pre></details>';});
+  h+='<div class="row"><button class="btn" data-conflict="saved">Use saved answers</button><button class="btn primary" data-conflict="local">Keep my edited answers</button></div><p class="small">Keeping your edits preserves unrelated answers from the other device. Using saved answers keeps a backup of this browser draft on this device.</p>';
+  return h;
+}
+function showConflict(current){
+  conflictProgress=current||{};keepPending();setSync('Saved workbook progress changed.');
+  const el=document.getElementById('syncNote');el.innerHTML=conflictMarkup();el.style.maxHeight='65vh';el.style.overflow='auto';el.style.maxWidth='min(460px, calc(100vw - 32px))';
+  if(el.setAttribute)el.setAttribute('role','alert');
+  el.querySelectorAll('[data-conflict]').forEach(function(button){button.onclick=function(){resolveConflict(button.dataset.conflict==='saved');};});
+}
+function mergeEdited(local,base,current){
+  const merged=Object.assign({},current),answers=Object.assign({},current.answers||{});
+  Object.keys(local.answers||{}).forEach(function(qid){if(local.answers[qid]!==((base.answers||{})[qid]))answers[qid]=local.answers[qid];});
+  merged.answers=answers;merged.grades=Object.assign({},current.grades||{});
+  Object.keys(local.grades||{}).forEach(function(qid){const g=local.grades[qid],prior=(base.grades||{})[qid],saved=merged.grades[qid];if(JSON.stringify(g)!==JSON.stringify(prior)&&(!saved||Date.parse(g.at)>Date.parse(saved.at)))merged.grades[qid]=g;});
+  merged.ui=Object.assign({},current.ui||{});
+  ['read','flag','picks'].forEach(function(key){const a=(base.ui||{})[key]||{},b=(local.ui||{})[key]||{},c=Object.assign({},(current.ui||{})[key]||{});new Set(Object.keys(a).concat(Object.keys(b))).forEach(function(id){if(JSON.stringify(a[id])!==JSON.stringify(b[id])){if(b[id]===undefined)delete c[id];else c[id]=b[id];}});merged.ui[key]=key==='picks'?joinPicks((current.ui||{}).picks,c):c;});
+  if(local.lastChapter!==base.lastChapter)merged.lastChapter=local.lastChapter;
+  if(local.ui&&local.ui.legacyDone)merged.ui.legacyDone=true;
+  return merged;
+}
+async function resolveConflict(useSaved){
+  try{
+    const r=await fetch('/api/workbooks/'+encodeURIComponent(WB_ID)+'/progress');if(!r.ok)throw new Error('Could not load the saved version.');const current=await r.json();
+    const local=toProgress(),base=baselineProgress;
+    lsSet(CONFLICT_BACKUP_KEY,JSON.stringify(Object.assign({},local,{baseProgress:base})));
+    const exposure={};Object.keys((local.ui||{}).picks||{}).forEach(function(qid){exposure[qid]={};['assisted','revealed','hintUsed'].forEach(function(k){if(local.ui.picks[qid][k])exposure[qid][k]=true;});});
+    const next=useSaved?Object.assign({},current,{ui:Object.assign({},current.ui||{},{picks:joinPicks((current.ui||{}).picks,exposure)})}):mergeEdited(local,base,current);
+    baselineProgress=current;conflictProgress=null;applyProgress(next);keepPending();route();renderSide();
+    // Even using saved text persists known help/reveal exposure from this browser.
+    const saved=await flush();if(saved&&useSaved){setSync('Saved answers loaded. A backup of this browser draft is available in Progress.');}
+  }catch(e){showConflict(conflictProgress);const el=document.getElementById('syncNote');el.innerHTML='<p role="alert">'+esc(e.message||'Could not resolve the conflict. Your draft is preserved.')+'</p>'+conflictMarkup();el.querySelectorAll('[data-conflict]').forEach(function(button){button.onclick=function(){resolveConflict(button.dataset.conflict==='saved');};});}
+}
+function restoreBrowserDraft(){const value=lsGet(CONFLICT_BACKUP_KEY);if(!value)return;try{const p=JSON.parse(value);baselineProgress=p.baseProgress||{};applyProgress(p);keepPending();route();renderSide();flush();}catch(e){setSync('The previous browser draft could not be read. Saved answers are unchanged.');}}
 async function flush(){
-  const body=JSON.stringify(toProgress());
-  if(OFFLINE){lsSet(PENDING_KEY,body);return false;}
-  flushInFlight=flushInFlight.then(async function(){
-    try{const r=await fetch('/api/workbooks/'+encodeURIComponent(WB_ID)+'/progress',{method:'PUT',headers:{'Content-Type':'application/json'},body:body});
-      if(!r.ok)throw new Error('HTTP '+r.status);lsSet(PENDING_KEY,null);setSync('');return true;}
-    catch(e){lsSet(PENDING_KEY,body);setSync('Offline: progress is saved in this browser and syncs when the dashboard is reachable.');return false;}
+  const snapshot=toProgress();keepPending();
+  if(OFFLINE)return false;
+  flushInFlight=flushInFlight.catch(function(){return false;}).then(async function(){
+    if(conflictProgress){showConflict(conflictProgress);return false;}
+    const payload=Object.assign({},snapshot,{expectedRevision:savedRevision});
+    try{const r=await fetch('/api/workbooks/'+encodeURIComponent(WB_ID)+'/progress',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      if(r.status===409){const failure=await r.json();showConflict(failure.current);return false;}
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const result=await r.json();savedRevision=Number.isSafeInteger(result.revision)?result.revision:savedRevision+1;baselineProgress=result;
+      if(sameDraft(snapshot,toProgress()))lsSet(PENDING_KEY,null);else keepPending();setSync('');return true;}
+    catch(e){keepPending();setSync('Could not save: your progress is kept in this browser and retries when the dashboard is reachable.');return false;}
   });
   return flushInFlight;
 }
-function save(){clearTimeout(saveTimer);saveTimer=setTimeout(flush,1000);}
+function save(){keepPending();clearTimeout(saveTimer);saveTimer=setTimeout(flush,1000);}
 /* ---------- durable written-answer review; self-grades remain independent ---------- */
 const REVIEW_PENDING_KEY='workbook.'+WB_ID+'.review-submissions';
 let reviewSubmissions={};try{reviewSubmissions=JSON.parse(lsGet(REVIEW_PENDING_KEY)||'{}');}catch(e){}
@@ -414,11 +461,14 @@ function importLegacy(old){
   if(old.last&&!S.last)S.last=old.last;
   S.legacyDone=true;clearTimeout(saveTimer);return flush();
 }
-applyProgress(DATA.progress);
+baselineProgress=DATA.progress||{};applyProgress(DATA.progress);
 (function(){const pend=lsGet(PENDING_KEY);if(!pend)return;try{const p=JSON.parse(pend);const base=DATA.progress||{};
-  const merged={answers:Object.assign({},base.answers||{},p.answers||{}),grades:Object.assign({},base.grades||{}),lastChapter:p.lastChapter||base.lastChapter||null,ui:Object.assign({},base.ui||{},p.ui||{})};
+  const merged={expectedRevision:Number.isSafeInteger(p.expectedRevision)?p.expectedRevision:savedRevision,answers:Object.assign({},base.answers||{},p.answers||{}),grades:Object.assign({},base.grades||{}),lastChapter:p.lastChapter||base.lastChapter||null,ui:Object.assign({},base.ui||{},p.ui||{},{picks:joinPicks((base.ui||{}).picks,(p.ui||{}).picks)})};
   Object.keys(p.grades||{}).forEach(function(qid){const cur=merged.grades[qid];if(!cur||Date.parse(p.grades[qid].at)>=Date.parse(cur.at))merged.grades[qid]=p.grades[qid];});
-  applyProgress(merged);if(!OFFLINE)flush();}catch(e){}})();
+  baselineProgress=p.baseProgress||base;applyProgress(merged);
+  const unversionedConflict=!Number.isSafeInteger(p.expectedRevision)&&Object.keys(p.answers||{}).some(function(qid){return typeof (base.answers||{})[qid]==='string'&&base.answers[qid]!==p.answers[qid];});
+  if(!OFFLINE){if(unversionedConflict)showConflict(base);else flush();}
+}catch(e){setSync('A browser draft could not be read. Saved answers are unchanged.');}})();
 window.addEventListener('online',function(){if(lsGet(PENDING_KEY))flush();});
 const backJobQuest=document.getElementById('backJobQuest');
 if(OFFLINE)backJobQuest.classList.add&&backJobQuest.classList.add('hidden');
@@ -698,6 +748,7 @@ function viewProgress(){
   if(!OFFLINE)h+='<div class="row"><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/export">Download offline copy</a><label class="btn">Import a progress file<input type="file" id="imp" accept="application/json" class="hidden"></label></div>';
   $main.innerHTML=h;
   $main.querySelectorAll('[data-topic]').forEach(function(a){a.onclick=function(){P.topic=a.dataset.topic;P.st='';};});
+  if(lsGet(CONFLICT_BACKUP_KEY)){const restore=document.createElement('button');restore.className='btn';restore.textContent='Restore previous browser draft';restore.onclick=restoreBrowserDraft;if($main.appendChild)$main.appendChild(restore);}
   const imp=document.getElementById('imp');
   if(imp)imp.onchange=function(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(){try{importLegacy(JSON.parse(r.result));renderSide();viewProgress();}catch(err){alert('That file is not a progress export.');}};r.readAsText(f);};
 }
@@ -722,6 +773,12 @@ function route(){
   const h=(location.hash||'#home').slice(1).split('/');
   if(h[0]==='guide')viewGuide(h[1]||COMPANIES[0]||'both');
   else if(h[0]==='read')viewRead(h[1]);
+  else if(h[0]==='question'){
+    let qid;try{qid=decodeURIComponent(h.slice(1).join('/'));}catch{qid='';}
+    P.co='all';P.chapter=null;P.topic='';P.type='';P.st='';P.i=0;
+    viewPractice('all');const at=P.list.findIndex(function(q){return q.id===qid;});
+    if(at>=0){P.i=at;drawQ();}else $main.innerHTML='<h1>Question unavailable</h1><p>This question is no longer in the workbook. Your saved answers and feedback are preserved.</p><a class="btn" href="#practice/all">Open workbook practice</a>';
+  }
   else if(h[0]==='practice'&&h[1]==='chapter'){P.topic='';P.type='';P.st='';P.i=0;viewPractice(null,h[2]);}
   else if(h[0]==='practice'){if(P.chapter||P.co!==h[1]){P.i=0;}if(P.st==='weak'&&!P._keep)P.st='';viewPractice(h[1]||'all');}
   else if(h[0]==='weak'){P.topic='';P.type='';P.i=0;viewPractice(null,null,true);}

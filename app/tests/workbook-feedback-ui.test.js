@@ -14,7 +14,7 @@ helper = helper.replace('const document = {', 'const document = { referrer,');
 helper = helper.replace('document,\n    window:', 'document, crypto, TextEncoder, URL,\n    window:');
 helper = helper.replace("location: { pathname: '/workbooks/sample', hash: '' }", "location: { pathname, hash: '', origin:'http://localhost:3847' }");
 helper = helper.replace("requests.push(url);", "requests.push(url); if(url.startsWith('/api/feedback')||url==='/api/evaluate-answer') return feedbackResponse ? feedbackResponse(url,options) : {ok:true,json:async()=>({attempts:[]})};");
-helper = helper.replace('viewSearch };', 'viewSearch, submitReview, loadReview, feedbackKey, REVIEWS, reviewMarkup };');
+helper = helper.replace('restoreBrowserDraft };', 'restoreBrowserDraft, submitReview, loadReview, feedbackKey, REVIEWS, reviewMarkup };');
 const loadViewer = new Function('vm', 'clone', 'html', 'assert', 'crypto', 'TextEncoder', 'URL', helper + '; return loadViewer;')(vm, value => JSON.parse(JSON.stringify(value)), html, assert, crypto, TextEncoder, URL);
 const panel = () => ({ isConnected:true, innerHTML:'', querySelectorAll(){return [];} });
 const done = (body, extra={}) => ({ id:body.attemptId, questionId:body.key, source:'workbook', answer:body.userAnswer, createdAt:'2026-10-09T10:00:00Z',status:'done',evaluation:{score:8,maxScore:10,feedback:'Clear answer.',strengths:['Specific'],improvements:['Mention limits']},...extra });
@@ -23,7 +23,7 @@ const response = value => ({ok:true,json:async()=>value});
 test('written workbook review saves first, carries reference/help context and preserves grades/history', async () => {
   const calls=[];let submitted;
   const grade={grade:'partial',at:'2026-10-08T12:00:00Z',source:'trainer'};
-  const viewer=await loadViewer({progress:{grades:{q1:grade}},putResponse:async body=>{calls.push('saved');assert.equal(body.answers.q1,'My answer');return {ok:true};},feedbackResponse:async(url,options)=>{
+  const viewer=await loadViewer({progress:{grades:{q1:grade}},putResponse:async body=>{calls.push('saved');assert.equal(body.answers.q1,'My answer');return {ok:true,json:async()=>({...body,revision:body.expectedRevision+1})};},feedbackResponse:async(url,options)=>{
     calls.push('review'); submitted=JSON.parse(options.body); return response({attempt:done(submitted)});
   }});
   viewer.api.S.draft.q1='My answer';viewer.api.S.ans.q1.revealed=true;viewer.api.S.ans.q1.hintUsed=true;viewer.api.S.ans.q1.assisted=true;

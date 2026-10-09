@@ -24,10 +24,150 @@ function readJson(file) {
 }
 
 function sourceLinks(brief, queue) {
-  const values = [brief?.sourceUrl, queue?.sourceUrl, queue?.emailSourceUrl,
+  const values = [brief?.sourceUrl, brief?.emailSourceUrl, brief?.linkedinSourceUrl, brief?.invitationSourceUrl, queue?.sourceUrl, queue?.emailSourceUrl, queue?.linkedinSourceUrl,
     queue?.invitationSourceUrl, queue?.relatedRoleUrl,
-    ...(Array.isArray(queue?.relatedThreadIds) ? queue.relatedThreadIds : [])];
+    ...(Array.isArray(queue?.relatedThreadIds) ? queue.relatedThreadIds : []),
+    ...(Array.isArray(brief?.sourceLinks) ? brief.sourceLinks : []),
+    ...(Array.isArray(queue?.sourceLinks) ? queue.sourceLinks : [])];
   return [...new Set(values.map(validUrl).filter(Boolean))];
+}
+
+const normalizeIdentity = value => text(value).trim().toLowerCase().replace(/\s+/g, ' ');
+function recruiterRecipient(record) {
+  const recipient = text(record?.recipientEmail).trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) && !/(?:@(?:[^@.]+\.)*linkedin\.com$|inmail|noreply|no-reply|notifications?@)/i.test(recipient) ? recipient : '';
+}
+function outreachMetadata(brief, queue) {
+  const records = [brief, queue].filter(Boolean);
+  const sourceProvenance = records.map(record => ({
+    id: record.id,
+    account: text(record.sourceAccount || record.accountId || record.account) || null,
+    channel: text(record.channel) || null,
+    links: sourceLinks(record, record),
+  }));
+  return {
+    sourceAccount: sourceProvenance.find(source => source.account)?.account || null,
+    sourceAccounts: [...new Set(sourceProvenance.map(source => source.account).filter(Boolean))],
+    sourceProvenance,
+    replyChannelSignals: records.map(record => Object.fromEntries(['channel', 'sourceUrl', 'emailSourceUrl', 'linkedinSourceUrl', 'recipientEmail', 'requestedReplyChannel', 'recruiterRequestedChannel', 'ongoingSubstantiveChannel', 'needsDocuments', 'needsResume', 'replyRequiresDocuments', 'responseType'].filter(key => record[key] !== undefined).map(key => [key, record[key]]))),
+    outreachIdentity: {
+      company: normalizeIdentity(brief?.company || queue?.company),
+      role: normalizeIdentity(brief?.role || queue?.role || brief?.title || queue?.title),
+      sender: normalizeIdentity(queue?.senderEmail || brief?.senderEmail || queue?.recruiterEmail || brief?.recruiterEmail || queue?.recruiter || brief?.recruiter || queue?.sender || brief?.sender || recruiterRecipient(queue) || recruiterRecipient(brief)),
+      location: normalizeIdentity(brief?.location || queue?.location),
+      conversationLinks: [...new Set(records.flatMap(record => [record.sourceUrl, record.emailSourceUrl, record.invitationSourceUrl, ...(Array.isArray(record.relatedThreadIds) ? record.relatedThreadIds : []), ...(Array.isArray(record.sourceLinks) ? record.sourceLinks : [])]).map(validUrl).filter(Boolean))],
+    },
+  };
+}
+function conversationUrl(value) {
+  const valid = validUrl(value);
+  if (!valid) return null;
+  const url = new URL(valid);
+  if ((url.pathname === '/' && !url.hash) || /(?:\/(?:inbox|messaging)\/?$|#(?:inbox|all|starred|important)?$)/i.test(valid)) return null;
+  return valid;
+}
+function sameOutreach(a, b) {
+  if (a.kind !== 'recruiter' || b.kind !== 'recruiter') return false;
+  const x = a.outreachIdentity, y = b.outreachIdentity;
+  if (!x || !y || !x.company || !x.role || !x.sender || x.company !== y.company || x.role !== y.role || x.sender !== y.sender) return false;
+  if (x.location && y.location && x.location !== y.location) return false;
+  return x.conversationLinks.some(link => conversationUrl(link) && y.conversationLinks.includes(link))
+    || Boolean(a.schedulingUrl && a.schedulingUrl === b.schedulingUrl && x.location && x.location === y.location);
+}
+function mergeCards(a, b) {
+  const preferred = b.editable && !a.editable ? b
+    : (!a.editable && (b.checkedAt || '') > (a.checkedAt || '') ? b : a);
+  const sourceAccounts = [...new Set([...(a.sourceAccounts || []), ...(b.sourceAccounts || [])])];
+  return { ...preferred,
+    sourceLinks: [...new Set([...a.sourceLinks, ...b.sourceLinks])],
+    relatedIds: [...new Set([...a.relatedIds, ...b.relatedIds])],
+    sourceAccount: preferred.sourceAccount || sourceAccounts[0] || null,
+    schedulingUrl: preferred.schedulingUrl || a.schedulingUrl || b.schedulingUrl || null,
+    relatedRoleUrl: preferred.relatedRoleUrl || a.relatedRoleUrl || b.relatedRoleUrl || null,
+    sourceAccounts,
+    replyChannelSignals: [...(a.replyChannelSignals || []), ...(b.replyChannelSignals || [])],
+    outreachIdentity: { ...preferred.outreachIdentity, conversationLinks: [...new Set([...(a.outreachIdentity?.conversationLinks || []), ...(b.outreachIdentity?.conversationLinks || [])])] },
+    sourceProvenance: [...(a.sourceProvenance || []), ...(b.sourceProvenance || [])],
+  };
+}
+function reconcileOutreach(cards) {
+  const result = [];
+  for (const card of cards) {
+    const previous = result.find(item => sameOutreach(item, card));
+    if (!previous) { result.push(card); continue; }
+    // Never combine independently editable queue records: a mutation must target
+    // its own revision and cannot silently leave a second decision behind.
+    const conflict = previous.editable && card.editable
+      || Boolean(previous.draftReply && card.draftReply && previous.draftReply !== card.draftReply);
+    if (conflict) {
+      const reason = 'Matching outreach has separate saved drafts or decisions. Review both original records before reconciling.';
+      previous.duplicateConflicts = [...(previous.duplicateConflicts || []), { id: card.id, reason }];
+      card.duplicateConflicts = [{ id: previous.id, reason }];
+      result.push(card);
+    } else result[result.indexOf(previous)] = mergeCards(previous, card);
+  }
+  return result;
+}
+
+function replyChannelRecommendation(card) {
+  const signals = card.replyChannelSignals || [];
+  const channel = value => ['email', 'gmail'].includes(normalizeIdentity(value)) ? 'email'
+    : normalizeIdentity(value) === 'linkedin' ? 'linkedin' : null;
+  const choose = key => [...new Set(signals.map(s => channel(s[key])).filter(Boolean))];
+  let recommendedReplyChannel = null;
+  let replyChannelReason = 'Choose one reply channel after checking the original conversations.';
+  const requested = [...new Set(signals.flatMap(s => [channel(s.requestedReplyChannel), channel(s.recruiterRequestedChannel)]).filter(Boolean))];
+  const ongoing = choose('ongoingSubstantiveChannel');
+  const urls = { email: null, linkedin: null };
+  const sources = new Map();
+  const urlChannel = value => {
+    if (!validUrl(value)) return null;
+    const host = new URL(value).hostname;
+    return /(^|\.)linkedin\.com$/i.test(host) ? 'linkedin' : host === 'mail.google.com' ? 'email' : null;
+  };
+  const addSource = (kind, value, canReply) => {
+    const url = validUrl(value);
+    if (!url || !kind) return;
+    const previous = sources.get(url);
+    const reply = Boolean(canReply || previous?.canReply);
+    sources.set(url, { channel: kind, url, canReply: reply });
+    if (reply && !urls[kind]) urls[kind] = url;
+  };
+  for (const signal of signals) {
+    const notification = normalizeIdentity(signal.channel) === 'linkedin_email';
+    addSource('email', signal.emailSourceUrl, !notification);
+    addSource('linkedin', signal.linkedinSourceUrl, true);
+    const knownChannel = urlChannel(signal.sourceUrl) || channel(signal.channel);
+    addSource(knownChannel, signal.sourceUrl, knownChannel === 'linkedin' || (knownChannel === 'email' && !notification && (channel(signal.channel) === 'email' || Boolean(recruiterRecipient(signal)))));
+  }
+  for (const url of card.sourceLinks || []) {
+    const knownChannel = urlChannel(url);
+    addSource(knownChannel, url, knownChannel === 'linkedin');
+  }
+  const draft = text(card.draftReply).trim();
+  const draftDocuments = /\b(?:resume|résumé|cv|attachments?|attached|documents?|portfolio)\b/i.test(draft);
+  const briefDraft = Boolean(draft && draft.length <= 300 && !draftDocuments);
+  if (requested.length > 1 || (!requested.length && ongoing.length > 1)) {
+    replyChannelReason = 'Stored channel preferences conflict. Check the original conversations and choose one channel.';
+  } else if (requested.length === 1) {
+    recommendedReplyChannel = requested[0]; replyChannelReason = 'The recruiter explicitly requested this reply channel.';
+  } else if (ongoing.length === 1) {
+    recommendedReplyChannel = ongoing[0]; replyChannelReason = 'Continue the ongoing substantive conversation in this channel.';
+  } else if (signals.some(s => s.needsDocuments === true || s.needsResume === true || s.replyRequiresDocuments === true || ['detailed', 'resume', 'documents'].includes(normalizeIdentity(s.responseType)))) {
+    recommendedReplyChannel = 'email'; replyChannelReason = 'Email is preferred for the recorded document or detailed-response need.';
+  } else if (signals.some(s => ['quick', 'acknowledgement', 'scheduled-time'].includes(normalizeIdentity(s.responseType))) && urls.linkedin) {
+    recommendedReplyChannel = 'linkedin'; replyChannelReason = 'Use the LinkedIn outreach for this recorded quick acknowledgement or scheduled-time reply.';
+  } else if (draftDocuments && urls.email) {
+    recommendedReplyChannel = 'email'; replyChannelReason = 'Email suits this draft’s document references. Check the original ask before sending.';
+  } else if (draft.length > 300 && urls.email) {
+    recommendedReplyChannel = 'email'; replyChannelReason = 'Email suits this longer draft. Send one reply in your chosen channel.';
+  } else if (briefDraft && urls.linkedin) {
+    recommendedReplyChannel = 'linkedin'; replyChannelReason = 'LinkedIn suits this brief reply in the existing outreach. Send it once.';
+  } else if (Boolean(urls.email) !== Boolean(urls.linkedin)) {
+    recommendedReplyChannel = urls.email ? 'email' : 'linkedin'; replyChannelReason = `Use the saved ${urls.email ? 'email' : 'LinkedIn'} conversation; no other direct reply channel is saved.`;
+  }
+  return { ...card, replySources: [...sources.values()], recommendedReplyChannel, replyChannelReason,
+    recommendedReplyUrl: recommendedReplyChannel ? urls[recommendedReplyChannel] : null };
 }
 
 function canonicalJobKey(item) {
@@ -54,14 +194,20 @@ function briefCard(item, q) {
     checkedAt: text(item.checkedAt) || null,
     sourceLinks: sourceLinks(item, q),
     schedulingUrl: validUrl(q?.schedulingUrl) || validUrl(item.schedulingUrl),
+    relatedRoleUrl: validUrl(q?.relatedRoleUrl) || validUrl(item.relatedRoleUrl),
     draftReply: typeof q?.draftReply === 'string' ? q.draftReply : text(item.draftReply),
     status: text(q?.status) || null,
     nextReminderAt: text(q?.nextReminderAt) || null,
     sentAt: text(q?.sentAt) || null,
+    sentChannel: text(q?.sentChannel || q?.userReportedReplyChannel) || null,
+    verification: text(q?.verification) || null,
+    verifiedAt: text(q?.verifiedAt) || null,
+    userReportedReplyStatus: text(q?.userReportedReplyStatus) || null,
+    userReportedReplyStatusAt: text(q?.userReportedReplyStatusAt) || null,
     lastInboundAt: text(q?.lastInboundAt || q?.lastInboundDate) || null,
     revision: q ? revision(q) : null,
     editable: Boolean(q),
-    sourceAccount: text(item.sourceAccount) || null,
+    ...outreachMetadata(item, q),
     relatedIds: [item.id],
     queueOnly: false,
   };
@@ -74,10 +220,16 @@ function queueOnlyCard(q) {
     nextAction: 'Review the original conversation before acting.', availability: '',
     checkedAt: text(q.lastReviewedAt || q.verifiedAt || q.sourceCheckAttemptedAt) || null,
     sourceLinks: sourceLinks(null, q), schedulingUrl: validUrl(q.schedulingUrl),
+    relatedRoleUrl: validUrl(q.relatedRoleUrl),
     draftReply: text(q.draftReply), status: text(q.status) || null,
     nextReminderAt: text(q.nextReminderAt) || null, sentAt: text(q.sentAt) || null,
+    sentChannel: text(q.sentChannel || q.userReportedReplyChannel) || null,
+    verification: text(q.verification) || null,
+    verifiedAt: text(q.verifiedAt) || null,
+    userReportedReplyStatus: text(q.userReportedReplyStatus) || null,
+    userReportedReplyStatusAt: text(q.userReportedReplyStatusAt) || null,
     lastInboundAt: text(q.lastInboundAt || q.lastInboundDate) || null,
-    revision: revision(q), editable: true, sourceAccount: null,
+    revision: revision(q), editable: true, ...outreachMetadata(null, q),
     relatedIds: [q.id], queueOnly: true,
   };
 }
@@ -116,14 +268,7 @@ function snapshot(briefResult, queueResult, accountsResult) {
       if (jobKey) canonical.set(jobKey, key);
       continue;
     }
-    const previous = unique.get(key);
-    const preferred = card.editable && !previous.editable ? card
-      : (!previous.editable && (card.checkedAt || '') > (previous.checkedAt || '') ? card : previous);
-    unique.set(key, {
-      ...preferred,
-      sourceLinks: [...new Set([...previous.sourceLinks, ...card.sourceLinks])],
-      relatedIds: [...new Set([...previous.relatedIds, ...card.relatedIds])],
-    });
+    unique.set(key, mergeCards(unique.get(key), card));
   }
   if (isObject(queue)) {
     for (const q of [...queue.items, ...queue.holds]) {
@@ -153,7 +298,7 @@ function snapshot(briefResult, queueResult, accountsResult) {
     },
     accounts: Array.isArray(accounts?.accounts) ? accounts.accounts : [],
     accountsRevision: revision(accounts || { accounts: [] }),
-    opportunities: [...unique.values()],
+    opportunities: reconcileOutreach([...unique.values()]).map(replyChannelRecommendation),
   };
 }
 
@@ -171,6 +316,7 @@ function writeAtomic(file, value) {
 
 function editQueueItem(item, input, now) {
   const next = { ...item };
+  if (['snooze', 'hold', 'reopen'].includes(input.action) && (item.sentAt || item.status === 'meeting_booked')) throw Error('This conversation is already sent or booked. Initial-reply reminders stay stopped.');
   if (input.action === 'draft') {
     if (typeof input.draftReply !== 'string' || input.draftReply.length > 4000) throw Error('Invalid draft.');
     next.draftReply = input.draftReply;
@@ -185,15 +331,31 @@ function editQueueItem(item, input, now) {
     next.status = 'declined';
     next.nextReminderAt = null;
   } else if (input.action === 'reopen') {
+    if (item.reminderResumeHistory !== undefined && !Array.isArray(item.reminderResumeHistory)) throw Error('Stored reminder history is unavailable. Review this record before resuming.');
+    next.reminderResumeHistory = [...(item.reminderResumeHistory || []), {
+      resumedAt: now, previousStatus: item.status || null,
+      nextReminderAt: item.nextReminderAt || null,
+      reminderCount: item.reminderCount ?? 0,
+      lastNudgedAt: item.lastNudgedAt || null,
+    }];
     next.status = 'ready_for_review';
+    next.nextReminderAt = null;
+    next.reminderCount = 0;
+    next.lastNudgedAt = null;
+    next.reviewResumedAt = now;
   } else if (input.action === 'sent') {
     if (item.sentAt || item.status === 'meeting_booked') throw Error('This item is already sent or booked.');
+    if (!['email', 'linkedin'].includes(input.sentChannel)) throw Error('Choose the channel you used to send the reply.');
+    const sentAt = input.sentAt === undefined || input.sentAt === '' ? now : input.sentAt;
+    if (typeof sentAt !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/i.test(sentAt) || !Number.isFinite(Date.parse(sentAt)) || Date.parse(sentAt) > Date.parse(now)) throw Error('Choose a valid sent time that is not in the future.');
     next.status = 'awaiting_recruiter';
-    next.sentAt = now;
+    next.sentAt = new Date(sentAt).toISOString();
+    next.sentChannel = input.sentChannel;
     next.nextReminderAt = null;
     next.verifiedAt = now;
     next.verification = 'user_reported';
     next.userReportedReplyStatus = 'sent';
+    next.userReportedReplyChannel = input.sentChannel;
     next.userReportedReplyStatusAt = now;
   } else {
     throw Error('Unknown action.');

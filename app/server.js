@@ -20,7 +20,10 @@ const { runPythonTests, adaptersError, lintProblems } = require('./lib/codelab/r
 const { createProblemStore } = require('./lib/codelab/store');
 const { createResumeService } = require('./lib/resume/pipeline');
 const { readMaster, writeMaster } = require('./lib/resume/master');
+const { behavioralResumeContext } = require('./lib/resume/grounding');
+const { reviewSourceInfo } = require('./lib/jobs/review-source');
 const { readTracker, writeTracker, mergeTrackerSnapshot } = require('./lib/interview/tracker-effects');
+const { readRoleActions, applicationKeys, actionsWithApplications, reconcileRoleActions, writeRoleState } = require('./lib/jobs/role-state');
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '.env');
@@ -47,6 +50,7 @@ for (const [key, envKey] of Object.entries({careerBrief:'JOB_QUEST_CAREER_BRIEF'
 const app = express();
 const { createRequestBoundary, validConversationId } = require('./lib/feedback/boundary');
 const { createFeedbackService, safeId, targetLevel, write: writeFeedbackJson } = require('./lib/feedback/service');
+const { mergeAssistance } = require('./lib/feedback/assistance');
 app.use(createRequestBoundary());
 const PORT = process.env.PORT || 3847;
 const SERVER_INFO = {
@@ -434,29 +438,26 @@ app.post('/api/resume', (req, res) => {
 
 // Role actions (save/skip/apply from discover carousel)
 app.get('/api/role-actions', (req, res) => {
-  const file = path.join(DATA_DIR, 'role-actions.json');
-  if (fs.existsSync(file)) {
-    res.json(JSON.parse(fs.readFileSync(file, 'utf-8')));
-  } else {
-    res.json({ saved: [], skipped: [], applied: [] });
-  }
+  try { res.json(actionsWithApplications(readRoleActions(DATA_DIR), readTracker(DATA_DIR))); }
+  catch (error) { res.status(503).json({ error: 'Role status is unavailable. Existing files were preserved.' }); }
 });
 
 app.post('/api/role-actions', (req, res) => {
-  const prev = fs.existsSync(path.join(DATA_DIR, 'role-actions.json')) ? JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'role-actions.json'), 'utf-8')) : { saved: [], skipped: [], applied: [] };
-  const file = path.join(DATA_DIR, 'role-actions.json');
-  fs.writeFileSync(file, JSON.stringify(req.body, null, 2));
+  try {
+  const prev = readRoleActions(DATA_DIR), previousTracker = readTracker(DATA_DIR);
+  const next = reconcileRoleActions(prev, req.body, previousTracker, new Date().toISOString());
+  writeRoleState(DATA_DIR, next.actions, next.tracker);
   // Log new actions
-  const newSaved = (req.body.saved || []).filter(r => !(prev.saved || []).includes(r));
-  const newSkipped = (req.body.skipped || []).filter(r => !(prev.skipped || []).includes(r));
-  const newApplied = (req.body.applied || []).filter(r => !(prev.applied || []).includes(r));
+  const newSaved = next.actions.saved.filter(r => !prev.saved.includes(r));
+  const newSkipped = next.actions.skipped.filter(r => !prev.skipped.includes(r));
+  const newApplied = next.actions.applied.filter(r => !applicationKeys(prev, previousTracker).includes(r));
   if (newSaved.length) logActivity('role_saved', { roles: newSaved });
   if (newSkipped.length) logActivity('role_skipped', { roles: newSkipped });
   if (newApplied.length) logActivity('role_applied', { roles: newApplied });
-  const roleDiff = diffRoleActions(prev, req.body);
-  roleDiff.saved.forEach((k) => roleEvents.emit('saved', k));
-  roleDiff.applied.forEach((k) => roleEvents.emit('applied', k));
+  newSaved.forEach((k) => roleEvents.emit('saved', k));
+  newApplied.forEach((k) => roleEvents.emit('applied', k));
   res.json({ success: true });
+  } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save role state. Refresh and retry.' }); }
 });
 
 // Role tracker (Intel mission control)
@@ -473,9 +474,11 @@ app.post('/api/role-tracker', (req, res) => {
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
     return res.status(400).json({ error: 'tracker body must be an object' });
   }
-  const prev = readTracker(DATA_DIR);
+  try {
+  const prev = readTracker(DATA_DIR), previousActions = readRoleActions(DATA_DIR);
   const merged = mergeTrackerSnapshot(prev, req.body);
-  writeTracker(DATA_DIR, merged);
+  const nextActions = actionsWithApplications(previousActions, merged);
+  writeRoleState(DATA_DIR, nextActions, merged);
   Object.keys(merged).forEach(key => {
     if (!prev[key]) {
       logActivity('role_tracked', { role: key, stage: merged[key].stage });
@@ -483,12 +486,21 @@ app.post('/api/role-tracker', (req, res) => {
       logActivity('role_stage_change', { role: key, from: prev[key].stage, to: merged[key].stage });
     }
   });
-  diffTracker(prev, merged).applied.forEach((k) => roleEvents.emit('applied', k));
+  nextActions.applied.filter(k => !applicationKeys(previousActions, prev).includes(k)).forEach((k) => roleEvents.emit('applied', k));
   res.json({ success: true });
+  } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save role state. Refresh and retry.' }); }
 });
 
 // --- Evaluate Practice Answer ---
-app.post('/api/evaluate-answer', feedbackRoute((req, res) => res.status(202).json(feedbackService.submit('behavioral', req.body))));
+app.post('/api/evaluate-answer', feedbackRoute((req, res) => {
+  const body = {...req.body};
+  if (!body.source || body.source === 'behavioral') {
+    const file = path.join(BEHAVIORAL_DIR, 'answers.json');
+    const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+    body.assistance = mergeAssistance(saved[body.key]?.assistance, body.assistance);
+  }
+  return res.status(202).json(feedbackService.submit('behavioral', body));
+}));
 
 // --- Behavioral Practice ---
 const BEHAVIORAL_DIR = path.join(DATA_DIR, 'behavioral');
@@ -506,11 +518,11 @@ app.get('/api/behavioral/answers', (req, res) => {
 app.post('/api/behavioral/answers', feedbackRoute((req, res) => {
   const answersFile = path.join(BEHAVIORAL_DIR, 'answers.json');
   const existing = fs.existsSync(answersFile) ? JSON.parse(fs.readFileSync(answersFile, 'utf-8')) : {};
-  const { key, answer, expectedRevision, question } = req.body;
+  const { key, answer, expectedRevision, question, assistance } = req.body;
   if (!safeId(key) || typeof answer !== 'string') return res.status(400).json({ error: 'Valid key and answer required' });
   const previous = Object.hasOwn(existing, key) ? existing[key] : {};
   if (expectedRevision !== undefined && expectedRevision !== (previous.revision || 0)) return res.status(409).json({ error: 'This answer changed on another device. Reload before saving.', current: previous });
-  existing[key] = { ...previous, answer, revision: (previous.revision || 0) + 1, updatedAt: new Date().toISOString(), ...(typeof question === 'string' ? { question } : {}) };
+  existing[key] = { ...previous, answer, assistance: mergeAssistance(previous.assistance, assistance), revision: (previous.revision || 0) + 1, updatedAt: new Date().toISOString(), ...(typeof question === 'string' ? { question } : {}) };
   // Evaluations are written only by successful server-side reviews, never client errors.
   writeFeedbackJson(answersFile, existing);
   res.json({ success: true, answer: existing[key], revision: existing[key].revision });
@@ -522,9 +534,11 @@ app.post('/api/behavioral/generate-draft', (req, res) => {
   const requestId = `beh_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   console.log(`[${requestId}] Generating behavioral draft for: ${question?.slice(0, 60)}...`);
 
-  const resumeSection = resumeData?.summary || resumeData?.experience?.length
-    ? `CANDIDATE'S RESUME:\nName: ${resumeData.contact?.name || 'Unknown'}\nSummary: ${resumeData.summary || 'Not provided'}\nExperience:\n${(resumeData.experience || []).map(e => `- ${e.title} at ${e.company} (${e.duration || ''})\n  ${(e.bullets || []).join('\n  ')}`).join('\n')}\nSkills: ${(resumeData.skills || []).join(', ')}`
-    : 'No detailed resume available.';
+  let resumeContext;
+  try { resumeContext = behavioralResumeContext(DATA_DIR, resumeData); }
+  catch { return res.status(503).json({ error: 'Saved resume facts could not be read. Repair the saved resume before generating a draft; existing data was preserved.' }); }
+  const resumeSection = resumeContext.source === 'unavailable' ? resumeContext.content
+    : `CANDIDATE'S RESUME (${resumeContext.source === 'master' ? 'saved native master' : resumeContext.source === 'legacy' ? 'saved legacy resume' : 'provided resume context'}):\n${resumeContext.content}`;
 
   const contextSection = userContext
     ? `\nADDITIONAL CONTEXT FROM CANDIDATE:\n${userContext}`
@@ -1158,8 +1172,10 @@ app.get('/api/job-status', (req, res) => {
   const baseStatus = allReady ? 'success' : noneReady ? 'pending' : 'partial';
 
   const schedule = detectSchedule();
-  // If the user hasn't installed a schedule, surface it as a warning state — the daily agent will never fire.
-  const status = !schedule.installed && noneReady ? 'not_scheduled' : baseStatus;
+  const reviewSource = reviewSourceInfo({ externalSelected: localSetup.schedule === 'external', briefConfigured: !!process.env.JOB_QUEST_CAREER_BRIEF, nativeScheduleInstalled: schedule.installed, reports: readDataDir('intel') });
+  // External review configuration does not mean a native batch ran or that
+  // quizzes/tasks are ready. Preserve native readiness as its own status.
+  const status = !schedule.installed && noneReady && !reviewSource.configured ? 'not_scheduled' : baseStatus;
 
   res.json({
     date: today,
@@ -1168,6 +1184,7 @@ app.get('/api/job-status', (req, res) => {
     quiz: { ready: quizExists, questions: questionsCount },
     tasks: { ready: tasksExists, count: tasksCount },
     schedule,
+    reviewSource,
     runtime: {
       displayName: runtimeDisplayName,
       command: runtimeCommandLabel,

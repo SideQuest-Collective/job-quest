@@ -1,0 +1,35 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
+const source = path.resolve(__dirname, '../../skill/bin/run-daily-intel.sh');
+for (const runtime of ['codex', 'claude']) test(`native intel ${runtime} invocation retains bounded tool policy and output paths`, t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-native-intel-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const dir of ['skill/bin', 'lib', 'data', 'references']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+  fs.copyFileSync(source, path.join(root, 'skill/bin/run-daily-intel.sh'));
+  fs.writeFileSync(path.join(root, 'data/profile.json'), JSON.stringify({ name: 'Fixture', targetCompanies: {} }));
+  fs.writeFileSync(path.join(root, 'references/intel-agent-template.md'), 'Fixture template');
+  fs.writeFileSync(path.join(root, 'lib/runtime-shell.sh'), `job_quest_load_runtime() {\n export JOB_QUEST_ACTIVE_RUNTIME=${runtime}\n export JOB_QUEST_DATA_DIR="$JOB_QUEST_REPO_ROOT/data"\n export JOB_QUEST_REFERENCES_DIR="$JOB_QUEST_REPO_ROOT/references"\n export JOB_QUEST_APP_ROOT="$JOB_QUEST_REPO_ROOT"\n export JOB_QUEST_RUNTIME_COMMAND=${runtime}\n JOB_QUEST_RUNTIME_COMMAND_ARGS=()\n}\njob_quest_runtime_hint() { echo fixture; }\njob_quest_run_prompt_file() {\n cp "$1" "$JOB_QUEST_REPO_ROOT/captured-prompt"\n shift\n printf '%s\\n' "$@" > "$JOB_QUEST_REPO_ROOT/captured-args"\n echo 'Fixture invocation only; no generated output'\n}\n`);
+  const result = spawnSync('bash', [path.join(root, 'skill/bin/run-daily-intel.sh')], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const args = fs.readFileSync(path.join(root, 'captured-args'), 'utf8').trim().split('\n');
+  assert.deepEqual(args, runtime === 'codex' ? ['--approve-for-me'] : ['--allowed-tools', 'Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Bash']);
+  assert.doesNotMatch(args.join(' '), /dangerously|full-auto/);
+  const prompt = fs.readFileSync(path.join(root, 'captured-prompt'), 'utf8');
+  assert.ok(prompt.includes(`${root}/data/intel/`));
+  assert.ok(prompt.includes(`${root}/data/quizzes/`));
+  assert.ok(prompt.includes(`${root}/data/tasks/`));
+  assert.equal(fs.existsSync(path.join(root, 'data/intel')), false, 'mocked agent never generates data');
+});
+test('installed Codex documents automatic approval as workspace-write without conflicting sandbox flags', t => {
+  const probe = spawnSync('codex', ['exec', '--approve-for-me', '--help'], { encoding: 'utf8' });
+  if (probe.error?.code === 'ENOENT') return t.skip('Codex unavailable on this machine');
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.match(probe.stdout, /--approve-for-me\s+Route approval requests through automatic review using the workspace-write sandbox/);
+  const conflict = spawnSync('codex', ['exec', '--sandbox', 'workspace-write', '--approve-for-me'], { input: '', encoding: 'utf8', timeout: 10000 });
+  assert.notEqual(conflict.status, 0);
+  assert.match(conflict.stderr, /cannot be used with '--approve-for-me'/);
+});

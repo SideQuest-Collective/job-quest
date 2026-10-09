@@ -189,11 +189,11 @@ test('Master editor has up and down controls for employers, roles, and projects'
 test('the Intel role page shows the tailored-resume card and the accepted-PDF link', () => {
   assert.ok(html.includes('function TailoredResumeCard({ roleKey, onAccepted = async () => {} })'));
   assert.ok(html.includes('function AcceptedResumeLink({ roleKey, stage })'));
-  assert.ok(html.includes("<TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(setRoleTracker)} />"));
+  assert.ok(html.includes("<TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); })} />"));
   assert.ok(html.includes('<AcceptedResumeLink roleKey={selectedKey} stage={stage} />'));
   assert.ok(html.includes('not supported by your master resume'));
   assert.ok(html.indexOf('<TailoredResumeCard key={selectedKey}') < html.indexOf('{/* Notes */}'));
-  assert.ok(html.includes('return roleTracker[key].stage;'));
+  assert.ok(html.includes('return nativeRoleStatus(key, roleActions, roleTracker).stage;'));
   assert.ok(html.includes("{t.date?.split('T')[0]}"));
   assert.ok(html.includes('{t.event}'));
 });

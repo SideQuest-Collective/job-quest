@@ -138,6 +138,7 @@ test('read-modify-write preserves unknown top-level, role, and timeline fields',
   fx.applyStage(e, 'coding', false);
   fx.writeTracker(dataDir, tracker);
   original['Acme|SWE'].stage = 'onsite';
+  original['Acme|SWE'].applicationSubmitted = true;
   original['Acme|SWE'].timeline[0].date = '2026-03-14T14:30:00.000Z';
   original['Acme|SWE'].timeline[0].event = 'New';
   assert.deepEqual(fx.readTracker(dataDir), original);

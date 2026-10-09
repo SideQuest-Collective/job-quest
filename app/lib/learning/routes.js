@@ -1,4 +1,5 @@
 const store = require('./store');
+const { recommendations } = require('./recommendations');
 const { readLinkedSources, linkedConflicts } = require('./linked-sources');
 function registerLearningRoutes(app, { dataDir, getProblems, interviewHome, getLinkedSources = () => readLinkedSources({ interviewHome }) }) {
   const wrap = (fn) => (req, res) => {
@@ -13,6 +14,7 @@ function registerLearningRoutes(app, { dataDir, getProblems, interviewHome, getL
     next.linkedAvailable = linked.available;
     next.linkedWarnings = linked.warnings || [];
     next.linkedConflicts = linkedConflicts(next.sources, linked.sources);
+    Object.assign(next, recommendations(dataDir, { choices: next.choices, state: next, linkedSources: linked.sources }));
     return next;
   }));
   app.post('/api/learning/import-existing', wrap((req) => store.importExisting(dataDir, req.body || {})));
