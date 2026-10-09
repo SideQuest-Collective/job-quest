@@ -1191,11 +1191,18 @@ app.post('/api/resume/upload', (req, res) => {
   if (!filename || !data) return res.status(400).json({ error: 'Missing filename or data' });
   if (!fs.existsSync(RESUME_DIR)) fs.mkdirSync(RESUME_DIR, { recursive: true });
   const buffer = Buffer.from(data, 'base64');
-  const filepath = safeResumePath(filename);
+  let filepath = safeResumePath(filename);
   if (!filepath) return res.status(400).json({ error: 'Invalid resume path' });
-  fs.writeFileSync(filepath, buffer);
-  logActivity('resume_file_upload', { filename, type, size: buffer.length });
-  res.json({ success: true, filename, size: buffer.length });
+  if (buffer.length > 10 * 1024 * 1024) return res.status(413).json({ error: 'Choose a file smaller than 10 MB.' });
+  // Uploads never silently replace a previous original, including on phone retries.
+  const ext = path.extname(filepath), stem = filepath.slice(0, filepath.length - ext.length);
+  let n = 1;
+  while (fs.existsSync(filepath)) filepath = `${stem} (${n++})${ext}`;
+  fs.mkdirSync(path.dirname(filepath), { recursive: true });
+  fs.writeFileSync(filepath, buffer, { flag: 'wx' });
+  const savedName = path.relative(RESUME_DIR, filepath).split(path.sep).join('/');
+  logActivity('resume_file_upload', { filename: savedName, type, size: buffer.length });
+  res.json({ success: true, filename: savedName, size: buffer.length });
 });
 
 // Upload a ZIP file containing LaTeX resume files — extracts and saves all supported files
@@ -1571,6 +1578,29 @@ app.get('/api/resume/tailored/:id/diff', resumeRoute((req, res) => res.json(resu
 app.delete('/api/resume/tailored/:id', resumeRoute((req, res) => {
   resumeService.remove(req.params.id);
   res.json({ success: true });
+}));
+
+app.post('/api/resume/master/import-file', resumeRoute(async (req, res) => {
+  const filename = req.body && req.body.filename;
+  const file = safeResumePath(filename);
+  if (!file) return res.status(400).json({ error: 'Choose an uploaded resume file.' });
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Resume file not found' });
+  if (!fs.realpathSync(file).startsWith(fs.realpathSync(RESUME_DIR) + path.sep)) return res.status(403).json({ error: 'Access denied' });
+  const result = await resumeService.importFile(file);
+  logActivity('resume_master_import_proposed', { filename, errors: result.errors.length });
+  res.json(result);
+}));
+app.get('/api/resume/master/latex', resumeRoute((req, res) => {
+  const master = readMaster(DATA_DIR);
+  if (!master.contact.name && !master.experience.length && !master.projects.length) return res.status(409).json({ error: 'Review and save a master resume before exporting LaTeX.' });
+  const { DEFAULT_TEMPLATE, renderTex, buildDocument } = require('./lib/resume/render');
+  // Use the bundled standalone template; exporting does not change originals or user templates.
+  const keep = list => (list || []).filter(b => !b.variantOf);
+  const content = { ...master, experience: master.experience.map(e => ({ ...e, roles: e.roles.map(r => ({ ...r, bullets: keep(r.bullets) })) })), projects: master.projects.map(p => ({ ...p, bullets: keep(p.bullets) })) };
+  const tex = renderTex(fs.readFileSync(DEFAULT_TEMPLATE, 'utf8'), buildDocument(master, content));
+  res.set('Content-Type', 'application/x-tex; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="resume.tex"');
+  res.send(tex);
 }));
 
 app.post('/api/resume/master/import-latex', resumeRoute(async (req, res) => {

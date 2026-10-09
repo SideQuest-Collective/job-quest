@@ -586,6 +586,8 @@
 <div id="root"></div>
 <script type="text/babel" src="/opportunities.jsx"></script>
 <script type="text/babel" src="/learning.jsx"></script>
+<script type="text/babel" src="/dashboard-home.jsx"></script>
+<script type="text/babel" src="/resume-home.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -735,7 +737,7 @@ function App() {
   });
 
   const navItems = [
-    { id: 'dashboard', icon: Icons.target, label: 'Today' },
+    { id: 'dashboard', icon: Icons.target, label: 'Dashboard' },
     { id: 'practice', icon: Icons.play, label: 'Practice' },
     { id: 'learn', icon: Icons.lightbulb, label: 'Learn' },
     { id: 'opportunities', icon: Icons.briefcase, label: 'Opportunities' },
@@ -771,7 +773,7 @@ function App() {
       </nav>
       <header className="mobile-header"><strong>Job Quest</strong><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></header>
       <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
-        <div className="route-bar">{window.history.state?.jobQuest && <button className="back-button" onClick={() => window.history.back()}>← Back</button>}<span>{navItems.find(n => n.id === page)?.label}</span></div>
+        <div className="route-bar"><span>{navItems.find(n => n.id === page)?.label}</span></div>
         {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
         {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
         {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover allRoles={allRoles} roleActions={roleActions} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
@@ -1139,28 +1141,7 @@ function LocalSetup({setPage}) {
  <details className="card"><summary>Local connection configuration</summary><p>Use Job Quest’s configure-local command to connect local review files or a private Tailscale origin. These optional settings stay in your private data folder and do not turn on network access by themselves.</p><code>~/.job-quest/bin/configure-local.cjs --help</code></details></>;
 }
 
-function Dashboard({ todayTasks, todayQuiz, latestIntel, setPage, newRolesCount, progress }) {
-  const [counts, setCounts] = useState(null);
-  useEffect(() => { api.get('/api/problems').then(v => setCounts((v.categories || v || []).reduce?.((n,c) => n + (c.problems?.length || 0), 0) || null)).catch(() => {}); }, []);
-  const today = new Date().toLocaleDateString('en-CA');
-  const pending = (todayTasks?.tasks || []).filter(t => !t.completed);
-  const next = pending.find(t => t.minutes > 5) || pending[0];
-  return <>
-    <div className="page-header"><h2>Make room for your next step.</h2><p className="greeting-sub">Continue where you left off, or choose a shorter session.</p></div>
-    <div className="continue-practice">
-      <div><p className="section-label">{todayTasks?.date === today ? 'Your plan today' : todayTasks?.date ? `Continue your plan from ${todayTasks.date}` : 'Practice at your pace'}</p><h3>{next?.text || 'Choose something useful to practice'}</h3><p>{next ? 'Your saved work stays with you. Open the full exercise before using an optional warmup.' : 'Coding, system design, behavioral practice and concept review.'}</p></div>
-      <button className="btn btn-primary" onClick={() => setPage(next ? 'tasks' : 'practice')}>{next ? 'Continue practice' : 'Choose practice'}</button>
-    </div>
-    <div className="quick-budgets" aria-label="Practice time">
-      {[5,15,30].map(n => <a key={n} href={`#practice`} onClick={e => {e.preventDefault(); sessionStorage.setItem('jq-practice-minutes', String(n)); window.dispatchEvent(new CustomEvent('jq-practice-budget',{detail:n})); setPage('practice');}}><strong>{n} minutes</strong><span>{n===5 ? 'Recall a concept' : n===15 ? 'Focus on one exercise' : 'Work through a session'}</span></a>)}
-    </div>
-    <div className="today-links">
-      <button className="card" onClick={() => setPage('opportunities')}><h3>Opportunities & replies</h3><p>Review sourced jobs, recruiter drafts and account coverage.</p><span>Review opportunities</span></button>
-      <button className="card" onClick={() => setPage('learn')}><h3>Learn on the go</h3><p>Use a resource, save your place, then apply one idea.</p><span>Open learning plan</span></button>
-    </div>
-    <details className="card"><summary>Plan and earlier practice</summary><p>{pending.length} unfinished tasks in {todayTasks?.date || 'your current plan'}.</p><p>Quiz history: {progress.correctAnswers || 0} correct answers out of {progress.totalQuestions || 0} recorded responses. Imported completion is historical progress, not a new grade.</p><div className="action-row"><button className="btn btn-secondary" onClick={() => setPage('workbooks')}>Open workbooks</button><button className="btn btn-secondary" onClick={() => setPage('calendar')}>View dated history</button></div></details>
-  </>;
-}
+function Dashboard(props) { return <window.DashboardHome {...props} />; }
 
 /* ===== DISCOVER CAROUSEL ===== */
 function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
@@ -1412,7 +1393,7 @@ function Resume({ resume, setResume }) {
   const folderInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const saveTimerRef = useRef(null);
-  const [view, setView] = useState('files');
+  const [view, setView] = useState('home');
 
   const fileUrl = (name) => '/api/resume/file/' + name.split('/').map(encodeURIComponent).join('/');
   const isTextFile = (name) => /\.(tex|cls|sty|bib|bst|cfg|def|fd|dtx|ins|latexmkrc)$/i.test(name);
@@ -1647,7 +1628,8 @@ function Resume({ resume, setResume }) {
   const sortedDirs = Object.keys(tree).sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b));
   const canEdit = selectedFile && isTextFile(selectedFile);
 
-  if (view === 'master') return <MasterEditor onExit={() => setView('files')} />;
+  if (view === 'home') return <window.ResumeHome onOpenLatex={() => { loadFiles(); setView('files'); }} onOpenMaster={() => setView('master')} />;
+  if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;
 
   // Empty state — show upload zone
   if (!hasFiles || showUpload) {
@@ -1715,7 +1697,7 @@ function Resume({ resume, setResume }) {
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
       {/* Toolbar */}
       <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--bg-card)',flexShrink:0}}>
-        <h2 style={{fontSize:16,fontWeight:700,color:'var(--text)',margin:0,marginRight:8}}>Resume</h2>
+        <h2 style={{fontSize:16,fontWeight:700,color:'var(--text)',margin:0,marginRight:8}}>LaTeX workspace</h2><button className="btn btn-secondary" onClick={() => setView('home')}>Resume overview</button>
         <button className="btn btn-secondary" onClick={() => setView('master')} style={{padding:'6px 14px',fontSize:12}}>Master</button>
         {selectedFile && (
           <span style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--text-muted)',background:'var(--bg-surface)',padding:'3px 10px',borderRadius:4}}>
@@ -2027,7 +2009,7 @@ function MasterEditor({ onExit }) {
         <div style={{ flex: 1 }} />
         {status && <span style={{ fontSize: 11, color: 'var(--amber)', fontFamily: 'var(--font-mono)' }}>{status}</span>}
         {dirty && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>● Unsaved</span>}
-        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => { if (!dirty || window.confirm('Discard unsaved changes?')) onExit(); }}>← LaTeX files</button>
+        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => { if (!dirty || window.confirm('Discard unsaved changes?')) onExit(); }}>Resume overview</button>
         <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} disabled={importing} onClick={importLatex}>Import from LaTeX</button>
         <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 16px' }} disabled={!dirty || saving} onClick={save}>Save</button>
       </div>

@@ -115,8 +115,8 @@ test('Accept works when the onAccepted prop is omitted', async () => {
 
 test('Resume Manager has a Master editor wired to the master API', () => {
   assert.ok(html.includes('function MasterEditor({ onExit })'));
-  assert.ok(html.includes("const [view, setView] = useState('files');"));
-  assert.ok(html.includes("if (view === 'master') return <MasterEditor onExit={() => setView('files')} />;"));
+  assert.ok(html.includes("const [view, setView] = useState('home');"));
+  assert.ok(html.includes("if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;"));
   assert.ok(html.includes("resumeApi.send('PUT', '/api/resume/master'"));
   assert.ok(html.includes("'/api/resume/master/import-latex'"));
   assert.equal(html.split("onClick={() => setView('master')}").length - 1, 2, 'both Resume layouts link to the Master editor');
