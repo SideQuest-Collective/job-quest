@@ -220,6 +220,12 @@ If they choose **Tell me more**, explain: the plugin polls `/api/status` every 5
 
 If xbar isn't installed and the user wants the plugin, ask whether they want to install xbar via Homebrew now or skip until later.
 
+## Start on demand
+
+For an ordinary Job Quest invocation on an existing installation, ensure the dashboard is running by executing `~/.job-quest/bin/start.sh --background` before the returning-user flow. This is idempotent: it reuses a healthy server or starts a detached process and checks its health. Report startup failures instead of claiming the page is available. Do not start it for explicit stop, uninstall, or installation-reset requests.
+
+Starting on demand does not install a login service. It remains running after the chat ends, until stopped, the Mac restarts, or the process exits. After a restart, invoke Job Quest again. Private phone access also requires the host awake and Tailscale connected. Honor the configured local dashboard launcher; do not bypass it by directly starting server.js.
+
 ## Returning User Flow
 
 When the user comes back (profile.json exists), read their profile and today's data, then ask what they want to focus on:
