@@ -60,6 +60,10 @@ TARGET_LEVEL="$(read_profile targetLevel)"
 LOCATION="$(read_profile locationPrefs)"
 STRENGTHS="$(read_profile_list strengths)"
 CATEGORIES="$(python3 -c "import json; d=json.load(open('$PROFILE')); print(', '.join(d.get('targetCompanies',{}).get('categories',[])))")"
+SPECIFIC_COMPANIES="$(python3 -c "import json; d=json.load(open('$PROFILE')); print(', '.join(d.get('targetCompanies',{}).get('specific',[])))")"
+INDUSTRIES="$(read_profile_list industries)"
+VALUES="$(read_profile_list values)"
+DEAL_BREAKERS="$(read_profile_list dealBreakers)"
 WEAK_SPOTS="$(read_profile_list interviewWeakSpots)"
 TODAY="$(date +%Y-%m-%d)"
 
@@ -73,15 +77,19 @@ You are ${NAME}'s automated daily job hunt intelligence agent. Today is ${TODAY}
 - Location: ${LOCATION}
 - Strengths: ${STRENGTHS}
 - Target company categories: ${CATEGORIES}
+- Specific target companies: ${SPECIFIC_COMPANIES}
+- Preferred industries: ${INDUSTRIES}
+- Values and mission preferences: ${VALUES}
+- Deal-breakers: ${DEAL_BREAKERS}
 - Interview weak spots (bias prep toward these): ${WEAK_SPOTS}
 
 ## Deduplication
-Read every JSON file in ${JOB_QUEST_DATA_DIR}/intel/ first. Each role is identified by "Company|Role Title". Never include a role that already appears in any prior intel file.
+Read every JSON file in ${JOB_QUEST_DATA_DIR}/intel/ first. Match existing roles using canonical posting URL plus normalized company and title. Keep the same role identity when a listing changes; report material changes in availability or requirements rather than presenting a duplicate as new. Preserve saved/applied/skipped role state.
 
 ## Tasks
 
 ### 1. Discover 15-20 new roles
-Search the web for ${TARGET_LEVEL} Software Engineer roles matching the target company categories above. Prioritize hybrid roles in ${LOCATION}. Capture: company, role title, level, location, URL, and a "fit" paragraph explaining why this matches ${NAME}'s background.
+Search current company career pages and official ATS listings for ${TARGET_LEVEL} Software Engineer roles matching the location, industries, values, specific companies and categories above. Exclude roles that violate stated deal-breakers. Rotate specific-company coverage and include comparable companies. Verify each posting at its source; a search snippet alone does not establish availability. Capture company, role title, level, location, canonical URL, fit and evidence of current availability with a check date. Distinguish check date, first-seen date and posted date when known. Report material changes to an existing role without resetting the user's actions.
 
 ### 2. Find 8-10 interview tips
 Search Blind, Reddit r/cscareerquestions, HackerNews, Glassdoor, levels.fyi. Focus on system design for ${TARGET_LEVEL} level, behavioral hacks, and negotiation tactics.

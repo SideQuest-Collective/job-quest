@@ -139,6 +139,7 @@ cp "$APP_DIR/skill/bin/restart.sh" "$BIN_DIR/restart.sh"
 mkdir -p "$BIN_DIR/lib"
 cp "$APP_DIR/skill/bin/lib/dashboard-control.sh" "$BIN_DIR/lib/dashboard-control.sh"
 cp "$APP_DIR/skill/bin/run-daily-intel.sh" "$BIN_DIR/run-daily-intel.sh"
+cp "$APP_DIR/skill/bin/configure-local.cjs" "$BIN_DIR/configure-local.cjs"
 cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
 cp "$APP_DIR/skill/bin/run-interview-trainer.sh" "$BIN_DIR/run-interview-trainer.sh"
 cp "$APP_DIR/skill/bin/install-trainer-schedule.sh" "$BIN_DIR/install-trainer-schedule.sh"
@@ -158,6 +159,7 @@ cp "$APP_DIR/skill/bin/install-xbar.sh" "$BIN_DIR/install-xbar.sh"
 mkdir -p "$BIN_DIR/xbar"
 cp "$APP_DIR/skill/bin/xbar/job-quest.5m.sh" "$BIN_DIR/xbar/job-quest.5m.sh"
 chmod +x "$BIN_DIR/"*.sh "$BIN_DIR/lib/"*.sh "$BIN_DIR/xbar/"*.sh
+chmod +x "$BIN_DIR/configure-local.cjs"
 
 # Job Quest CLI for /interview (contract jq-interview/1; see CONTRACT.md).
 # Named jq by the contract. ~/.job-quest/bin is never added to PATH, so the jq JSON tool is unaffected;

@@ -36,7 +36,18 @@ if (fs.existsSync(envPath)) {
   }
 }
 
+// Optional user-owned local integrations. Nothing here installs or exposes networking.
+const setupDataDir = path.resolve((process.env.DATA_DIR || path.join(os.homedir(), '.job-quest/data')).replace(/^~/, os.homedir()));
+let localSetup = {};
+try { localSetup = JSON.parse(fs.readFileSync(path.join(setupDataDir, 'local-setup.json'), 'utf8')); }
+catch (error) { if (error.code !== 'ENOENT') throw new Error('Local setup is unreadable. Repair local-setup.json before starting; data was preserved.'); }
+for (const [key, envKey] of Object.entries({careerBrief:'JOB_QUEST_CAREER_BRIEF',replyQueue:'JOB_QUEST_REPLY_QUEUE',privateOrigin:'JOB_QUEST_ALLOWED_ORIGINS',tailscaleUser:'JOB_QUEST_TAILSCALE_USER',interviewHome:'INTERVIEW_HOME'})) {
+  if (localSetup[key] && !process.env[envKey]) process.env[envKey] = localSetup[key];
+}
 const app = express();
+const { createRequestBoundary, validConversationId } = require('./lib/feedback/boundary');
+const { createFeedbackService, safeId, targetLevel, write: writeFeedbackJson } = require('./lib/feedback/service');
+app.use(createRequestBoundary());
 const PORT = process.env.PORT || 3847;
 const SERVER_INFO = {
   pid: process.pid,
@@ -65,6 +76,17 @@ if (!fs.existsSync(DATA_DIR)) {
 const jobHandlers = {};
 const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers });
 const roleEvents = createRoleEventBus();
+const feedbackService = createFeedbackService({ dataDir: DATA_DIR, queue: jobQueue, handlers: jobHandlers });
+const feedbackRoute = fn => (req, res) => { try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save or load feedback. Your existing data has been preserved.' }); } };
+app.get('/api/feedback', feedbackRoute((req, res) => res.json({ attempts: feedbackService.list(req.query.questionId) })));
+app.get('/api/feedback/:id', feedbackRoute((req, res) => {
+  const attempt = feedbackService.get(req.params.id);
+  if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
+  res.json({ attempt });
+}));
+app.post('/api/feedback/:id/retry', feedbackRoute((req, res) => res.status(202).json(feedbackService.retry(req.params.id))));
+
+app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,schedule:localSetup.schedule || 'not_selected'}));
 
 app.get('/api/jobs', (req, res) => res.json(jobQueue.list()));
 app.get('/api/settings', (req, res) => res.json(readSettings(DATA_DIR)));
@@ -286,12 +308,12 @@ app.get('/api/progress', (req, res) => {
     });
   }
   res.json({
+    ...progress,
     totalTasks, completedTasks,
     totalQuestions, correctAnswers,
-    daysActive: allTasks.length,
+    daysActive: new Set([...Object.entries(readActivity()).filter(([,day]) => day?.events?.some(e => ['quiz_answer','code_solved','task_update','feedback_reviewed'].includes(e.type))).map(([date])=>date), ...allTasks.filter(day=>day.tasks?.some(t=>t.completed)).map(day=>day.date)]).size,
     quizDays: Object.keys(progress.quizResults || {}).length,
-    streak: calculateStreak(allTasks),
-    ...progress
+    streak: calculateStreak(allTasks)
   });
 });
 
@@ -450,73 +472,7 @@ app.post('/api/role-tracker', (req, res) => {
 });
 
 // --- Evaluate Practice Answer ---
-app.post('/api/evaluate-answer', (req, res) => {
-  const { question, userAnswer, sampleAnswer, category } = req.body;
-  const requestId = `eval_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  console.log(`[${requestId}] Evaluating answer for: ${question?.slice(0, 60)}...`);
-
-  const prompt = `You are a senior technical interviewer evaluating a candidate's answer.
-
-QUESTION: ${question}
-
-CANDIDATE'S ANSWER:
-${userAnswer}
-
-REFERENCE ANSWER:
-${sampleAnswer}
-
-CATEGORY: ${category}
-
-Evaluate the candidate's answer. Your entire response must be a single JSON object with no other text:
-{"score":0,"maxScore":10,"strengths":["strength 1"],"improvements":["area to improve 1"],"feedback":"2-3 sentence overall feedback"}
-
-Score 0-10 where: 0-3=poor, 4-5=needs work, 6-7=good, 8-9=strong, 10=excellent.
-Be specific and constructive. Reference the question's domain. Output ONLY the JSON.`;
-
-  const tmpPrompt = path.join(os.tmpdir(), `eval_${Date.now()}.txt`);
-  fs.writeFileSync(tmpPrompt, prompt);
-  const scriptPath = path.join(__dirname, 'scripts', 'generate-plan.sh');
-
-  const { exec } = require('child_process');
-  exec(`bash "${scriptPath}" "${tmpPrompt}"`, {
-    encoding: 'utf-8',
-    timeout: 60000,
-    maxBuffer: 2 * 1024 * 1024,
-    env: { ...process.env, HOME: os.homedir() },
-  }, (err, stdout, stderr) => {
-    try { fs.unlinkSync(tmpPrompt); } catch {}
-    if (err) {
-      console.error(`[${requestId}] Eval failed: ${err.message?.slice(0, 200)}`);
-      res.json({ score: 0, maxScore: 10, feedback: 'Evaluation failed. Please try again.', strengths: [], improvements: [] });
-      return;
-    }
-    let raw = (stdout || '').trim();
-    // Try parse strategies
-    let result = null;
-    try { result = JSON.parse(raw); } catch {}
-    if (!result) {
-      const jsonFence = raw.match(/```json\s*([\s\S]*?)```/);
-      if (jsonFence) try { result = JSON.parse(jsonFence[1].trim()); } catch {}
-    }
-    if (!result) {
-      const jsonStart = raw.indexOf('{"');
-      if (jsonStart >= 0) {
-        let depth = 0, jsonEnd = -1;
-        for (let i = jsonStart; i < raw.length; i++) {
-          if (raw[i] === '{') depth++; else if (raw[i] === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
-        }
-        if (jsonEnd > jsonStart) try { result = JSON.parse(raw.slice(jsonStart, jsonEnd)); } catch {}
-      }
-    }
-    if (result) {
-      console.log(`[${requestId}] Eval success: score=${result.score}/${result.maxScore}`);
-      res.json(result);
-    } else {
-      console.error(`[${requestId}] Eval parse failed, raw: ${raw.slice(0, 300)}`);
-      res.json({ score: 0, maxScore: 10, feedback: raw.slice(0, 500), strengths: [], improvements: [] });
-    }
-  });
-});
+app.post('/api/evaluate-answer', feedbackRoute((req, res) => res.status(202).json(feedbackService.submit('behavioral', req.body))));
 
 // --- Behavioral Practice ---
 const BEHAVIORAL_DIR = path.join(DATA_DIR, 'behavioral');
@@ -531,16 +487,18 @@ app.get('/api/behavioral/answers', (req, res) => {
   }
 });
 
-app.post('/api/behavioral/answers', (req, res) => {
-  if (!fs.existsSync(BEHAVIORAL_DIR)) fs.mkdirSync(BEHAVIORAL_DIR, { recursive: true });
+app.post('/api/behavioral/answers', feedbackRoute((req, res) => {
   const answersFile = path.join(BEHAVIORAL_DIR, 'answers.json');
   const existing = fs.existsSync(answersFile) ? JSON.parse(fs.readFileSync(answersFile, 'utf-8')) : {};
-  const { key, answer, evaluation } = req.body;
-  if (!key) return res.status(400).json({ error: 'key required' });
-  existing[key] = { answer: answer || existing[key]?.answer, evaluation: evaluation || existing[key]?.evaluation, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(answersFile, JSON.stringify(existing, null, 2));
-  res.json({ success: true });
-});
+  const { key, answer, expectedRevision, question } = req.body;
+  if (!safeId(key) || typeof answer !== 'string') return res.status(400).json({ error: 'Valid key and answer required' });
+  const previous = Object.hasOwn(existing, key) ? existing[key] : {};
+  if (expectedRevision !== undefined && expectedRevision !== (previous.revision || 0)) return res.status(409).json({ error: 'This answer changed on another device. Reload before saving.', current: previous });
+  existing[key] = { ...previous, answer, revision: (previous.revision || 0) + 1, updatedAt: new Date().toISOString(), ...(typeof question === 'string' ? { question } : {}) };
+  // Evaluations are written only by successful server-side reviews, never client errors.
+  writeFeedbackJson(answersFile, existing);
+  res.json({ success: true, answer: existing[key], revision: existing[key].revision });
+}));
 
 // --- Behavioral Draft Generation ---
 app.post('/api/behavioral/generate-draft', (req, res) => {
@@ -556,7 +514,7 @@ app.post('/api/behavioral/generate-draft', (req, res) => {
     ? `\nADDITIONAL CONTEXT FROM CANDIDATE:\n${userContext}`
     : '';
 
-  const prompt = `You are a Staff-level interview coach helping a candidate prepare a STAR-format behavioral answer.
+  const prompt = `You are an interview coach for ${targetLevel(DATA_DIR)} helping a candidate prepare a STAR-format behavioral answer.
 
 BEHAVIORAL QUESTION: ${question}
 
@@ -630,7 +588,7 @@ function readTrainerQuestions() {
 
 function writeTrainerQuestions(questions) {
   if (!fs.existsSync(TRAINER_DIR)) fs.mkdirSync(TRAINER_DIR, { recursive: true });
-  fs.writeFileSync(TRAINER_QUESTIONS_FILE, JSON.stringify(questions, null, 2));
+  writeFeedbackJson(TRAINER_QUESTIONS_FILE, questions);
 }
 
 function readTrainerConfig() {
@@ -651,16 +609,18 @@ app.post('/api/trainer/config', (req, res) => {
 });
 
 // Save a draft answer without evaluating.
-app.post('/api/trainer/answer', (req, res) => {
-  const { id, answer } = req.body;
-  if (!id) return res.status(400).json({ error: 'id required' });
+app.post('/api/trainer/answer', feedbackRoute((req, res) => {
+  const { id, answer, expectedRevision } = req.body;
+  if (!safeId(id) || typeof answer !== 'string') return res.status(400).json({ error: 'Valid id and answer required' });
   const questions = readTrainerQuestions();
   const q = questions.find(x => x.id === id);
   if (!q) return res.status(404).json({ error: 'question not found' });
-  q.answer = answer || '';
+  if (expectedRevision !== undefined && expectedRevision !== (q.draftRevision || 0)) return res.status(409).json({ error: 'This answer changed on another device. Reload before saving.', question: q });
+  q.draft = answer;
+  q.draftRevision = (q.draftRevision || 0) + 1;
   writeTrainerQuestions(questions);
-  res.json({ success: true });
-});
+  res.json({ success: true, question: q, revision: q.draftRevision });
+}));
 
 app.post('/api/trainer/skip', (req, res) => {
   const { id } = req.body;
@@ -673,144 +633,7 @@ app.post('/api/trainer/skip', (req, res) => {
   res.json({ success: true });
 });
 
-// One interviewer exchange: evaluate the cumulative conversation, then either
-// ask a probing follow-up or (after MAX_FOLLOW_UPS rounds, on a strong answer,
-// or when the client passes wrapUp) give a final assessment with progression.
-const TRAINER_MAX_FOLLOW_UPS = 3;
-
-function trainerExchanges(q) {
-  const exchanges = q.exchanges || [];
-  if (exchanges.length === 0 && q.answer && q.evaluation) {
-    // Legacy single-shot record.
-    return [
-      { role: 'candidate', text: q.answer, at: q.answeredAt },
-      { role: 'interviewer', evaluation: q.evaluation, followUp: null, at: q.answeredAt },
-    ];
-  }
-  return exchanges;
-}
-
-app.post('/api/trainer/evaluate', (req, res) => {
-  const { id, answer, wrapUp } = req.body;
-  const requestId = `trainer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  if (!id || (!answer?.trim() && !wrapUp)) return res.status(400).json({ error: 'id and answer required' });
-  const questions = readTrainerQuestions();
-  const q = questions.find(x => x.id === id);
-  if (!q) return res.status(404).json({ error: 'question not found' });
-  if (wrapUp && q.status !== 'in-progress') return res.status(400).json({ error: 'no exchange in progress' });
-  console.log(`[${requestId}] Trainer exchange for ${q.company}: ${q.question.slice(0, 60)}...`);
-
-  const priorExchanges = trainerExchanges(q);
-  const rounds = priorExchanges.filter(e => e.role === 'interviewer').length;
-  const forceComplete = !!wrapUp || rounds >= TRAINER_MAX_FOLLOW_UPS;
-
-  const conversation = priorExchanges.map(e => {
-    if (e.role === 'candidate') return `CANDIDATE:\n${e.text || ''}`;
-    const ev = e.evaluation || {};
-    let line = `YOU (interviewer, scored ${ev.score ?? '?'}/10): ${ev.feedback || ''}`;
-    if (e.followUp) line += `\nYOUR FOLLOW-UP QUESTION: ${e.followUp}`;
-    return line;
-  });
-  if (answer?.trim()) conversation.push(`CANDIDATE:\n${answer}`);
-  const conversationText = conversation.length ? conversation.join('\n\n') : '(no answer yet)';
-
-  const closing = forceComplete
-    ? 'This is the END of the exchange. Set "complete" to true, "followUp" to null, and give your final assessment of the candidate\'s overall performance across the whole conversation, with a "progress" sentence describing how the answer evolved from where it started.'
-    : `If the answer is now strong (9+) or fully covers what you look for, set "complete" to true, "followUp" to null, and include a "progress" sentence describing how the answer evolved.
-Otherwise set "complete" to false and ask ONE follow-up question in "followUp" — the single most revealing probe a real interviewer would ask next: dig into the biggest gap, challenge an assumption, or push one level deeper. Never re-ask something already answered. (You have ${TRAINER_MAX_FOLLOW_UPS - rounds} follow-up(s) left in this exchange.)`;
-
-  const prompt = `You are a ${q.category === 'behavioral' ? 'senior hiring manager' : 'senior technical interviewer'} at ${q.company} conducting a live interview for the "${q.role}" role.
-
-THE QUESTION YOU ASKED (${q.category}): ${q.question}
-
-WHAT A STRONG ANSWER COVERS: ${q.whatTheyLookFor || 'Depth, structure, and specificity appropriate for the role level.'}
-
-THE CONVERSATION SO FAR:
-${conversationText}
-
-Assess the candidate's cumulative performance on this question so far. ${closing}
-
-Your entire response must be a single JSON object with no other text:
-{"score":0,"maxScore":10,"strengths":["strength"],"improvements":["gap"],"feedback":"2-3 crisp sentences on the latest response in context","followUp":"one probing question or null","complete":false,"progress":"only when complete: one sentence on how the answer evolved"}
-
-Score 0-10 for the overall answer as it stands now (it should move as the candidate improves). Output ONLY the JSON.`;
-
-  const tmpPrompt = path.join(os.tmpdir(), `trainer_eval_${Date.now()}.txt`);
-  fs.writeFileSync(tmpPrompt, prompt);
-  const scriptPath = path.join(__dirname, 'scripts', 'generate-plan.sh');
-
-  const { exec } = require('child_process');
-  exec(`bash "${scriptPath}" "${tmpPrompt}"`, {
-    encoding: 'utf-8',
-    timeout: 120000,
-    maxBuffer: 2 * 1024 * 1024,
-    env: { ...process.env, HOME: os.homedir() },
-  }, (err, stdout) => {
-    try { fs.unlinkSync(tmpPrompt); } catch {}
-    if (err) {
-      console.error(`[${requestId}] Trainer eval failed: ${err.message?.slice(0, 200)}`);
-      return res.json({ score: 0, maxScore: 10, feedback: 'Evaluation failed. Please try again.', strengths: [], improvements: [] });
-    }
-    let raw = (stdout || '').trim();
-    let result = null;
-    try { result = JSON.parse(raw); } catch {}
-    if (!result) {
-      const jsonFence = raw.match(/```json\s*([\s\S]*?)```/);
-      if (jsonFence) try { result = JSON.parse(jsonFence[1].trim()); } catch {}
-    }
-    if (!result) {
-      const jsonStart = raw.indexOf('{"');
-      if (jsonStart >= 0) {
-        let depth = 0, jsonEnd = -1;
-        for (let i = jsonStart; i < raw.length; i++) {
-          if (raw[i] === '{') depth++; else if (raw[i] === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
-        }
-        if (jsonEnd > jsonStart) try { result = JSON.parse(raw.slice(jsonStart, jsonEnd)); } catch {}
-      }
-    }
-    if (!result) {
-      console.error(`[${requestId}] Trainer eval parse failed, raw: ${raw.slice(0, 300)}`);
-      result = { score: 0, maxScore: 10, feedback: raw.slice(0, 500), strengths: [], improvements: [], complete: true };
-    }
-
-    const now = new Date().toISOString();
-    const followUp = (result.followUp || '').trim() || null;
-    const complete = !!result.complete || forceComplete || !followUp;
-    const evalCore = {
-      score: result.score ?? 0,
-      maxScore: result.maxScore || 10,
-      strengths: result.strengths || [],
-      improvements: result.improvements || [],
-      feedback: result.feedback || '',
-    };
-
-    // Re-read to avoid clobbering a question appended while the eval ran.
-    const latest = readTrainerQuestions();
-    const target = latest.find(x => x.id === id);
-    if (target) {
-      const exchanges = trainerExchanges(target).slice();
-      if (answer?.trim()) exchanges.push({ role: 'candidate', text: answer, at: now });
-      exchanges.push({ role: 'interviewer', evaluation: evalCore, followUp: complete ? null : followUp, at: now });
-      target.exchanges = exchanges;
-      target.evaluation = evalCore;
-      if (!target.initialEvaluation) target.initialEvaluation = evalCore;
-      if (!target.answer && answer?.trim()) target.answer = answer;
-      if (complete) {
-        target.status = 'answered';
-        target.answeredAt = now;
-        target.finalEvaluation = evalCore;
-        if (result.progress) target.progress = result.progress;
-      } else {
-        target.status = 'in-progress';
-      }
-      writeTrainerQuestions(latest);
-      logActivity('trainer_question_answered', { company: q.company, category: q.category, score: evalCore.score });
-      console.log(`[${requestId}] Trainer exchange: score=${evalCore.score}/${evalCore.maxScore} complete=${complete}`);
-      return res.json({ evaluation: evalCore, followUp: complete ? null : followUp, complete, question: target });
-    }
-    res.json({ evaluation: evalCore, followUp: complete ? null : followUp, complete });
-  });
-});
+app.post('/api/trainer/evaluate', feedbackRoute((req, res) => res.status(202).json(feedbackService.submit('trainer', req.body))));
 
 // Trigger an on-demand question generation (same script the hourly schedule runs).
 app.post('/api/trainer/generate-now', (req, res) => {
@@ -888,6 +711,9 @@ app.get('/api/activity', (req, res) => {
 // --- Problems / Code Lab ---
 
 const problemStore = createProblemStore(DATA_DIR);
+require('./lib/codelab/drafts').registerDraftRoutes(app, {dataDir:DATA_DIR,getProblems:()=>problemStore.read()});
+require('./lib/opportunities/routes').registerOpportunityRoutes(app, { dataDir: DATA_DIR, briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE });
+require('./lib/learning/routes').registerLearningRoutes(app, {dataDir: DATA_DIR, getProblems: () => problemStore.read()});
 app.get('/api/problems', (req, res) => {
   try { res.json(problemStore.read()); } catch (err) { res.status(500).json({ error: `could not read problems: ${err.message}` }); }
 });
@@ -902,25 +728,25 @@ app.get('/api/problems/progress', (req, res) => {
 });
 
 app.post('/api/problems/progress', (req, res) => {
-  const file = path.join(DATA_DIR, 'problems', 'progress.json');
-  const dir = path.dirname(file);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  // Detect newly solved problems
-  let prev = { solved: {} };
-  if (fs.existsSync(file)) prev = JSON.parse(fs.readFileSync(file, 'utf-8'));
-  const newlySolved = Object.keys(req.body.solved || {}).filter(id => !prev.solved?.[id]);
-  fs.writeFileSync(file, JSON.stringify(req.body, null, 2));
-  if (newlySolved.length) {
-    logActivity('problem_solved', { problems: newlySolved });
-    // Auto-complete matching daily tasks
-    newlySolved.forEach(problemId => {
-      autoCompleteDailyTask(task => task.category === 'coding' && task.problemId === problemId);
-    });
-  }
-  // Log code saves
-  const newCode = Object.keys(req.body.savedCode || {}).filter(id => req.body.savedCode[id] !== prev.savedCode?.[id]);
-  if (newCode.length) logActivity('code_saved', { problems: newCode });
-  res.json({ success: true });
+  const body=req.body;
+  if(!body||typeof body!=='object'||Array.isArray(body))return res.status(400).json({error:'Progress must be an object'});
+  if(Object.hasOwn(body,'savedCode')||Object.hasOwn(body,'draftRevisions'))return res.status(409).json({error:'Save code through the per-problem draft endpoint; refresh this page to preserve newer drafts.'});
+  if(Object.keys(body).some(k=>!['solved','bookmarked'].includes(k)))return res.status(400).json({error:'Only solved state or bookmarks can be updated here'});
+  if(body.solved!==undefined&&(!body.solved||typeof body.solved!=='object'||Array.isArray(body.solved)))return res.status(400).json({error:'Solved state must be an object'});
+  if(body.bookmarked!==undefined&&(!Array.isArray(body.bookmarked)||body.bookmarked.some(id=>typeof id!=='string')))return res.status(400).json({error:'Bookmarks must be a list of problem ids'});
+  try{
+    const file=path.join(DATA_DIR,'problems','progress.json');
+    const prev=require('./lib/codelab/drafts').readProgress(DATA_DIR);
+    const allowed=new Set(problemStore.read().problems.map(p=>p.id));
+    for(const [id,value] of Object.entries(body.solved||{}))if(!safeId(id)||!allowed.has(id)||!value||typeof value!=='object'||Array.isArray(value)||!Number.isFinite(value.attempts)||value.attempts<0||typeof value.solvedAt!=='string'||Number.isNaN(Date.parse(value.solvedAt)))return res.status(400).json({error:'Solved entries require a known problem, attempts and solvedAt'});
+    const solved={...(prev.solved||{})};
+    for(const [id,value] of Object.entries(body.solved||{}))solved[id]={...value,solvedAt:solved[id]?.solvedAt||value.solvedAt,attempts:Math.max(solved[id]?.attempts||0,value.attempts)};
+    const newlySolved=Object.keys(body.solved||{}).filter(id=>!prev.solved?.[id]);
+    const next={...prev,...body,solved,savedCode:prev.savedCode||{},draftRevisions:prev.draftRevisions||{}};
+    writeFeedbackJson(file,next);
+    if(newlySolved.length){logActivity('problem_solved',{problems:newlySolved});newlySolved.forEach(problemId=>autoCompleteDailyTask(task=>task.category==='coding'&&task.problemId===problemId));}
+    res.json({success:true,progress:next});
+  }catch(error){res.status(500).json({error:'Could not save progress. Existing drafts were preserved.'});}
 });
 
 // Run Python code against test cases (Code Lab and drill verification share lib/codelab/runner.js).
@@ -944,12 +770,13 @@ app.post('/api/problems', (req, res) => {
 });
 
 // Runtime-backed code review via CLI
-const conversations = {};
+const conversations = Object.create(null);
 const CONV_DIR = path.join(DATA_DIR, 'conversations');
 
 app.post('/api/code-review', async (req, res) => {
   const { problemId, problemTitle, problemDescription, code, conversationId, userMessage } = req.body;
 
+  if (!validConversationId(conversationId)) return res.status(400).json({ error: 'Invalid conversation id' });
   const convId = conversationId || crypto.randomUUID();
   // Load conversation from file if exists
   if (!conversations[convId]) {
@@ -961,7 +788,7 @@ app.post('/api/code-review', async (req, res) => {
     }
   }
 
-  const systemContext = `You are a coding mentor for Staff/L6 interview prep. The student is working on: "${problemTitle}"
+  const systemContext = `You are a coding mentor for ${targetLevel(DATA_DIR)} interview prep. The student is working on: "${problemTitle}"
 
 Problem: ${problemDescription}`;
 
@@ -1109,7 +936,7 @@ app.post('/api/sd-conversation/:topicId', (req, res) => {
   if (isFirstMessage) {
     const prepContext = topic.source === 'workbook' ? `
 This prompt comes from the study workbook for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
-Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || 'Use standard Staff-level system design coverage.'}
+Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || `Use system design coverage appropriate for ${targetLevel(DATA_DIR)}.`}
 Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
 ` : '';
     prompt = `You are a senior staff engineer conducting a system design mock interview. You are warm but rigorous — like a real interviewer at a top tech company (Google, Meta, etc).
@@ -1137,7 +964,7 @@ IMPORTANT RULES for the entire conversation:
     const history = conv.messages.map(m => `${m.role === 'user' ? 'CANDIDATE' : 'INTERVIEWER'}: ${m.content}`).join('\n\n');
     const prepContext = topic.source === 'workbook' ? `
 This is a workbook question for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
-Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || 'Use standard Staff-level system design coverage.'}
+Interviewer-only focus areas: ${(topic.keyTopics || []).join(', ') || `Use system design coverage appropriate for ${targetLevel(DATA_DIR)}.`}
 Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
 ` : '';
     prompt = `You are a senior staff engineer conducting a system design mock interview for: "${topic.title}".
@@ -1742,13 +1569,14 @@ app.post('/api/resume/master/import-latex', resumeRoute(async (req, res) => {
 // Migrate and check Code Lab problems at startup so the log shows any that need attention.
 try { problemStore.read(); } catch (err) { console.error(`[codelab] ${err.message}`); }
 
+feedbackService.recover();
 jobQueue.start();
 jobQueue.tick();
 setInterval(() => { jobQueue.tick(); }, 60000).unref();
 
 startInterviewScanner({ dataDir: DATA_DIR, interviewHome: INTERVIEW_HOME });
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  Job Hunt Command Center running at:\n`);
   console.log(`  http://localhost:${PORT}\n`);
 });

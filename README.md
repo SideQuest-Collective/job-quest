@@ -73,19 +73,19 @@ The installer writes these scripts to `~/.job-quest/bin/`:
 - `generate-plan.sh` — runtime-aware interview-plan and evaluation generation
 - `code-review.sh` — runtime-aware conversational review/edit wrapper
 - `run-daily-intel.sh` — generate today’s intel batch
+- `configure-local.cjs` — connect optional local review files, interview home, and private-access settings
 - `update.sh` — fetch remote changes and refresh the local install when behind
 - `install-schedule.sh` — install or inspect the local schedule
 - `uninstall.sh` — remove Job Quest
 - `reinstall.sh` — uninstall then reinstall
 
-The `job-quest` skill should begin by running:
+The `job-quest` skill can inspect update status with:
 
 ```bash
-~/.job-quest/bin/update.sh --if-needed
+~/.job-quest/bin/update.sh --check-only
 ```
 
-That keeps the installed skill, helper scripts, and dashboard aligned with `origin/main` before the rest of the workflow continues.
-After that, it should verify a daily intel schedule exists and restore the default weekday `7:03 AM` schedule when none is installed.
+The skill preserves local changes and existing review schedules. A native daily-intel schedule is optional when another career review already supplies the local brief. See [Local setup](LOCAL-SETUP.md) for optional connections.
 
 ## Scheduling
 

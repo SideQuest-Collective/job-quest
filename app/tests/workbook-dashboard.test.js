@@ -6,12 +6,13 @@ const path = require('node:path');
 
 const html = () => fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
 
-test('dashboard greeting loads the profile and contains no literal personal name', () => {
+test('dashboard gives a clear next action without a hardcoded personal name', () => {
   const dashboard = html().split('function Dashboard(')[1].split('/* ===== DISCOVER')[0];
   const heading = dashboard.match(/<h2>(.*?)<\/h2>/)[1];
-  assert.equal(heading, '{greeting}{profile?.name ? `, ${profile.name}` : \'\'}');
-  assert.match(dashboard, /api\.get\('\/api\/profile'\)/);
-  assert.match(dashboard, /const \[profile, setProfile\] = useState\(null\)/);
+  assert.equal(heading, 'Make room for your next step.');
+  assert.match(dashboard, /pending\.find\(t => t\.minutes > 5\) \|\| pending\[0\]/);
+  assert.match(dashboard, /setPage\(next \? 'tasks' : 'practice'\)/);
+  assert.match(dashboard, /todayTasks\?\.date === today \? 'Your plan today' : todayTasks\?\.date \? `Continue your plan from/);
 });
 
 test('the role page shows a workbook card and every JSON prep-plan trace is gone', () => {
@@ -30,11 +31,11 @@ test('the Prep Plans tab is replaced by Workbooks', () => {
   const h = html();
   assert.doesNotMatch(h, /function PrepPlans|<PrepPlans|id: 'prepplans'/);
   assert.match(h, /\{ id: 'workbooks', icon: Icons\.clipboard, label: 'Workbooks' \}/);
-  assert.match(h, /page === 'workbooks' && <Workbooks setPage=\{setPage\} \/>/);
+  assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*hidden=\{page !== 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
   assert.match(h, /page === 'workbooks' \|\| page === 'behavioral'/);
   for (const needle of [
     'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
-    '>Open<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
+    '>Open workbook<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
     'Auto-build for saved and applied roles', 'window.confirm(',
   ]) assert.ok(h.includes(needle), needle);
 });
