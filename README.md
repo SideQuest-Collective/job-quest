@@ -85,7 +85,7 @@ The `job-quest` skill can inspect update status with:
 ~/.job-quest/bin/update.sh --check-only
 ```
 
-The skill preserves local changes and existing review schedules. A native daily-intel schedule is optional when another career review already supplies the local brief. See [Local setup](LOCAL-SETUP.md) for optional connections.
+The skill preserves local changes. It also verifies a daily intel schedule exists and restores the default weekday `7:03 AM` schedule when none is installed; an optional career-review brief (see [Local setup](LOCAL-SETUP.md)) is a separate source and does not replace it.
 
 ## Scheduling
 

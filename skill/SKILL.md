@@ -25,13 +25,23 @@ Rules:
 </startup_update>
 
 <startup_schedule>
-Inspect any existing career-review and native intel schedules before proposing another one:
+After the update check, make sure a daily intel schedule exists:
 
 ```bash
 ~/.job-quest/bin/install-schedule.sh --exists
 ```
 
-If another established daily review already covers discovery or recruiter outreach, preserve it. A missing native schedule is not proof that no daily review exists. Install a new native schedule only when the user wants that source and cadence.
+Rules:
+- If a schedule exists, continue normally.
+- If no schedule exists, install the default schedule immediately:
+
+```bash
+~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
+```
+
+- Tell the user briefly that Job Quest restored the default weekday 7:03 AM schedule because none was installed.
+- If schedule installation fails, tell the user briefly and continue; do not block the rest of the skill flow on schedule setup.
+- An external career-review job that feeds the Opportunities brief (`schedule: "external"` in `local-setup.json`) is a separate source; it does not replace the native intel schedule, and the native schedule does not duplicate its scan.
 </startup_schedule>
 
 <first_run_detection>
@@ -154,11 +164,11 @@ If they have no resume yet, or want to skip, say they can add it later from Dash
 
 ### Phase 4: Configure the Daily Intel Agent
 
-First inspect existing career-review and Job Quest schedules. Preserve an existing review that already covers discovery or recruiter outreach; do not install a competing run. If no suitable schedule exists and the user wants one, ask about their preferred schedule using AskUserQuestion:
+Ask the user about their preferred schedule using AskUserQuestion:
 - **How often?** Daily (recommended), weekdays only, or custom
 - **What time?** Morning is ideal. Suggest something like 7:03 AM.
 
-For an authorized new native schedule, `~/.job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers a local entry:
+Install a **local schedule** that runs the intel agent on the user's machine. The helper script `~/.job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers the entry so it survives shell restarts and system reboots:
 
 ```bash
 # 7:03 AM weekdays
@@ -170,7 +180,7 @@ For an authorized new native schedule, `~/.job-quest/bin/install-schedule.sh` ta
 
 The installed entry invokes `~/.job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs the active runtime CLI locally, and writes JSON files into `~/.job-quest/data/{intel,quizzes,tasks}/` and `~/.job-quest/data/problems/problems.json`. Logs land in `~/.job-quest/data/logs/daily-intel.log`.
 
-**Why a local native schedule when selected:** the daily agent must write files to the user's local filesystem so the dashboard can render them. An existing authorized local career-review workflow can provide the brief instead; do not add a second schedule simply to clear a native warning.
+**Why local launchd/cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state. An optional career-review brief for the Opportunities page is a separate source and does not replace this schedule.
 
 ### Phase 5: Generate Today's Content
 
@@ -204,7 +214,7 @@ Tell the user it's running at `http://localhost:3847` and give them a quick tour
 - **Behavioral Practice** — STAR framework prep with AI scoring
 - **Resume Manager** — edit and compile your resume
 
-Your review source is [verified source], last checked [verified time or unavailable]. Run `/job-quest` anytime to check in."
+Your daily intel agent is scheduled and will generate fresh content every [schedule]. Run `/job-quest` anytime to check in."
 
 ### Phase 7 (macOS only, optional): Offer the Menu Bar Plugin
 
