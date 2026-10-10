@@ -85,7 +85,9 @@ function readJob(dataDir, id) { return readJsonFile(path.join(wbDir(dataDir, id)
 function writeJob(dataDir, id, state) { writeJsonAtomic(path.join(wbDir(dataDir, id), 'job.json'), state); }
 function readProgress(dataDir, id) { return normalizeProgress(readJsonFile(path.join(wbDir(dataDir, id), 'progress.json'), null)); }
 function writeProgress(dataDir, id, incoming) {
-  const merged = mergeProgress(readProgress(dataDir, id), incoming);
+  const previous = readProgress(dataDir, id);
+  const merged = mergeProgress(previous, incoming);
+  if (merged.revision === previous.revision) return merged;
   writeJsonAtomic(path.join(wbDir(dataDir, id), 'progress.json'), merged);
   return merged;
 }
@@ -106,8 +108,9 @@ function writeGrades(dataDir, id, grades) {
     else accepted.push({ ...g, at: new Date(at).toISOString() });
   }
   let progress = readProgress(dataDir, id);
+  const revisionBefore = progress.revision;
   for (const g of accepted) progress = mergeProgress(progress, { grades: { [g.qid]: { grade: g.grade, at: g.at, source: g.source } } });
-  writeJsonAtomic(path.join(wbDir(dataDir, id), 'progress.json'), progress);
+  if (progress.revision !== revisionBefore) writeJsonAtomic(path.join(wbDir(dataDir, id), 'progress.json'), progress);
   return { progress, recorded: accepted.map((g) => g.qid), rejected };
 }
 

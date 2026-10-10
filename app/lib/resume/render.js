@@ -71,6 +71,7 @@ function buildDocument(master, tailored) {
     const te = byId(t.experience, me.id) || { roles: [] };
     return {
       employer: me.employer,
+      location: me.location || '',
       start: me.start,
       end: me.end,
       roles: (me.roles || []).slice().sort(byStartDesc).map((mr) => {
@@ -92,6 +93,7 @@ function buildDocument(master, tailored) {
     skills: Array.isArray(t.skills) ? t.skills : [],
     education: master.education || [],
     certifications: master.certifications || [],
+    additionalSections: master.additionalSections || [],
   };
 }
 
@@ -130,7 +132,7 @@ function experience(doc) {
   if (!doc.experience.some((e) => e.roles.length)) return '';
   let s = '\\section{Experience}\n\\cventrystart\n';
   for (const e of doc.experience) {
-    s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${latexEscape(e.employer)}} & \\small ${range(e.start, e.end)} \\\\\n    \\end{tabular*}\\vspace{-4pt}\n`;
+    s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${latexEscape(e.employer)}}${e.location ? `, ${latexEscape(e.location)}` : ''} & \\small ${range(e.start, e.end)} \\\\\n    \\end{tabular*}\\vspace{-4pt}\n`;
     for (const r of e.roles) {
       const team = r.team ? ` \\textit{\\small -- ${latexEscape(r.team)}}` : '';
       s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${latexEscape(r.title)}}${team} & \\small ${range(r.start, r.end)} \\\\\n    \\end{tabular*}\\vspace{-8pt}\n${items(r.bullets)}`;
@@ -157,7 +159,7 @@ function skills(doc) {
 function education(doc) {
   if (!doc.education.length) return '';
   const rows = doc.education
-    .map((e) => `    \\textbf{${latexEscape(e.school)}} \\hfill ${e.end ? formatDate(e.end) : ''} \\\\\n    ${latexEscape(e.degree)}`)
+    .map((e) => `    \\textbf{${latexEscape(e.school)}} \\hfill ${[e.start, e.end].filter(Boolean).map(formatDate).join(' -- ')} \\\\\n    ${latexEscape(e.degree)}`)
     .join(' \\\\[2pt]\n');
   return `\\section{Education}\n\\begin{itemize}[leftmargin=0.0in,label={}]\n  \\small{\\item{\n${rows}\n  }}\n\\end{itemize}\n`;
 }
@@ -168,11 +170,18 @@ function certifications(doc) {
   return `\\section{Certifications}\n\\cventrystart\n${rows}\\cventryend\n`;
 }
 
+function additionalSections(doc) {
+  return (doc.additionalSections || []).map(section => {
+    const body = String(section.body || '').split(/\n+/).map(latexEscape).join('\n\\par\n');
+    return `\\section{${latexEscape(section.title)}}\n\\begin{cvparagraph}\n${body}\n\\end{cvparagraph}\n`;
+  }).join('\n');
+}
+
 function renderTex(templateSrc, doc) {
   const pre = preambleOf(templateSrc);
   return [
     pre.trimEnd(), '', '\\begin{document}', '',
-    header(doc), summary(doc), experience(doc), projects(doc), skills(doc), education(doc), certifications(doc),
+    header(doc), summary(doc), experience(doc), projects(doc), skills(doc), education(doc), certifications(doc), additionalSections(doc),
     '\\end{document}', '',
   ].join('\n');
 }

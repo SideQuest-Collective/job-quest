@@ -6,9 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const USAGE = 'usage: jq version | roles --company <name> | interview-context <roleKey> [--round <round>] [--no-agent] | ingest-session <folder> | link-session <folder> <roleKey>';
+const USAGE = 'usage: jq version | roles (--company <name> | --all) | interview-context <roleKey> [--round <round>] [--no-agent] | ingest-session <folder> | link-session <folder> <roleKey>';
 const FLAGS = {
-  version: [], roles: ['company'], 'interview-context': ['round', 'no-agent'],
+  version: [], roles: ['company', 'all'], 'interview-context': ['round', 'no-agent'],
   'ingest-session': [], 'link-session': [],
 };
 
@@ -50,8 +50,8 @@ function parseArgs(argv, allowed, InputError) {
     const eq = a.indexOf('=');
     const key = eq === -1 ? a.slice(2) : a.slice(2, eq);
     if (!allowed.includes(key)) throw new InputError(`unknown option: --${key}`);
-    if (key === 'no-agent') {
-      if (eq !== -1) throw new InputError('--no-agent does not take a value');
+    if (key === 'no-agent' || key === 'all') {
+      if (eq !== -1) throw new InputError(`--${key} does not take a value`);
       opts[key] = true;
     } else if (eq !== -1) opts[key] = a.slice(eq + 1);
     else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) opts[key] = argv[++i];
@@ -79,9 +79,13 @@ async function main() {
       const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
       return out({ version: pkg.version, contract: contract.CONTRACT });
     }
-    case 'roles':
-      if (pos.length || !opts.company) return fail('roles needs --company <name>', 2);
-      return out(lib('roles').listRolesForCompany(dataDir, opts.company));
+    case 'roles': {
+      const hasCompany = Object.hasOwn(opts, 'company');
+      if (pos.length || hasCompany === !!opts.all) return fail('roles needs exactly one of --company <name> or --all', 2);
+      return out(opts.all
+        ? lib('roles').listAllRoles(dataDir)
+        : lib('roles').listRolesForCompany(dataDir, opts.company));
+    }
     case 'interview-context':
       if (pos.length !== 1) return fail('interview-context needs <roleKey>', 2);
       return out(await lib('context').writeInterviewContext({

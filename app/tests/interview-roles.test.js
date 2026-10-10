@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { listRolesForCompany, companyMatches, isKnownRole } = require('../lib/interview/roles');
+const { listRolesForCompany, listAllRoles, companyMatches, isKnownRole } = require('../lib/interview/roles');
 const { makeEnv, seedTracker, seedWorkbook } = require('./helpers/interview-env');
 
 function setup(t) {
@@ -75,6 +75,27 @@ test('lists matching roles newest tracker activity first, with stages', (t) => {
   assert.deepEqual(listRolesForCompany(dataDir, 'ACME CAPITAL').map((r) => r.roleKey), rows.map((r) => r.roleKey));
   assert.deepEqual(listRolesForCompany(dataDir, 'two').map((r) => r.roleKey), ['Two Sigma|SWE']);
   assert.deepEqual(listRolesForCompany(dataDir, 'nobody'), []);
+});
+
+test('lists all tracked, saved, and applied roles across companies in activity order', (t) => {
+  const dataDir = setup(t);
+  const rows = listAllRoles(dataDir);
+  assert.deepEqual(rows.map((r) => [r.roleKey, r.stage]), [
+    ['Acmeish|PM', 'applied'],
+    ['Acme Capital|Data Engineer', 'phone-screen'],
+    ['Acme Capital|Software Engineer', 'applied'],
+    ['Acme Capital|Intern', 'saved'],
+    ['Two Sigma|SWE', 'onsite'],
+  ]);
+  assert.equal(rows.some((r) => r.roleKey.endsWith('|Skipped')), false);
+  assert.deepEqual(rows.map((r) => Object.keys(r)),
+    rows.map(() => ['roleKey', 'company', 'role', 'stage', 'hasWorkbook', 'hasTailoredResume']));
+});
+
+test('all roles is empty when there are no tracked or selected roles', (t) => {
+  const { root, dataDir } = makeEnv();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.deepEqual(listAllRoles(dataDir), []);
 });
 
 test('reports hasWorkbook and hasTailoredResume', (t) => {

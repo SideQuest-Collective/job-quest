@@ -91,8 +91,8 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
       requests.push(url);
       if (options?.method === 'PUT') {
         puts.push(JSON.parse(options.body));
-        if (putResponse) return putResponse(puts.at(-1));
-        return { ok: !failPut, status: failPut ? 503 : 200 };
+        if (putResponse) { const result=await putResponse(puts.at(-1)); if(!result.json) result.json=async()=>({...puts.at(-1),revision:puts.at(-1).expectedRevision+1}); return result; }
+        return { ok: !failPut, status: failPut ? 503 : 200, json: async()=>({...puts.at(-1),revision:puts.at(-1).expectedRevision+1}) };
       }
       if (url.endsWith('/content')) return { ok: contentStatus === 200, status: contentStatus, json: async () => clone(data) };
       return { ok: true, json: async () => clone(progress) };
@@ -100,7 +100,7 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
   });
   const script = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(
     /route\(\);\s*\}\)\(\);\s*$/,
-    'route(); return { S, save, flush, importLegacy, wireQ, QUESTIONS, qHTML, viewHome, viewGuide, viewRead, viewPractice, viewProgress, viewSearch }; })();',
+    'route(); return { S, save, flush, importLegacy, wireQ, QUESTIONS, qHTML, viewHome, viewGuide, viewRead, viewPractice, viewProgress, viewSearch, resolveConflict, conflictMarkup, restoreBrowserDraft }; })();',
   );
   const api = await vm.runInContext(script, context);
   return { api, elements, storage, events, timers, puts, requests,
@@ -302,4 +302,12 @@ test('fix round 1: omitted company renders shared fundamentals', async () => {
   viewer.api.viewRead('start');
   assert.match(viewer.elements.get('main').innerHTML, /Shared fundamentals/);
   assert.doesNotMatch(viewer.elements.get('main').innerHTML, /undefined guide/);
+});
+
+
+test('question deep link opens its exact question and unavailable IDs remain honest',async()=>{
+ const helper=loadViewer.toString().replace("location: { pathname: '/workbooks/sample', hash: '' }", "location: { pathname: '/workbooks/sample', hash: '#question/q2' }");
+ const load = new Function('vm','clone','html','assert',`return (${helper});`)(vm,clone,html,assert);
+ const viewer=await load();assert.match(viewer.elements.get('qwrap').innerHTML,/Pick one/);assert.doesNotMatch(viewer.elements.get('qwrap').innerHTML,/Design a queue/);
+ const missing=helper.replace("'#question/q2'","'#question/no-such-id'");const second=await new Function('vm','clone','html','assert',`return (${missing});`)(vm,clone,html,assert)();assert.match(second.elements.get('main').innerHTML,/Question unavailable/);
 });

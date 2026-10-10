@@ -245,3 +245,55 @@ for (const retry of ['crashed', 'unparseable', 'throws', 'too few']) {
     assert.deepEqual(r.keywords, { title: 'Engineer', required: required.slice(0, 20), preferred: preferred.slice(0, 15) });
   });
 }
+
+test('library joins tracker stage, best-round categories, used-to-apply, and summary counts', async () => {
+  const s = svc();
+  fs.writeFileSync(path.join(s.dataDir, 'role-tracker.json'), JSON.stringify({ [key('Acme')]: { stage: 'applied', notes: '', checklist: [], timeline: [] } }));
+  const a = s.service.requestTailor(key('Acme')).meta;
+  const b = s.service.requestTailor(key('Bolt')).meta;
+  await s.queue.drain();
+  s.editMeta(a.id, { status: 'done', bestRound: 1, bestScore: 92, rounds: [{ n: 1, status: 'scored', score: 92 }] });
+  fs.mkdirSync(path.join(s.dataDir, 'resume', 'tailored', a.id, 'round-1'), { recursive: true });
+  fs.writeFileSync(path.join(s.dataDir, 'resume', 'tailored', a.id, 'round-1', 'score.json'), JSON.stringify({ total: 92, categories: { K: 25, P: 30, S: 15, H: 15, C: 7 } }));
+  s.editMeta(b.id, { status: 'below-target', bestRound: 1, bestScore: 80 });
+  s.service.accept(a.id);
+
+  let lib = s.service.library();
+  const byId = Object.fromEntries(lib.records.map((r) => [r.id, r]));
+  assert.equal(byId[a.id].stage, 'applied');
+  assert.deepEqual(byId[a.id].categories, { K: 25, P: 30, S: 15, H: 15, C: 7 });
+  assert.equal(byId[a.id].used, true, 'accepted counts as used');
+  assert.equal(byId[b.id].used, false);
+  assert.equal(byId[b.id].stage, null);
+  assert.deepEqual({ total: lib.summary.total, atTarget: lib.summary.atTarget, belowTarget: lib.summary.belowTarget, used: lib.summary.used, avgScore: lib.summary.avgScore },
+    { total: 2, atTarget: 1, belowTarget: 1, used: 1, avgScore: 86 });
+
+  s.service.setUsed(a.id, false);
+  s.service.setUsed(b.id, true);
+  lib = s.service.library();
+  assert.deepEqual(lib.records.filter((r) => r.used).map((r) => r.id), [b.id], 'manual override wins over accept');
+  s.service.setUsed(a.id, null);
+  assert.equal(s.service.library().records.find((r) => r.id === a.id).used, true, 'null returns to automatic');
+  assert.throws(() => s.service.setUsed(a.id, 'yes'), (err) => err.status === 400);
+});
+
+test('library reports queue position, and runNow starts a deferred run outside the cap', async () => {
+  const s = svc();
+  writeSettings(s.dataDir, { resume: { autoDailyCap: 1 } });
+  const a = s.service.autoTailor(key('Acme'), 'auto-saved').meta;
+  const b = s.service.autoTailor(key('Bolt'), 'auto-saved').meta;
+  s.queue.enqueue({ kind: 'workbook', key: 'wb:x', payload: {} });
+  const lib = s.service.library();
+  const rb = lib.records.find((r) => r.id === b.id);
+  assert.equal(rb.deferred, true);
+  assert.equal(rb.queue.status, 'deferred');
+  assert.equal(lib.summary.deferred, 1);
+  const ra = lib.records.find((r) => r.id === a.id);
+  assert.ok(ra.queue && ['queued', 'running'].includes(ra.queue.status));
+
+  assert.throws(() => s.service.runNow(a.id), (err) => err.status === 409, 'only deferred records can run now');
+  const started = s.service.runNow(b.id);
+  assert.equal(started.deferred, false);
+  await s.queue.drain();
+  assert.ok(s.ran.includes(b.id));
+});
