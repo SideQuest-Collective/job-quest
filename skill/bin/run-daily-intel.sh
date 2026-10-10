@@ -24,6 +24,17 @@ LOG_DIR="$JOB_QUEST_DATA_DIR/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/daily-intel.log"
 
+# A manual run and the native schedule share one lock: no concurrent data writers.
+RUN_LOCK="$LOG_DIR/.daily-intel.lock"
+RUN_LOCK_HELPER="$JOB_QUEST_APP_ROOT/app/lib/intel-control/lock.js"
+RUN_LOCK_TOKEN="$(node "$RUN_LOCK_HELPER" acquire "$RUN_LOCK" "$$")" || exit 73
+release_run_lock() {
+  node "$RUN_LOCK_HELPER" release "$RUN_LOCK" "$$" "$RUN_LOCK_TOKEN" 2>/dev/null || true
+}
+trap release_run_lock EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE" >&2
 }
@@ -190,7 +201,7 @@ fi
 STDOUT_FILE="$(mktemp)"
 STDERR_FILE="$(mktemp)"
 
-trap 'rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE" "${OUTREACH_CANDIDATE:-}"' EXIT
+trap 'rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE" "${OUTREACH_CANDIDATE:-}"; release_run_lock' EXIT
 set +e
 if [ "$JOB_QUEST_ACTIVE_RUNTIME" = "codex" ]; then
   job_quest_run_prompt_file "$PROMPT_FILE" --approve-for-me >"$STDOUT_FILE" 2>"$STDERR_FILE"

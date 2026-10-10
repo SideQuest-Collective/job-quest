@@ -116,3 +116,47 @@ test('outreach links to a supported native role by listing or exact company and 
   assert.equal(context.window.matchJobQuestOutreachRole({ company: 'Example', title: 'Senior Backend Engineer' }, [backend, { ...backend, url: 'https://jobs.example.com/44' }]), null, 'ambiguous exact matches stay unresolved');
   assert.equal(context.window.matchJobQuestOutreachRole({ relatedRoleUrl: 'javascript:alert(1)' }, roles), null);
 });
+
+
+test('setup request waits for the visible loaded Outreach form, then opens and focuses it once per request', () => {
+  const effect = source.match(/  useEffect\(\(\) => \{\n    if \(!active \|\| !data \|\| !configureRequest[\s\S]*?\n  \}, \[active, data, configureRequest\]\);/)[0];
+  const run = new Function('window', 'active', 'data', 'configureRequest', 'configuredRequest', 'setAccountsOpen', 'accountPanel', 'accountInput', 'useEffect', effect);
+  const calls = [], panel = { open: false }, input = {
+    scrollIntoView(options) { calls.push(['scroll', options.block]); },
+    focus(options) { calls.push(['focus', options.preventScroll]); },
+  };
+  const applied = { current: 0 }, panelRef = { current: panel }, inputRef = { current: input };
+  const invoke = (active, data, request) => run(context.window, active, data, request, applied,
+    open => calls.push(['open', open]), panelRef, inputRef, callback => callback());
+  invoke(true, null, 1);
+  invoke(false, {}, 1);
+  assert.equal(applied.current, 0);
+  assert.deepEqual(calls, []);
+  invoke(true, {}, 1);
+  assert.equal(panel.open, true);
+  assert.deepEqual(calls, [['open', true], ['scroll', 'center'], ['focus', true]]);
+  invoke(true, { refreshed: true }, 1);
+  assert.equal(calls.length, 3, 'refresh must not steal focus from account editing');
+  invoke(true, {}, 2);
+  assert.equal(calls.length, 6, 'returning through Setup should reopen the form');
+});
+
+test('access-check action copies an actionable request without account writes, scans or sending', async () => {
+  const handler = source.match(/  const copyAccessRequest = async \(\) => \{[\s\S]*?\n  \};/)[0];
+  const writes = [], statuses = [], errors = [];
+  const copy = new Function('window', 'navigator', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
+    context.window, { clipboard: { async writeText(text) { writes.push(text); } } },
+    value => statuses.push(value), value => errors.push(value));
+  await copy();
+  assert.equal(writes.length, 1);
+  assert.match(writes[0], /already authorized inbox tools/);
+  assert.match(writes[0], /Do not send messages/);
+  assert.deepEqual(statuses, [true]);
+  assert.deepEqual(errors, []);
+  const denied = new Function('window', 'navigator', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
+    context.window, { clipboard: { async writeText() { throw Error('denied'); } } },
+    value => statuses.push(value), value => errors.push(value));
+  await denied();
+  assert.match(errors[0], /copy it manually/);
+  assert.equal(statuses.length, 1);
+});

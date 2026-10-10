@@ -750,6 +750,8 @@ const problemStore = createProblemStore(DATA_DIR);
 require('./lib/codelab/drafts').registerDraftRoutes(app, {dataDir:DATA_DIR,getProblems:()=>problemStore.read()});
 require('./lib/opportunities/routes').registerOpportunityRoutes(app, { dataDir: DATA_DIR, briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE });
 require('./lib/learning/routes').registerLearningRoutes(app, {dataDir: DATA_DIR, getProblems: () => problemStore.read()});
+require('./lib/intel-control/routes').registerIntelControls(app,{dataDir:DATA_DIR,binDir:expandHome(runtimeState.binDir),getRuntime:()=>ensureRuntime({write:false,requireRunner:true,requireRegistration:true})});
+try { const readiness=require('./lib/learning/readiness').assessContentReadiness(DATA_DIR); console.log(`[Job Quest] Content readiness: ${readiness.status}. See Setup for details.`); } catch { console.warn('[Job Quest] Content readiness could not be checked. Saved data was preserved.'); }
 app.get('/api/problems', (req, res) => {
   try { res.json(problemStore.read()); } catch (err) { res.status(500).json({ error: `could not read problems: ${err.message}` }); }
 });

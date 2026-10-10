@@ -11,6 +11,8 @@ function fixture(t, {existing=false, candidate=true, reject=false, runtime='code
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   for(const dir of ['skill/bin','lib','data/intel','references']) fs.mkdirSync(path.join(root,dir),{recursive:true});
   fs.copyFileSync(source,path.join(root,'skill/bin/run-daily-intel.sh'));
+  fs.mkdirSync(path.join(root,'app/lib/intel-control'),{recursive:true});
+  fs.copyFileSync(path.resolve(__dirname,'../lib/intel-control/lock.js'),path.join(root,'app/lib/intel-control/lock.js'));
   fs.writeFileSync(path.join(root,'data/profile.json'),JSON.stringify({name:'Fixture'}));
   if(external) fs.writeFileSync(path.join(root,'data/local-setup.json'),JSON.stringify({schedule:'external'}));
   fs.writeFileSync(path.join(root,'data/opportunity-accounts.json'),JSON.stringify({accounts:[{id:'fixture',kind:'gmail',label:'fixture@example.test'}]}));

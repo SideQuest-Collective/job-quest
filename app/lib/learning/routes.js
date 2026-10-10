@@ -1,10 +1,13 @@
 const store = require('./store');
+const { assessContentReadiness, writeThresholds } = require('./readiness');
 const { recommendations } = require('./recommendations');
 const { readLinkedSources, linkedConflicts } = require('./linked-sources');
 function registerLearningRoutes(app, { dataDir, getProblems, interviewHome, getLinkedSources = () => readLinkedSources({ interviewHome }) }) {
   const wrap = (fn) => (req, res) => {
     try { res.json(fn(req)); } catch (err) { res.status(err.status || 500).json({ error: err.status ? err.message : 'Learning data could not be read or saved. Existing data was preserved.' }); }
   };
+  app.get('/api/content-readiness', wrap(() => assessContentReadiness(dataDir)));
+  app.put('/api/content-readiness/settings', wrap((req) => ({ thresholds: writeThresholds(dataDir, req.body), readiness: assessContentReadiness(dataDir) })));
   app.get('/api/learning', wrap(() => {
     const next = { ...store.load(dataDir), ...store.quickChoices(dataDir, getProblems), media: store.catalog, importableCount: 0 };
     try { next.importableCount = store.existingReferences(dataDir).length; }

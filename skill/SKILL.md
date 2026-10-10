@@ -35,6 +35,7 @@ After the update check, make sure a daily intel schedule exists:
 
 Rules:
 - If a schedule exists, continue normally.
+- Read `~/.job-quest/data/intel-schedule-preference.json` when present. If its explicit frequency is `off`, preserve manual-only Intel and do not restore a default schedule. If the preference is unreadable, continue with the existing setup and report the configuration problem rather than overriding it. Setup → Intel runs can change this preference.
 - If local-setup.json explicitly selects `schedule: external`, preserve the configured review that feeds native Outreach; do not install a competing default schedule during this return flow. The runner skips its own inbox collection in this mode.
 - Otherwise, if no schedule exists, install the default schedule:
 
@@ -46,6 +47,21 @@ Rules:
 - If schedule installation fails, tell the user briefly and continue; do not block the rest of the skill flow on schedule setup.
 - An explicitly selected career-review job feeds native Outreach through `collect-outreach.cjs`. Native public-role/preparation generation remains available on demand without duplicating that inbox scan.
 </startup_schedule>
+
+<startup_content_readiness>
+On ordinary startup, after ensuring the dashboard is running, check the available preparation content without changing saved work:
+
+```bash
+~/.job-quest/bin/check-content-readiness.cjs
+```
+
+This nonblocking check reads actual Behavioral task prompts and saved answers, recent valid quizzes, and the public audio/video catalog. Defaults require five unanswered behavioral prompts; five quiz questions across three topics from the last seven days; and two audio plus two video resources, two publishers and three distinct learning goals checked within thirty days. These are configurable via Setup's content readiness controls (`GET /api/content-readiness`, `PUT /api/content-readiness/settings`) and saved locally in `data/learning/readiness.json`.
+
+- Continue startup when content is low, old, unreadable or the helper is unavailable. Briefly surface the concrete gaps; do not claim content or source access is ready from a file's existence alone.
+- Use the existing Intel runner for new daily quizzes and behavioral tasks. Preserve all existing dated files, answers and progress; if today's files already exist, do not delete or rewrite them to force generation. To add missing behavioral prompts now, use the existing prep-plan API with a separate plan identity; it preserves other tasks and all saved answers.
+- Media catalog checks are based on recorded publisher verification dates; they do not verify current playback or availability. Intel currently does not curate media. When asked to expand on-the-go learning, verify new public publisher links and add diverse audio/video references to the existing catalog rather than inventing URLs or duplicating a generator.
+- Never launch paid AI generation, inbox collection, or media network checks merely because a readiness check ran. Follow the user's requested run and existing schedule ownership.
+</startup_content_readiness>
 
 <first_run_detection>
 First, check the user's raw input for an **installation management keyword**. If their message contains (case-insensitive) any of: `uninstall`, `reinstall`, `reset`, `nuke my install`, `start over`, `wipe everything`, route immediately to the "Installation Management" section below — do not run onboarding, do not show the menu. This lets users type `/job-quest reinstall` and skip straight to the action.
@@ -452,7 +468,9 @@ Examples:
 ~/.job-quest/bin/install-schedule.sh --uninstall
 ```
 
-6. After any change, confirm the new schedule and remind them they can change it again later by asking Job Quest.
+6. After an explicit removal, persist the manual-only choice in `~/.job-quest/data/intel-schedule-preference.json` with `schema: "job-quest-intel-schedule/1"`, `frequency: "off"`, `time: null`, `cron: null`, the actual update time and local timezone. Dashboard Setup does this automatically. Preserve an unreadable preference rather than replacing it without review.
+
+7. After any change, confirm the new schedule and remind them they can change it again later in Setup → Intel runs or by asking Job Quest.
 
 ## Installation Management
 
