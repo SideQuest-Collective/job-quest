@@ -79,13 +79,13 @@ The installer writes these scripts to `~/.job-quest/bin/`:
 - `uninstall.sh` — remove Job Quest
 - `reinstall.sh` — uninstall then reinstall
 
-The `job-quest` skill can inspect update status with:
+The `job-quest` skill should begin by running:
 
 ```bash
-~/.job-quest/bin/update.sh --check-only
+~/.job-quest/bin/update.sh --if-needed
 ```
 
-The skill preserves local changes. It also verifies a daily intel schedule exists and restores the default weekday `7:03 AM` schedule when none is installed; an optional career-review brief (see [Local setup](LOCAL-SETUP.md)) is a separate source and does not replace it.
+That keeps the installed skill, helper scripts, and dashboard aligned with `origin/main` before the rest of the workflow continues; an install that is ahead of or diverged from `main` is left alone. The skill also verifies a daily intel schedule exists and restores the default weekday `7:03 AM` schedule when none is installed; an optional career-review brief (see [Local setup](LOCAL-SETUP.md)) is a separate source and does not replace it.
 
 ## Scheduling
 

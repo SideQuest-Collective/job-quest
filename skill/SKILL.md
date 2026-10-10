@@ -12,16 +12,18 @@ Set up and run a personalized job hunt command center. This is a conversational 
 </execution_context>
 
 <startup_update>
-Before onboarding or return-flow routing, inspect the installed source and run a read-only update check when useful:
+Before onboarding, return-flow routing, or installation management, attempt a non-destructive update check:
 
 ```bash
-~/.job-quest/bin/update.sh --check-only
+~/.job-quest/bin/update.sh --if-needed
 ```
 
 Rules:
-- Preserve local source changes and data. Do not run `--if-needed`, reinstall, or fetch a remote installer as a routine startup step.
-- If the check fails because the network is unavailable or the install has local changes, continue with the current install.
-- If the helper is missing, continue normally and explain that update status is unavailable only when it matters.
+- If the script reports that Job Quest updated successfully, tell the user briefly that the local install was refreshed from remote and continue.
+- If it reports that Job Quest is already up to date, continue without making a big deal of it.
+- If it reports the install is ahead of or diverged from `origin/main` (for example while testing a feature branch), continue with the current install and mention it only if the user asks about updates.
+- If the update check fails because the network is unavailable or the install has local repo changes, tell the user briefly and continue with the current install instead of stopping the whole session.
+- If `~/.job-quest/bin/update.sh` is missing, continue normally; the user is likely on an older install and the next manual reinstall/update will add it.
 </startup_update>
 
 <startup_schedule>
@@ -472,9 +474,10 @@ After a reinstall completes, the runtime skill registrations have been rewritten
 The skill installs helper scripts at `~/.job-quest/bin/` that wrap the active runtime CLI. Use these from within Claude, Codex, or the terminal:
 
 ### update.sh
-Checks whether the installed repo is behind `origin/main`. Use `--check-only` for routine inspection. Run an update only after preserving local changes and when the user requests it.
+Checks whether the installed repo is behind `origin/main` and, if so, refreshes the local install from the latest remote installer. This is what the skill should call first on each invocation. It only applies a clean fast-forward; an install that is ahead, diverged, or has uncommitted changes is left alone.
 
 ```bash
+~/.job-quest/bin/update.sh --if-needed
 ~/.job-quest/bin/update.sh --check-only
 ```
 
