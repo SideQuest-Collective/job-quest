@@ -22,7 +22,7 @@ For each role collect: company, role title, level, location, URL (job posting li
 - **Fetch every URL before writing it** and confirm the page shows that role's title. Do not trust the HTTP status: applicant tracking systems return 200 for removed jobs. Treat a page as dead if it contains "Job not found", "no longer accepting", "no longer available", or "position has been filled".
   - Ashby (`jobs.ashbyhq.com`) soft-404s: a dead posting returns 200 with `<title>Jobs</title>` and no `og:title` meta tag. A live one has the role title in both.
 - Strip tracking and embed parameters (`?embed=js`, `?gh_src=`, `?query=`) — they break or leak the referrer.
-- Prefer links that stay valid: a board aggregator listing that stays reachable after the role closes beats a raw ATS deep link that vanishes.
+- Use the official company posting or first-party ATS URL as the role action link. Aggregator results may help discovery but cannot substitute for a verified official posting.
 
 {{DEAL_BREAKERS_SECTION}}
 
@@ -141,3 +141,28 @@ Rules the checker enforces:
 - Verify quiz correctIndex is valid (0-3)
 - Verify task content fields are substantial (not empty strings)
 - Add problems only through add-problems.js; its referenceSolution check is the proof the tests work
+
+
+## Outreach collection contract
+
+The native daily helper optionally collects outreach in the same runtime invocation when `DATA_DIR/opportunity-accounts.json` contains selected source accounts and the ingestion CLI is installed. When `DATA_DIR/local-setup.json` designates `schedule: external`, that configured review owns outreach ingestion: the native helper skips its outreach step and still generates public roles/prep when daily files are absent. Unreadable local setup also skips outreach until ownership is known. Fresh native setups retain the selected-account collection step. This does not install a schedule or grant inbox access. Existing daily files switch the invocation to outreach-only collection and remain untouched. Follow the helper's explicit candidate output path; never write `outreach/brief.json` or `outreach/queue.json` directly.
+
+Account configuration contains `accounts: [{id, kind, label, sourceName, accessStatus, accessCheckedAt}]`; kinds are `gmail`, `linkedin_email`, and `linkedin`. The label identifies the intended account. Verify actual connector identity; a saved accessStatus never establishes current access. Use only tools already available and authorized in this runtime. If identity cannot be verified or the required tool is missing/blocked, record unavailable coverage with checkedAt null and no fabricated scan. Do not request new access or bypass runtime tool restrictions. Gmail notification coverage is not direct LinkedIn coverage.
+
+Bound review to the last 14 days, 25 relevant threads and two search pages per mailbox; describe actual query/date/page/reader bounds and remaining pagination. Call coverage `partial` when capped, pages remain, messages cannot be read, or the source is notification-only. `ready` refers only to the stated bounded query whose results were exhausted and read, never to all inbox history. Do not claim invitations, calendar availability, sent messages or booked meetings without direct evidence. Do not mutate mail or user decisions; no sends, drafts, booking, labels, marking read or account changes.
+
+Write one valid JSON candidate, even when all accounts are unavailable:
+
+```json
+{
+  "schema": "job-quest-collection/1",
+  "generatedAt": "2026-01-01T09:00:00Z",
+  "summary": "Describe actual bounded review and limitations",
+  "sources": [{"name": "configured sourceName or label", "accountId": "configured account id", "status": "unavailable", "checkedAt": null, "detail": "Inbox tool unavailable; no messages reviewed"}],
+  "opportunities": []
+}
+```
+
+Read `DATA_DIR/outreach/brief.json` and `DATA_DIR/outreach/queue.json` read-only before assigning candidate IDs. Reuse an exact existing legacy record ID when verified thread/message source URLs or explicit thread identifiers establish the same conversation. For Gmail/LinkedIn notifications, require an explicit linked conversation or strong matching recruiter identity, precise role and specific message details; company alone never matches. Preserve all channel links and account provenance on that ID. Never merge independently saved records, drafts or decisions. If several existing IDs match ambiguously, omit the candidate and describe the identity conflict in source.detail; do not create another ID or combine saved states. Only genuinely new conversations receive new stable account-and-thread IDs.
+
+For a read conversation, append a `kind: recruiter` opportunity with the reused existing `id` or a genuinely new sanitized account-and-thread `id` (letters, digits, underscore or hyphen; max100 chars), `accountId`, `sourceAccount`, `title`, `company` when known, factual `summary`, `nextAction`, actual review `checkedAt`, and original HTTPS `sourceUrl` / `emailSourceUrl` / `linkedinSourceUrl`. Preserve all HTTPS links using `sourceLinks`, and actual recruiter scheduling link in `schedulingUrl`. `relatedRoleUrl` must be a verified specific official job posting; never map a generic recruiter title/company to an invented role. Omit unknown fields. Do not create reply text, queue/items, statuses, holds or reminders. The ingestion helper preserves saved user decisions and drafts and merges source evidence. `generatedAt` is collection time, not proof every source was checked.

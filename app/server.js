@@ -76,6 +76,12 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+const {getPaths: outreachPaths, ensureNativeStore} = require('./lib/outreach/store');
+const outreachStorage = outreachPaths(DATA_DIR, {briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE});
+if (outreachStorage.native) ensureNativeStore(DATA_DIR);
+process.env.JOB_QUEST_CAREER_BRIEF = outreachStorage.briefPath;
+process.env.JOB_QUEST_REPLY_QUEUE = outreachStorage.queuePath;
+
 // --- Shared job queue (workbooks, resume tailoring) ---
 const jobHandlers = {};
 const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers });
@@ -90,7 +96,7 @@ app.get('/api/feedback/:id', feedbackRoute((req, res) => {
 }));
 app.post('/api/feedback/:id/retry', feedbackRoute((req, res) => res.status(202).json(feedbackService.retry(req.params.id))));
 
-app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,schedule:localSetup.schedule || 'not_selected'}));
+app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,outreachStorage:outreachStorage.native?'native':'external',schedule:localSetup.schedule || 'not_selected'}));
 
 app.get('/api/jobs', (req, res) => res.json(jobQueue.list()));
 app.get('/api/settings', (req, res) => res.json(readSettings(DATA_DIR)));

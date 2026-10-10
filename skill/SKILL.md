@@ -35,7 +35,8 @@ After the update check, make sure a daily intel schedule exists:
 
 Rules:
 - If a schedule exists, continue normally.
-- If no schedule exists, install the default schedule immediately:
+- If local-setup.json explicitly selects `schedule: external`, preserve the configured review that feeds native Outreach; do not install a competing default schedule during this return flow. The runner skips its own inbox collection in this mode.
+- Otherwise, if no schedule exists, install the default schedule:
 
 ```bash
 ~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
@@ -43,7 +44,7 @@ Rules:
 
 - Tell the user briefly that Job Quest restored the default weekday 7:03 AM schedule because none was installed.
 - If schedule installation fails, tell the user briefly and continue; do not block the rest of the skill flow on schedule setup.
-- An external career-review job that feeds the Opportunities brief (`schedule: "external"` in `local-setup.json`) is a separate source; it does not replace the native intel schedule, and the native schedule does not duplicate its scan.
+- An explicitly selected career-review job feeds native Outreach through `collect-outreach.cjs`. Native public-role/preparation generation remains available on demand without duplicating that inbox scan.
 </startup_schedule>
 
 <first_run_detection>
@@ -115,7 +116,7 @@ Once confirmed, save to `~/.job-quest/data/profile.json`:
 Create the full directory structure at `~/.job-quest/data/`:
 
 ```bash
-mkdir -p ~/.job-quest/data/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs}
+mkdir -p ~/.job-quest/data/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs,outreach}
 ```
 
 Seed empty JSON files so nothing crashes on first read. The shipped `install.sh` copies `app/skill/seed/problems.json` (30 base problems across 4 categories) into `~/.job-quest/data/problems/problems.json` for new installs; if you're seeding manually outside the installer, mirror that:
@@ -129,6 +130,8 @@ echo '{}' > ~/.job-quest/data/activity.json
 echo '{}' > ~/.job-quest/data/progress.json
 echo '{}' > ~/.job-quest/data/resume.json
 ```
+
+For a fresh native Outreach store, run `~/.job-quest/bin/collect-outreach.cjs --init` after installing the helpers. Do not replace an existing brief or recruiter queue with empty seed data.
 
 ### Phase 3: Set Up the Dashboard App
 
@@ -182,11 +185,11 @@ Install a **local schedule** that runs the intel agent on the user's machine. Th
 
 The installed entry invokes `~/.job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs the active runtime CLI locally, and writes JSON files into `~/.job-quest/data/{intel,quizzes,tasks}/` and `~/.job-quest/data/problems/problems.json`. Logs land in `~/.job-quest/data/logs/daily-intel.log`.
 
-**Why local launchd/cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state. An optional career-review brief for the Opportunities page is a separate source and does not replace this schedule.
+**Why local launchd/cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state. Native Outreach evidence can come from an existing authorized review submitted through `collect-outreach.cjs`; that review remains separate from this native intel schedule.
 
 ### Phase 5: Generate Today's Content
 
-If Job Quest is the user's chosen discovery source, generate initial intel now. If an existing career-review process supplies the local Opportunities brief, connect and verify that brief first; do not duplicate its scan or reset its queue.
+If Job Quest is the user's chosen discovery source, generate initial intel now. If an existing career-review process supplies outreach evidence, migrate its brief and queue into native Outreach first and verify the source rows; preserve drafts and holds, and do not duplicate its scan.
 
 1. **Search the web** for roles matching their profile — aim for 15-20 roles across their target categories
 2. **Generate a quiz** — 5-7 questions mixing system design, coding concepts, and behavioral/leadership topics
@@ -208,6 +211,7 @@ Tell the user it's running at `http://localhost:3847` and give them a quick tour
 
 - **Dashboard** — daily overview with your streak, task progress, and quiz accuracy
 - **Intel** — the roles I just found for you, with 'why this fits' analysis for each
+- **Outreach** — source coverage, recruiter drafts and collected leads; account access and message sending remain explicit
 - **Tasks** — your daily prep tasks, each with a detailed walkthrough
 - **Quiz** — knowledge checks to keep you sharp
 - **Code Lab** — coding problems that adapt to your level, with AI code review
@@ -266,9 +270,13 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 **Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
 
-**Opportunities and recruiter review:** When `JOB_QUEST_CAREER_BRIEF` and `JOB_QUEST_REPLY_QUEUE` are configured, the local dashboard reads the existing career-review brief and reply queue. Show source coverage and blocked accounts honestly. A selected email or LinkedIn account is only a preference until access and review are verified. Preserve edited drafts, sent/booked reports, holds, snoozes and source links. Copying a draft, opening a posting or opening a booking link does not mean a reply was sent, an application submitted or a meeting booked. The user sends replies and chooses booking times. Do not publish to a hosted Site or add another daily schedule for this bridge.
+**Outreach and recruiter review:** Use native `~/.job-quest/data/outreach/brief.json` and `outreach/queue.json`; account preferences remain in `opportunity-accounts.json`. Fresh installs can initialize the store with `~/.job-quest/bin/collect-outreach.cjs --init`. Collect only authorized, reachable sources, keep stable opportunity IDs, and report account/source coverage and blockers honestly. A selected Gmail or LinkedIn account is only a preference until access and review are verified. LinkedIn email notifications provide partial coverage; they do not establish coverage of the direct inbox, InMail or invitations.
 
-For optional local connections, follow `LOCAL-SETUP.md`. The installed `~/.job-quest/bin/configure-local.cjs` records explicit brief, queue and optional interview-home paths in private data; it does not scan accounts, install schedules or enable Tailscale. In the webpage, users can select Gmail accounts and LinkedIn email notifications to review. Mark connector/browser access verified only after an actual access check, and map an account to a source row only when the row covers that account. LinkedIn email notifications are partial coverage of LinkedIn activity.
+Submit collected evidence with `~/.job-quest/bin/collect-outreach.cjs --input /absolute/path/to/collection.json`. The JSON candidate has `schema: "job-quest-collection/1"`, optional `generatedAt` and `summary`, and `sources` and `opportunities` arrays. Give sources actual account identity, status, check time and coverage detail; use `kind: "job"` or `kind: "recruiter"`, stable IDs and precise source links for opportunities. If account tools or access are unavailable, record that limitation and do not claim messages were reviewed. Never supply replacement `queue`, `items` or `holds` arrays. The collector merges evidence, retains old leads, seeds only new recruiter queue IDs and projects supported source-checked job listings into native Intel. Existing draft text, holds, snoozes, sent/booked reports and other user state remain owned by the dashboard. The CLI itself does not scan accounts or send messages.
+
+For an existing external brief/queue, follow `LOCAL-SETUP.md` and run `collect-outreach.cjs --import-legacy --brief /absolute/brief.json --queue /absolute/queue.json`, then restart and verify Outreach. Import backs up private source bytes and setup, copies native files byte for byte, removes legacy path overrides and leaves old files in place; a different existing native store is a conflict, not permission to replace it. Explicit external path overrides remain compatible, but are unnecessary for native operation. Keep an existing review schedule and change its output step to the shared collector; do not add another daily schedule for this migration.
+
+Preserve edited drafts, holds, snoozes and source links. Copying a draft, opening a posting or opening a booking link does not mean a reply was sent, an application submitted or a meeting booked. The user sends replies and chooses booking times; workflow reports are user reported. Do not publish these private files to a hosted Site. `configure-local.cjs` records optional interview/private-access settings; it does not scan accounts, install schedules or enable Tailscale. Mark connector/browser access verified only after an actual access check, and map accounts to source rows only when their coverage matches.
 
 **Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them. When they want a schedule across days or several interviews ("plan my prep", "I have X Thursday and Y Friday"), follow **Plan Prep** below.
 

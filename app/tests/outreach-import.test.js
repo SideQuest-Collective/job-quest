@@ -1,0 +1,55 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {spawnSync}=require('node:child_process');
+const cli=process.env.JQ_OUTREACH_COLLECTOR || path.resolve(__dirname,'../../skill/bin/collect-outreach.cjs');
+const at='2026-10-10T12:00:00Z';
+const job={id:'job_fixture',kind:'job',title:'Senior Engineer',company:'Fixture Company',sourceUrl:'https://jobs.ashbyhq.com/fixture/11111111-2222-3333-4444-555555555555',checkedAt:at,fit:'Documented fixture fit'};
+const recruiter=id=>({id,kind:'recruiter',title:'Recruiter conversation',company:'Fixture Company',sourceUrl:`https://mail.google.com/mail/u/0/#inbox/${id}`,checkedAt:at,preparedDraft:'Thanks for reaching out. I would be happy to talk.'});
+function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'jq-outreach-import-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const data=path.join(root,'data'),legacy=path.join(root,'legacy');fs.mkdirSync(data);fs.mkdirSync(legacy);const write=(file,value)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,typeof value==='string'?value:JSON.stringify(value,null,2)+'\n');return file;};const run=(...args)=>spawnSync(process.execPath,[cli,'--data-dir',data,...args],{encoding:'utf8'});return {root,data,legacy,write,run};}
+const parse=result=>{assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout);};
+const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
+function legacyFiles(f,{brief={},queue={}}={}){
+ const briefPath=f.write(path.join(f.legacy,'brief.json'),JSON.stringify({generatedAt:at,sources:[{name:'Fixture Gmail',accountId:'fixture_mail',status:'checked',checkedAt:at,detail:'Fixture evidence only'}],opportunities:[job,recruiter('existing')],...brief},null,4)+'\n');
+ const queuePath=f.write(path.join(f.legacy,'queue.json'),JSON.stringify({version:1,items:[{id:'existing',draftReply:'User edited draft',status:'snoozed',nextReminderAt:'2026-10-20T12:00:00Z',revision:7,custom:{keep:true}}],holds:[{id:'held',draftReply:'Held user draft',status:'hold_user'}],custom:{preserve:true},...queue},null,3)+'\n');
+ const setup=f.write(path.join(f.data,'local-setup.json'),JSON.stringify({careerBrief:briefPath,replyQueue:queuePath,interviewHome:'/fixture/interview',schedule:'external',privateOrigin:'https://fixture.tailnet.ts.net',tailscaleUser:'fixture@example.test',extra:{preserve:true}},null,4)+'\n');
+ return {briefPath,queuePath,setup};
+}
+
+test('CLI init creates only native brief/queue, retains separate account preferences and is repeatable',t=>{
+ const f=fixture(t),accounts=f.write(path.join(f.data,'opportunity-accounts.json'),'{"revision":4,"accounts":[{"id":"fixture","kind":"gmail","label":"Fixture"}]}\n');const accountBefore=fs.readFileSync(accounts);
+ const result=parse(f.run('--init'));assert.equal(result.briefPath,path.join(f.data,'outreach/brief.json'));assert.equal(result.queuePath,path.join(f.data,'outreach/queue.json'));assert.equal(result.native,true);assert.deepEqual(read(result.briefPath).opportunities,[]);assert.deepEqual(read(result.queuePath).holds,[]);
+ const before=[fs.readFileSync(result.briefPath),fs.readFileSync(result.queuePath)];parse(f.run('--init'));assert.ok(fs.readFileSync(result.briefPath).equals(before[0]));assert.ok(fs.readFileSync(result.queuePath).equals(before[1]));assert.ok(fs.readFileSync(accounts).equals(accountBefore));assert.equal(fs.statSync(result.briefPath).mode&0o777,0o600);assert.equal(fs.statSync(result.queuePath).mode&0o777,0o600);
+});
+
+test('CLI import backs up exact source/setup bytes, selects native paths and preserves old files and unrelated state',t=>{
+ const f=fixture(t),files=legacyFiles(f),original=Object.fromEntries(Object.entries(files).map(([key,file])=>[key,fs.readFileSync(file)]));const untouched=f.write(path.join(f.data,'intel/2026-10-10.json'),'{"date":"2026-10-10","roles":[],"tips":["User note"]}\n'),intelBefore=fs.readFileSync(untouched);
+ const result=parse(f.run('--import-legacy','--brief',files.briefPath,'--queue',files.queuePath));assert.ok(fs.readFileSync(result.briefPath).equals(original.briefPath));assert.ok(fs.readFileSync(result.queuePath).equals(original.queuePath));assert.ok(fs.readFileSync(files.briefPath).equals(original.briefPath));assert.ok(fs.readFileSync(files.queuePath).equals(original.queuePath));
+ for(const [key,name] of [['briefPath','brief.json'],['queuePath','queue.json'],['setup','local-setup.json']]){const backup=path.join(result.backup,name);assert.ok(fs.readFileSync(backup).equals(original[key]));assert.equal(fs.statSync(backup).mode&0o777,0o600);}
+ assert.equal(fs.statSync(result.backup).mode&0o777,0o700);const setup=read(files.setup);assert.equal(Object.hasOwn(setup,'careerBrief'),false);assert.equal(Object.hasOwn(setup,'replyQueue'),false);assert.equal(setup.interviewHome,'/fixture/interview');assert.equal(setup.schedule,'external');assert.equal(setup.tailscaleUser,'fixture@example.test');assert.deepEqual(setup.extra,{preserve:true});
+ assert.ok(fs.readFileSync(untouched).equals(intelBefore));const report=read(path.join(f.data,'intel/2026-10-10-career-review-migration.json'));assert.equal(report.roles.length,1);assert.equal(report.roles[0].sourceId,'job_fixture');assert.equal(report.roles[0].url,job.sourceUrl);assert.equal(result.intel.excludedRecruiters,1);
+ const repeated=parse(f.run('--import-legacy','--brief',files.briefPath,'--queue',files.queuePath));assert.equal(repeated.intel.changedReports,0);assert.ok(fs.readFileSync(result.queuePath).equals(original.queuePath));
+});
+
+test('CLI collection seeds only new recruiter IDs, preserves drafts/holds and projects jobs without duplicating Intel',t=>{
+ const f=fixture(t),files=legacyFiles(f);parse(f.run('--import-legacy','--brief',files.briefPath,'--queue',files.queuePath));const queueFile=path.join(f.data,'outreach/queue.json'),prior=read(queueFile),accounts=f.write(path.join(f.data,'opportunity-accounts.json'),'{"revision":9,"accounts":[]}\n');const accountsBefore=fs.readFileSync(accounts);
+ const input=f.write(path.join(f.root,'candidate.json'),{schema:'job-quest-collection/1',generatedAt:at,sources:[{name:'Fixture Gmail',accountId:'fixture_mail',status:'checked',checkedAt:at,detail:'New actual review window'}],opportunities:[job,{...recruiter('existing'),preparedDraft:'Do not replace edited draft'},recruiter('held'),recruiter('new_recruiter')]});const result=parse(f.run('--input',input));
+ const next=read(queueFile);assert.deepEqual(next.items.find(x=>x.id==='existing'),prior.items[0]);assert.deepEqual(next.holds,prior.holds);assert.deepEqual(next.custom,prior.custom);assert.equal(next.items.filter(x=>x.id==='held').length,0);assert.equal(next.items.filter(x=>x.id==='new_recruiter').length,1);assert.equal(next.items.find(x=>x.id==='new_recruiter').draftReply,recruiter('new_recruiter').preparedDraft);assert.equal(next.items.find(x=>x.id==='new_recruiter').status,'ready_for_review');assert.ok(fs.readFileSync(accounts).equals(accountsBefore));
+ const reportFile=path.join(f.data,'intel/2026-10-10-career-review-migration.json');assert.equal(read(reportFile).roles.length,1);assert.ok(result.backupDir);assert.equal(read(path.join(result.backupDir,'manifest.json')).schema,'job-quest-outreach-backup/1');
+ const before=[fs.readFileSync(result.briefPath),fs.readFileSync(queueFile),fs.readFileSync(reportFile)];const replay=parse(f.run('--input',input));assert.equal(replay.intel.changedReports,0);for(const [i,file] of [result.briefPath,queueFile,reportFile].entries())assert.ok(fs.readFileSync(file).equals(before[i]),file);
+});
+
+for(const kind of ['brief','queue','setup'])test(`CLI import rejects corrupt ${kind} without replacing sources/setup or creating native files`,t=>{
+ const f=fixture(t),files=legacyFiles(f);f.write(files[kind==='setup'?'setup':kind+'Path'],'{invalid');const snapshot=Object.fromEntries(Object.values(files).map(file=>[file,fs.readFileSync(file)]));const result=f.run('--import-legacy','--brief',files.briefPath,'--queue',files.queuePath);assert.notEqual(result.status,0);for(const [file,bytes] of Object.entries(snapshot))assert.ok(fs.readFileSync(file).equals(bytes));assert.equal(fs.existsSync(path.join(f.data,'outreach/brief.json')),false);assert.equal(fs.existsSync(path.join(f.data,'outreach/queue.json')),false);assert.equal(fs.existsSync(path.join(f.data,'migration-backups')),false);
+});
+for(const malformed of [{items:null,holds:[]},{items:[null],holds:[]},{items:[{id:'duplicate'}],holds:[{id:'duplicate'}]}])test(`CLI import rejects malformed/ambiguous native queue shape ${JSON.stringify(malformed)}`,t=>{
+ const f=fixture(t),files=legacyFiles(f,{queue:malformed}),before=fs.readFileSync(files.setup);const result=f.run('--import-legacy','--brief',files.briefPath,'--queue',files.queuePath);assert.notEqual(result.status,0);assert.ok(fs.readFileSync(files.setup).equals(before));assert.equal(fs.existsSync(path.join(f.data,'outreach/queue.json')),false);assert.equal(fs.existsSync(path.join(f.data,'migration-backups')),false);
+});
+
+test('CLI import rejects different native files and unrelated Intel destination before changing any existing bytes',t=>{
+ for(const conflict of ['native','intel']){const f=fixture(t),files=legacyFiles(f);const destination=f.write(path.join(f.data,conflict==='native'?'outreach/queue.json':'intel/2026-10-10-career-review-migration.json'),conflict==='native'?{version:1,items:[{id:'different',draftReply:'Keep'}],holds:[]}:{date:'2026-10-10',roles:[],tips:['Unrelated user report']});const before=[fs.readFileSync(destination),fs.readFileSync(files.setup)];const result=f.run('--import-legacy','--brief',files.briefPath,'--queue',files.queuePath);assert.notEqual(result.status,0);assert.match(result.stderr,/different data|unrelated native report/);assert.ok(fs.readFileSync(destination).equals(before[0]));assert.ok(fs.readFileSync(files.setup).equals(before[1]));assert.equal(fs.existsSync(path.join(f.data,'outreach/brief.json')),false);assert.equal(fs.existsSync(path.join(f.data,'migration-backups')),false);}
+});
+
+test('CLI rejects replacement queues, invalid JSON and corrupt existing native store without changing saved work',t=>{
+ const f=fixture(t),result=parse(f.run('--init')),before=[fs.readFileSync(result.briefPath),fs.readFileSync(result.queuePath)];
+ for(const input of ['{broken',JSON.stringify({sources:[],opportunities:[],queue:{items:[]}})]){const file=f.write(path.join(f.root,'invalid.json'),input);assert.notEqual(f.run('--input',file).status,0);assert.ok(fs.readFileSync(result.briefPath).equals(before[0]));assert.ok(fs.readFileSync(result.queuePath).equals(before[1]));}
+ f.write(result.queuePath,'{corrupt');const file=f.write(path.join(f.root,'valid.json'),{sources:[],opportunities:[]});const failed=f.run('--input',file);assert.notEqual(failed.status,0);assert.match(failed.stderr,/preserved/);assert.equal(fs.readFileSync(result.queuePath,'utf8'),'{corrupt');assert.ok(fs.readFileSync(result.briefPath).equals(before[0]));
+});
