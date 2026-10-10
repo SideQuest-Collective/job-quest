@@ -142,21 +142,49 @@ test('setup request waits for the visible loaded Outreach form, then opens and f
 });
 
 test('access-check action copies an actionable request without account writes, scans or sending', async () => {
-  const handler = source.match(/  const copyAccessRequest = async \(\) => \{[\s\S]*?\n  \};/)[0];
+  const handler = source.match(/  const copyAccessRequest = async \(accounts = data.accounts\) => \{[\s\S]*?\n  \};/)[0];
   const writes = [], statuses = [], errors = [];
-  const copy = new Function('window', 'navigator', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
-    context.window, { clipboard: { async writeText(text) { writes.push(text); } } },
+  const copy = new Function('window', 'navigator', 'data', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
+    context.window, { clipboard: { async writeText(text) { writes.push(text); } } }, { accounts: [{ id: 'gmail', kind: 'gmail', label: 'you@example.test' }] },
     value => statuses.push(value), value => errors.push(value));
   await copy();
   assert.equal(writes.length, 1);
-  assert.match(writes[0], /already authorized inbox tools/);
+  assert.match(writes[0], /already authorized inbox tools or browser access/);
   assert.match(writes[0], /Do not send messages/);
-  assert.deepEqual(statuses, [true]);
+  assert.deepEqual(statuses, [writes[0]]);
   assert.deepEqual(errors, []);
-  const denied = new Function('window', 'navigator', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
-    context.window, { clipboard: { async writeText() { throw Error('denied'); } } },
+  const denied = new Function('window', 'navigator', 'data', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
+    context.window, { clipboard: { async writeText() { throw Error('denied'); } } }, { accounts: [] },
     value => statuses.push(value), value => errors.push(value));
   await denied();
   assert.match(errors[0], /copy it manually/);
   assert.equal(statuses.length, 1);
+});
+
+
+test('account access requests target the selected identity and preserve evidence and revision safeguards', () => {
+  const account = { id: 'li', kind: 'linkedin', label: 'Profile name', accessStatus: 'unverified' };
+  const request = context.window.jobQuestOutreachAccessRequest([account]);
+  assert.match(request, /\"id\":\"li\"/);
+  assert.match(request, /\"label\":\"Profile name\"/);
+  assert.match(request, /signed-in profile/);
+  assert.match(request, /direct messages and LinkedIn Jobs separately/);
+  assert.match(request, /accountsRevision as revision/);
+  assert.match(request, /preserving all other saved accounts and fields/);
+  assert.match(request, /actual successful read/);
+  assert.match(request, /Do not send messages, apply for jobs, or change schedules/);
+  assert.equal(account.accessStatus, 'unverified');
+  const other = { id: 'other', kind: 'gmail', label: 'other@example.test' };
+  assert.doesNotMatch(request, /other@example/);
+  assert.match(context.window.jobQuestOutreachAccessRequest([account, other]), /other@example/);
+});
+
+test('setup offers distinct LinkedIn browser surfaces and a Gmail account chooser', () => {
+  const linkedin = plain(context.window.jobQuestAccountSetupLinks('linkedin'));
+  assert.deepEqual(linkedin.map(link => new URL(link.url).pathname), ['/login', '/messaging/', '/jobs/']);
+  for (const link of linkedin) assert.equal(new URL(link.url).origin, 'https://www.linkedin.com');
+  const gmail = context.window.jobQuestAccountSetupLinks('gmail');
+  assert.equal(new URL(gmail[0].url).hostname, 'accounts.google.com');
+  assert.equal(new URL(gmail[0].url).searchParams.get('continue'), 'https://mail.google.com/mail/');
+  assert.deepEqual(plain(context.window.jobQuestAccountSetupLinks('linkedin_email')), plain(gmail));
 });

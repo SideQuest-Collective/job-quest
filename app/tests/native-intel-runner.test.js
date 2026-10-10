@@ -22,6 +22,11 @@ for (const runtime of ['codex', 'claude']) test(`native intel ${runtime} invocat
   assert.doesNotMatch(args.join(' '), /dangerously|full-auto/);
   const prompt = fs.readFileSync(path.join(root, 'captured-prompt'), 'utf8');
   assert.ok(prompt.includes(`${root}/data/intel/`));
+  assert.match(prompt, /official ATS listings and LinkedIn Jobs/);
+  assert.match(prompt, /specific LinkedIn \/jobs\/view\/<numeric-id> posting/);
+  assert.match(prompt, /sourceCoverage/);
+  assert.match(prompt, /unavailable has checkedAt null/);
+  assert.match(prompt, /interactive app browser is not proof of scheduled CLI access/);
   assert.ok(prompt.includes(`${root}/data/quizzes/`));
   assert.ok(prompt.includes(`${root}/data/tasks/`));
   assert.equal(fs.existsSync(path.join(root, 'data/intel')), false, 'mocked agent never generates data');

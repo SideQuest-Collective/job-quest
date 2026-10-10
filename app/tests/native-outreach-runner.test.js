@@ -49,6 +49,11 @@ test('existing daily work permits bounded outreach-only collection and preserves
   const result=run(); assert.equal(result.status,0,result.stderr);
   const prompt=fs.readFileSync(path.join(root,'prompt'),'utf8');
   assert.match(prompt,/OUTREACH ONLY/);
+  assert.match(prompt,/already signed-in browser exposed to THIS invocation/);
+  assert.match(prompt,/canonical profile URL/);
+  assert.match(prompt,/Interactive app browser access does not establish scheduled CLI browser access/);
+  assert.match(prompt,/actual Messaging\/InMail threads/);
+  assert.match(prompt,/account\/tool\/identity failure is unavailable/);
   assert.ok(prompt.includes(`${root}/data/outreach/brief.json`));
   assert.ok(prompt.includes(`${root}/data/outreach/queue.json`));
   assert.match(prompt,/Reuse the exact existing record id, including legacy ids/);

@@ -19,6 +19,8 @@ function postingUrl(value) {
     if (host.endsWith('.myworkdayjobs.com')) supported = /\/job\/[^/]+\/.+_[a-z0-9-]+\/?$/i.test(p);
     if (host === 'jobs.smartrecruiters.com') supported = /^\/[^/]+\/\d+[^/]*\/?$/.test(p);
     if (['careers.google.com', 'www.google.com'].includes(host)) supported = /\/jobs\/results\/\d+[^/]*\/?$/.test(p);
+    // A precise LinkedIn job detail route is evidence-importable; search/inbox links are not.
+    if (['linkedin.com', 'www.linkedin.com'].includes(host)) supported = /^\/jobs\/view\/(?:[a-z0-9][a-z0-9-]*-)?[0-9]+\/?$/i.test(p);
     // Specific first-party career routes, never a generic careers/search page.
     if (!/(?:linkedin|indeed|glassdoor|ziprecruiter)\.com$/.test(host)) supported ||= /\/(?:careers|jobs|positions|openings)\/(?:[^/]+\/)*[a-z0-9][a-z0-9_-]{7,}\/?$/i.test(p);
     if (!supported || [...url.searchParams.keys()].some(key => /^(q|query|search)$/.test(key))) return null;
@@ -28,6 +30,10 @@ function postingUrl(value) {
 }
 function roleIdentity(role) {
   const url = new URL(role.url); url.hash = '';
+  if (['linkedin.com', 'www.linkedin.com'].includes(url.hostname.toLowerCase())) {
+    const id = url.pathname.match(/([0-9]+)\/?$/)?.[1];
+    if (id) { url.hostname = 'www.linkedin.com'; url.pathname = `/jobs/view/${id}/`; url.search = ''; }
+  }
   for (const key of [...url.searchParams.keys()]) if (/^(utm_|gh_src$|source$|ref$|trk$|tracking)/i.test(key)) url.searchParams.delete(key);
   url.searchParams.sort();
   return `${role.company.toLowerCase()}|${role.role.toLowerCase()}|${url.href}`;
@@ -46,7 +52,7 @@ function projectBrief(brief) {
       fit: text(item.fit) || null, checkedAt, availability: text(item.availability) || null,
       concern: text(item.concern) || null, nextAction: text(item.nextAction) || null,
       source: 'career-review-migration', sourceId: text(item.id) || null, sourceUrl: item.sourceUrl,
-      sourceAccount: text(item.sourceAccount) || null };
+      sourceAccount: text(item.sourceAccount) || null, sourceLinks: Array.isArray(item.sourceLinks) ? item.sourceLinks : [], employerVerification: text(item.employerVerification) || null };
     const identity = roleIdentity(native);
     if (seen.has(identity)) { unsupported.push({ index, id: text(item.id) || null, reason: 'duplicate_listing' }); return; }
     seen.add(identity);
