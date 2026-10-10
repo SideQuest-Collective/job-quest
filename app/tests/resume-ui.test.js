@@ -115,8 +115,8 @@ test('Accept works when the onAccepted prop is omitted', async () => {
 
 test('Resume Manager has a Master editor wired to the master API', () => {
   assert.ok(html.includes('function MasterEditor({ onExit })'));
-  assert.ok(html.includes("const [view, setView] = useState('files');"));
-  assert.ok(html.includes("if (view === 'master') return <MasterEditor onExit={() => setView('files')} />;"));
+  assert.ok(html.includes("const [view, setView] = useState('home');"));
+  assert.ok(html.includes("if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;"));
   assert.ok(html.includes("resumeApi.send('PUT', '/api/resume/master'"));
   assert.ok(html.includes("'/api/resume/master/import-latex'"));
   assert.equal(html.split("onClick={() => setView('master')}").length - 1, 2, 'both Resume layouts link to the Master editor');
@@ -189,11 +189,11 @@ test('Master editor has up and down controls for employers, roles, and projects'
 test('the Intel role page shows the tailored-resume card and the accepted-PDF link', () => {
   assert.ok(html.includes('function TailoredResumeCard({ roleKey, onAccepted = async () => {} })'));
   assert.ok(html.includes('function AcceptedResumeLink({ roleKey, stage })'));
-  assert.ok(html.includes("<TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(setRoleTracker)} />"));
+  assert.ok(html.includes("<TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); })} />"));
   assert.ok(html.includes('<AcceptedResumeLink roleKey={selectedKey} stage={stage} />'));
   assert.ok(html.includes('not supported by your master resume'));
   assert.ok(html.indexOf('<TailoredResumeCard key={selectedKey}') < html.indexOf('{/* Notes */}'));
-  assert.ok(html.includes('return roleTracker[key].stage;'));
+  assert.ok(html.includes('return nativeRoleStatus(key, roleActions, roleTracker).stage;'));
   assert.ok(html.includes("{t.date?.split('T')[0]}"));
   assert.ok(html.includes('{t.event}'));
 });

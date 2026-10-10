@@ -12,36 +12,26 @@ Set up and run a personalized job hunt command center. This is a conversational 
 </execution_context>
 
 <startup_update>
-Before onboarding, return-flow routing, or installation management, attempt a non-destructive update check:
+Before onboarding or return-flow routing, inspect the installed source and run a read-only update check when useful:
 
 ```bash
-~/.job-quest/bin/update.sh --if-needed
+~/.job-quest/bin/update.sh --check-only
 ```
 
 Rules:
-- If the script reports that Job Quest updated successfully, tell the user briefly that the local install was refreshed from remote and continue.
-- If it reports that Job Quest is already up to date, continue without making a big deal of it.
-- If the update check fails because the network is unavailable or the install has local repo changes, tell the user briefly and continue with the current install instead of stopping the whole session.
-- If `~/.job-quest/bin/update.sh` is missing, continue normally; the user is likely on an older install and the next manual reinstall/update will add it.
+- Preserve local source changes and data. Do not run `--if-needed`, reinstall, or fetch a remote installer as a routine startup step.
+- If the check fails because the network is unavailable or the install has local changes, continue with the current install.
+- If the helper is missing, continue normally and explain that update status is unavailable only when it matters.
 </startup_update>
 
 <startup_schedule>
-After the update check, make sure a daily intel schedule exists:
+Inspect any existing career-review and native intel schedules before proposing another one:
 
 ```bash
 ~/.job-quest/bin/install-schedule.sh --exists
 ```
 
-Rules:
-- If a schedule exists, continue normally.
-- If no schedule exists, install the default schedule immediately:
-
-```bash
-~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
-```
-
-- Tell the user briefly that Job Quest restored the default weekday 7:03 AM schedule because none was installed.
-- If schedule installation fails, tell the user briefly and continue; do not block the rest of the skill flow on schedule setup.
+If another established daily review already covers discovery or recruiter outreach, preserve it. A missing native schedule is not proof that no daily review exists. Install a new native schedule only when the user wants that source and cadence.
 </startup_schedule>
 
 <first_run_detection>
@@ -164,11 +154,11 @@ If they have no resume yet, or want to skip, say they can add it later from Dash
 
 ### Phase 4: Configure the Daily Intel Agent
 
-Ask the user about their preferred schedule using AskUserQuestion:
+First inspect existing career-review and Job Quest schedules. Preserve an existing review that already covers discovery or recruiter outreach; do not install a competing run. If no suitable schedule exists and the user wants one, ask about their preferred schedule using AskUserQuestion:
 - **How often?** Daily (recommended), weekdays only, or custom
 - **What time?** Morning is ideal. Suggest something like 7:03 AM.
 
-Install a **local cron entry** that runs the intel agent on the user's machine. The helper script `~/.job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers the entry so it survives shell restarts and system reboots:
+For an authorized new native schedule, `~/.job-quest/bin/install-schedule.sh` takes a 5-field cron expression and registers a local entry:
 
 ```bash
 # 7:03 AM weekdays
@@ -180,11 +170,11 @@ Install a **local cron entry** that runs the intel agent on the user's machine. 
 
 The installed entry invokes `~/.job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs the active runtime CLI locally, and writes JSON files into `~/.job-quest/data/{intel,quizzes,tasks}/` and `~/.job-quest/data/problems/problems.json`. Logs land in `~/.job-quest/data/logs/daily-intel.log`.
 
-**Why local cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state.
+**Why a local native schedule when selected:** the daily agent must write files to the user's local filesystem so the dashboard can render them. An existing authorized local career-review workflow can provide the brief instead; do not add a second schedule simply to clear a native warning.
 
 ### Phase 5: Generate Today's Content
 
-Don't make them wait until tomorrow. Run the first intel generation right now, inline in this conversation:
+If Job Quest is the user's chosen discovery source, generate initial intel now. If an existing career-review process supplies the local Opportunities brief, connect and verify that brief first; do not duplicate its scan or reset its queue.
 
 1. **Search the web** for roles matching their profile — aim for 15-20 roles across their target categories
 2. **Generate a quiz** — 5-7 questions mixing system design, coding concepts, and behavioral/leadership topics
@@ -214,7 +204,7 @@ Tell the user it's running at `http://localhost:3847` and give them a quick tour
 - **Behavioral Practice** — STAR framework prep with AI scoring
 - **Resume Manager** — edit and compile your resume
 
-Your daily intel agent is scheduled and will generate fresh content every [schedule]. Run `/job-quest` anytime to check in."
+Your review source is [verified source], last checked [verified time or unavailable]. Run `/job-quest` anytime to check in."
 
 ### Phase 7 (macOS only, optional): Offer the Menu Bar Plugin
 
@@ -230,12 +220,18 @@ If they choose **Tell me more**, explain: the plugin polls `/api/status` every 5
 
 If xbar isn't installed and the user wants the plugin, ask whether they want to install xbar via Homebrew now or skip until later.
 
+## Start on demand
+
+For an ordinary Job Quest invocation on an existing installation, ensure the dashboard is running by executing `~/.job-quest/bin/start.sh --background` before the returning-user flow. This is idempotent: it reuses a healthy server or starts a detached process and checks its health. Report startup failures instead of claiming the page is available. Do not start it for explicit stop, uninstall, or installation-reset requests.
+
+Starting on demand does not install a login service. It remains running after the chat ends, until stopped, the Mac restarts, or the process exits. After a restart, invoke Job Quest again. Private phone access also requires the host awake and Tailscale connected. Honor the configured local dashboard launcher; do not bypass it by directly starting server.js.
+
 ## Returning User Flow
 
 When the user comes back (profile.json exists), read their profile and today's data, then ask what they want to focus on:
 
 ```
-Welcome back, [name]! Your intel agent ran this morning and found [N] new roles.
+Welcome back, [name]! [Summarize only the verified local intel or career-review data actually available.]
 
 What do you want to work on?
 1. Review today's intel and track interesting roles
@@ -257,6 +253,10 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 **Missing master resume:** on any return visit, if `~/.job-quest/data/resume/master.json` is missing or has no experience, mention once that tailoring is idle and offer to import their resume (Phase 3b).
 
 **Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
+
+**Opportunities and recruiter review:** When `JOB_QUEST_CAREER_BRIEF` and `JOB_QUEST_REPLY_QUEUE` are configured, the local dashboard reads the existing career-review brief and reply queue. Show source coverage and blocked accounts honestly. A selected email or LinkedIn account is only a preference until access and review are verified. Preserve edited drafts, sent/booked reports, holds, snoozes and source links. Copying a draft, opening a posting or opening a booking link does not mean a reply was sent, an application submitted or a meeting booked. The user sends replies and chooses booking times. Do not publish to a hosted Site or add another daily schedule for this bridge.
+
+For optional local connections, follow `LOCAL-SETUP.md`. The installed `~/.job-quest/bin/configure-local.cjs` records explicit brief, queue and optional interview-home paths in private data; it does not scan accounts, install schedules or enable Tailscale. In the webpage, users can select Gmail accounts and LinkedIn email notifications to review. Mark connector/browser access verified only after an actual access check, and map an account to a source row only when the row covers that account. LinkedIn email notifications are partial coverage of LinkedIn activity.
 
 **Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them. When they want a schedule across days or several interviews ("plan my prep", "I have X Thursday and Y Friday"), follow **Plan Prep** below.
 
@@ -462,10 +462,9 @@ After a reinstall completes, the runtime skill registrations have been rewritten
 The skill installs helper scripts at `~/.job-quest/bin/` that wrap the active runtime CLI. Use these from within Claude, Codex, or the terminal:
 
 ### update.sh
-Checks whether the installed repo is behind `origin/main` and, if so, refreshes the local install from the latest remote installer. This is what the skill should call first on each invocation.
+Checks whether the installed repo is behind `origin/main`. Use `--check-only` for routine inspection. Run an update only after preserving local changes and when the user requests it.
 
 ```bash
-~/.job-quest/bin/update.sh --if-needed
 ~/.job-quest/bin/update.sh --check-only
 ```
 

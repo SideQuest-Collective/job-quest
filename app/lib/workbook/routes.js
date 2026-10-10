@@ -96,7 +96,19 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir }) {
 
   app.put('/api/workbooks/:id/progress', (req, res) => {
     const meta = load(req, res);
-    if (meta) res.json(store.writeProgress(dataDir, meta.id, req.body || {}));
+    if (!meta) return;
+    const body = req.body || {};
+    try {
+      const current = store.readProgress(dataDir, meta.id);
+      // Old clients may add answers or grades, but cannot replace an existing
+      // response without a revision. Reloading loads the updated viewer.
+      if (body.expectedRevision === undefined && ['answers', 'notes'].some(key => Object.entries(body[key] || {}).some(([qid, value]) => typeof value === 'string' && typeof current[key][qid] === 'string' && current[key][qid] !== value))) {
+        return res.status(409).json({error:'Reload the updated workbook before replacing saved answers. Your browser draft is preserved.',current});
+      }
+      res.json(store.writeProgress(dataDir, meta.id, body));
+    } catch (error) {
+      res.status(error.status || 500).json({error:error.status ? error.message : 'Workbook progress could not be saved. Your existing answers were preserved.', ...(error.current ? {current:error.current} : {})});
+    }
   });
 
   app.post('/api/workbooks/:id/expand', (req, res) => {

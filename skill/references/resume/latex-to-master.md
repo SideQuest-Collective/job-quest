@@ -15,6 +15,9 @@ TEX>>>
 5. Keep the resume's skill groups and items. Split items on commas, but keep a parenthesized list together: "AWS (Lambda, S3)" is one item.
 6. Leave a field as "" (or [] for a list) when the resume does not have it. Never guess.
 
+7. Preserve employer locations in experience[].location. Keep both education start and end dates exactly when present.
+8. Preserve every other factual section (for example Leadership & Community, Awards, Publications, Volunteering, or Interests) in additionalSections as {title,body}, copying its heading and full text exactly. Do not silently omit content because it does not fit the main schema.
+
 ## Output
 Reply with only this JSON object inside a ```json code fence, and write nothing after the fence:
 
@@ -24,12 +27,13 @@ Reply with only this JSON object inside a ```json code fence, and write nothing 
   "contact": { "name": "", "email": "", "phone": "", "linkedin": "", "location": "", "links": [] },
   "headline": "",
   "summary": "",
-  "experience": [ { "id": "acme-corp", "employer": "Acme Corp", "start": "2019-03", "end": null,
+  "experience": [ { "id": "acme-corp", "employer": "Acme Corp", "location": "", "start": "2019-03", "end": null,
     "roles": [ { "id": "acme-senior", "title": "Senior Engineer", "team": "", "start": "2022-01", "end": null,
       "bullets": [ { "text": "..." } ] } ] } ],
   "projects": [ { "id": "proj.pantry", "name": "", "tech": [], "bullets": [ { "text": "..." } ] } ],
   "skills": [ { "group": "Languages", "items": ["Python"] } ],
   "education": [ { "school": "", "degree": "", "start": "", "end": "" } ],
-  "certifications": []
+  "certifications": [],
+  "additionalSections": [ { "title": "", "body": "" } ]
 }
 ```

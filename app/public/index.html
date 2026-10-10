@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Job Hunt Command Center</title>
+<title>Job Quest</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -573,6 +573,7 @@
     .cal-detail-grid { grid-template-columns: 1fr 1fr; }
   }
 </style>
+<link rel="stylesheet" href="/local-ui.css">
 
 <!-- Ace Editor -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -583,6 +584,10 @@
 </head>
 <body>
 <div id="root"></div>
+<script type="text/babel" src="/opportunities.jsx"></script>
+<script type="text/babel" src="/learning.jsx"></script>
+<script type="text/babel" src="/dashboard-home.jsx"></script>
+<script type="text/babel" src="/resume-home.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -622,15 +627,20 @@ const Icons = {
   clock: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
 };
 
+async function apiResponse(response) {
+  const result = await response.json();
+  if (!response.ok) { const error = new Error(result.error || 'Unable to save. Please retry.'); error.status = response.status; throw error; }
+  return result;
+}
 const api = {
-  get: (url) => fetch(url).then(r => r.json()),
-  post: (url, data) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  get: (url) => fetch(url).then(apiResponse),
+  post: (url, data) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(apiResponse),
 };
 
 /* ===== PAGE HASH ROUTING ===== */
 const PAGE_IDS = new Set([
   'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel',
-  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer',
+  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup',
 ]);
 
 function readPageHash() {
@@ -639,26 +649,33 @@ function readPageHash() {
 }
 
 function usePageRouting() {
-  const [page, setPage] = useState(() => readPageHash() || 'dashboard');
-  useEffect(() => {
-    const onHashChange = () => {
-      const id = readPageHash();
-      if (id) setPage(id);
-    };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+  const [page, updatePage] = useState(() => readPageHash() || 'dashboard');
+  const current = useRef(page);
+  const scrolls = useRef({});
+  const show = useCallback((id) => {
+    scrolls.current[current.current] = window.scrollY;
+    current.current = id; updatePage(id);
+    requestAnimationFrame(() => window.scrollTo(0, scrolls.current[id] || 0));
   }, []);
   useEffect(() => {
-    if (page === 'dashboard' && window.location.hash === '') return;
-    if (PAGE_IDS.has(page) && window.location.hash !== `#${page}`) {
-      window.history.replaceState(window.history.state, '', `#${page}`);
-    }
-  }, [page]);
-  return [page, setPage];
+    const changed = () => show(readPageHash() || 'dashboard');
+    window.addEventListener('hashchange', changed);
+    window.addEventListener('popstate', changed);
+    return () => { window.removeEventListener('hashchange', changed); window.removeEventListener('popstate', changed); };
+  }, [show]);
+  const navigate = useCallback((id) => {
+    if (!PAGE_IDS.has(id) || id === current.current) return;
+    window.history.pushState({jobQuest:true}, '', `#${id}`);
+    show(id);
+  }, [show]);
+  return [page, navigate];
 }
 
 function App() {
   const [page, setPage] = usePageRouting();
+  const visited = useRef(new Set()); visited.current.add(page);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [connectionError, setConnectionError] = useState(null);
   const [progress, setProgress] = useState({});
   const [todayTasks, setTodayTasks] = useState(null);
   const [todayQuiz, setTodayQuiz] = useState(null);
@@ -668,23 +685,29 @@ function App() {
   const [resume, setResume] = useState(null);
   const [roleActions, setRoleActions] = useState({ saved: [], skipped: [], applied: [] });
   const [roleTracker, setRoleTracker] = useState({});
+  const roleTrackerPendingRef = useRef(false);
   const [jobStatus, setJobStatus] = useState(null);
+  const [roleLaunch, setRoleLaunch] = useState(null);
+  const openNativeRole = role => {
+    setRoleLaunch({ key: `${role.company}|${role.role}`, request: Date.now() });
+    setPage('intel');
+  };
   const [sdLaunchTopic, setSdLaunchTopic] = useState(null);
   // Lifted CodeLab session state — persists across page switches
   const codeLabSessionRef = useRef({});
   const codeLabInitialProblemRef = useRef(null);
 
   const refresh = useCallback(() => {
-    api.get('/api/progress').then(setProgress);
-    api.get('/api/tasks/today').then(setTodayTasks);
-    api.get('/api/quizzes/today').then(setTodayQuiz);
-    api.get('/api/intel').then(setAllIntel);
-    api.get('/api/quizzes').then(setAllQuizzes);
-    api.get('/api/tasks').then(setAllTasks);
-    api.get('/api/resume').then(setResume);
-    api.get('/api/role-actions').then(setRoleActions);
-    api.get('/api/role-tracker').then(setRoleTracker);
-    api.get('/api/job-status').then(setJobStatus);
+    api.get('/api/progress').then(v => {setProgress(v); setConnectionError(null);}).catch(() => setConnectionError('Job Quest is offline. Reconnect to this Mac to load or save work.'));
+    api.get('/api/tasks/today').then(setTodayTasks).catch(() => {});
+    api.get('/api/quizzes/today').then(setTodayQuiz).catch(() => {});
+    api.get('/api/intel').then(setAllIntel).catch(() => {});
+    api.get('/api/quizzes').then(setAllQuizzes).catch(() => {});
+    api.get('/api/tasks').then(setAllTasks).catch(() => {});
+    api.get('/api/resume').then(setResume).catch(() => {});
+    api.get('/api/role-actions').then(setRoleActions).catch(() => {});
+    api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); }).catch(() => {});
+    api.get('/api/job-status').then(setJobStatus).catch(() => {});
   }, []);
 
   const openSystemDesignTopic = (topic) => {
@@ -711,24 +734,28 @@ function App() {
 
   useEffect(() => { refresh(); const i = setInterval(refresh, 30000); return () => clearInterval(i); }, [refresh]);
 
-  const allRoles = allIntel.flatMap(r => (r.roles || []).map(role => ({ ...role, intelDate: r.date })));
+  const allRoles = window.dedupeJobQuestRoles(allIntel);
   const taskCount = todayTasks?.tasks?.filter(t => !t.completed).length || 0;
   const quizCount = todayQuiz?.questions?.length || 0;
   const newRoles = allRoles.filter(r => {
     const key = `${r.company}|${r.role}`;
-    return !roleActions.skipped.includes(key) && !roleActions.applied.includes(key) && !roleActions.saved.includes(key);
+    return !roleActions.skipped.includes(key) && !nativeRoleStatus(key, roleActions, roleTracker).pipelineStarted && !roleActions.saved.includes(key);
   });
 
   const navItems = [
     { id: 'dashboard', icon: Icons.target, label: 'Dashboard' },
+    { id: 'practice', icon: Icons.play, label: 'Practice' },
+    { id: 'learn', icon: Icons.lightbulb, label: 'Learn' },
+    { id: 'opportunities', icon: Icons.briefcase, label: 'Outreach' },
     { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
     { id: 'tasks', icon: Icons.checkSquare, label: 'Daily Tasks', badge: taskCount || null },
     { id: 'quiz', icon: Icons.brain, label: 'Quiz', badge: quizCount || null },
     { id: 'divider1' },
+    { id: 'setup', icon: Icons.user, label: 'Setup' },
     { id: 'resume', icon: Icons.fileText, label: 'Resume' },
     { id: 'intel', icon: Icons.radar, label: 'Intel' },
     { id: 'workbooks', icon: Icons.clipboard, label: 'Workbooks' },
-    { id: 'calendar', icon: Icons.calendarIcon, label: 'Calendar' },
+    { id: 'calendar', icon: Icons.calendarIcon, label: 'Progress & calendar' },
     { id: 'divider2' },
     { id: 'codelab', icon: Icons.code, label: 'Code Lab' },
     { id: 'sysdesign', icon: Icons.target, label: 'System Design' },
@@ -738,31 +765,39 @@ function App() {
 
   return (
     <div className="app">
-      <div className="sidebar">
-        <div className="sidebar-brand"><h1><span>Command</span> Center</h1><div className="subtitle">Job Hunt HQ</div></div>
+      <nav className={`sidebar ${menuOpen ? 'menu-open' : ''}`} aria-label="Main navigation">
+        <div className="sidebar-brand"><h1><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}>Job Quest</a></h1><div className="subtitle">Your next step</div></div>
         <div className="nav-section">
           {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider" /> : (
-            <div key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); }}>
+            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id ? 'page' : undefined} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
               <n.icon className="nav-icon" />{n.label}
               {n.badge ? <span className="badge">{n.badge}</span> : null}
-            </div>
+            </a>
           ))}
         </div>
-        <div className="sidebar-footer"><div className="status"><div className="status-dot" /><span>System active</span></div></div>
-      </div>
+        <div className="sidebar-footer">Local to your Mac</div>
+      </nav>
+      <header className="mobile-header"><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}><strong>Job Quest</strong></a><div style={{display:'flex',gap:8}}><button className="btn btn-secondary refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></div></header>
       <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
-        {page === 'dashboard' && <Dashboard progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} />}
-        {page === 'discover' && <Discover allRoles={allRoles} roleActions={roleActions} setRoleActions={setRoleActions} resume={resume} setPage={setPage} />}
-        {page === 'tasks' && <Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} />}
-        {page === 'quiz' && <Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} />}
-        {page === 'resume' && <Resume resume={resume} setResume={setResume} />}
-        {page === 'intel' && <Intel allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} />}
-        {page === 'workbooks' && <Workbooks setPage={setPage} />}
-        {page === 'calendar' && <Calendar progress={progress} />}
-        {page === 'codelab' && <CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} />}
-        {page === 'sysdesign' && <SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} />}
-        {page === 'behavioral' && <Behavioral />}
-        {page === 'trainer' && <Trainer />}
+        <div className="route-bar"><span>{navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
+        {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
+        {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
+        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
+        {visited.current.has('tasks') && <section className="page-surface" hidden={page !== 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></section>}
+        {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
+        {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} /></section>}
+        {visited.current.has('intel') && <section className="page-surface" hidden={page !== 'intel'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} /></section>}
+        {visited.current.has('workbooks') && <section className="page-surface" hidden={page !== 'workbooks'}><Workbooks setPage={setPage} /></section>}
+        {visited.current.has('calendar') && <section className="page-surface" hidden={page !== 'calendar'}><Calendar progress={progress} /></section>}
+        {visited.current.has('codelab') && <section className="page-surface" hidden={page !== 'codelab'}><CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} /></section>}
+        {visited.current.has('sysdesign') && <section className="page-surface" hidden={page !== 'sysdesign'}><SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} /></section>}
+        {visited.current.has('behavioral') && <section className="page-surface" hidden={page !== 'behavioral'}><Behavioral /></section>}
+        {visited.current.has('trainer') && <section className="page-surface" hidden={page !== 'trainer'}><Trainer /></section>}
+        {visited.current.has('practice') && <section className="page-surface" hidden={page !== 'practice'}><window.Learning mode="practice" /></section>}
+        {visited.current.has('learn') && <section className="page-surface" hidden={page !== 'learn'}><window.Learning mode="learn" /></section>}
+        {visited.current.has('setup') && <section className="page-surface" hidden={page !== 'setup'}><LocalSetup setPage={setPage}/></section>}
+        {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
+
       </div>
     </div>
   );
@@ -1101,189 +1136,83 @@ function UnlinkedSessions() {
 }
 
 /* ===== DASHBOARD ===== */
-function Dashboard({ progress, todayTasks, todayQuiz, latestIntel, setPage, newRolesCount, jobStatus }) {
-  const [profile, setProfile] = useState(null);
-  useEffect(() => {
-    api.get('/api/profile').then(setProfile).catch(() => setProfile(null));
-  }, []);
-  const tasksDone = todayTasks?.tasks?.filter(t => t.completed).length || 0;
-  const tasksTotal = todayTasks?.tasks?.length || 0;
-  const codingTasks = todayTasks?.tasks?.filter(t => t.category === 'coding' && !t.completed) || [];
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-
-  // Build "what to do next" suggestions
-  const nextActions = [];
-  if (newRolesCount > 0) nextActions.push({ icon: Icons.compass, label: `Review ${newRolesCount} new roles`, color: 'var(--amber)', page: 'discover' });
-  if (codingTasks.length > 0) nextActions.push({ icon: Icons.code, label: 'Practice coding problems', color: 'var(--violet)', page: 'codelab' });
-  if (todayQuiz?.questions?.length > 0) nextActions.push({ icon: Icons.brain, label: 'Take today\'s quiz', color: 'var(--cyan)', page: 'quiz' });
-  if (tasksTotal > 0 && tasksDone < tasksTotal) nextActions.push({ icon: Icons.checkSquare, label: `${tasksTotal - tasksDone} tasks remaining`, color: 'var(--emerald)', page: 'tasks' });
-
-  // Job status styling. The pending label is rewritten from the real schedule below.
-  const statusConfig = {
-    success: { color: 'var(--emerald)', bg: 'var(--emerald-dim)', icon: Icons.check, label: 'Daily run complete', border: 'rgba(52,211,153,0.2)' },
-    partial: { color: 'var(--amber)', bg: 'var(--amber-dim)', icon: Icons.clock, label: 'Partially complete', border: 'rgba(251,191,36,0.2)' },
-    pending: { color: 'var(--text-muted)', bg: 'var(--bg-surface)', icon: Icons.clock, label: 'Waiting for next run', border: 'var(--border)' },
-    not_scheduled: { color: 'var(--rose)', bg: 'var(--rose-dim)', icon: Icons.clock, label: 'Daily schedule not installed', border: 'rgba(251,113,133,0.25)' },
-  };
-  let js = jobStatus ? statusConfig[jobStatus.status] || statusConfig.pending : null;
-  // Personalize the pending label with the user's actual schedule.
-  if (js && jobStatus?.status === 'pending' && jobStatus.schedule?.installed) {
-    js = { ...js, label: `Scheduled for ${jobStatus.schedule.humanReadable}` };
-  }
-
-  return (
-    <>
-      <div className="page-header anim-enter"><h2>{greeting}{profile?.name ? `, ${profile.name}` : ''}</h2><div className="greeting-sub">Here's your mission status for today.</div></div>
-
-      {/* Scheduled Job Status Banner */}
-      {js && (
-        <div className="anim-enter" style={{marginBottom:20,background:js.bg,border:`1px solid ${js.border}`,borderRadius:'var(--radius)',padding:'16px 20px',display:'flex',alignItems:'center',gap:14}}>
-          <div style={{width:36,height:36,borderRadius:'50%',background:js.bg,border:`2px solid ${js.color}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-            <js.icon style={{width:18,height:18,color:js.color}} />
-          </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:600,color:js.color,fontFamily:'var(--font-mono)',marginBottom:2}}>
-              {js.label}
-              <span style={{fontSize:11,fontWeight:400,color:'var(--text-muted)',marginLeft:10}}>{jobStatus.date}</span>
-            </div>
-            <div style={{fontSize:12,color:'var(--text-secondary)',display:'flex',gap:16,marginTop:4,flexWrap:'wrap'}}>
-              {jobStatus.intel?.ready && <span>{jobStatus.intel.roles} roles found</span>}
-              {jobStatus.quiz?.ready && <span>{jobStatus.quiz.questions} quiz questions</span>}
-              {jobStatus.tasks?.ready && <span>{jobStatus.tasks.count} tasks generated</span>}
-              {jobStatus.status === 'pending' && jobStatus.schedule?.installed && <span>Next run: {jobStatus.schedule.humanReadable} via {jobStatus.schedule.mechanism}</span>}
-              {jobStatus.status === 'pending' && !jobStatus.schedule?.installed && <span>Waiting for daily intelligence run...</span>}
-              {jobStatus.status === 'not_scheduled' && <span>Run <code style={{fontFamily:'var(--font-mono)',fontSize:11,background:'var(--bg-surface)',padding:'1px 6px',borderRadius:4}}>{jobStatus.installScheduleCommand || '~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"'}</code> to schedule the daily intel agent</span>}
-              {(jobStatus.status === 'success' || jobStatus.status === 'partial') && jobStatus.schedule?.installed && <span style={{opacity:0.7}}>Next: {jobStatus.schedule.humanReadable}</span>}
-            </div>
-          </div>
-          {jobStatus.status === 'success' && <div style={{width:10,height:10,borderRadius:'50%',background:'var(--emerald)',boxShadow:'0 0 8px var(--emerald)',flexShrink:0}} />}
-        </div>
-      )}
-
-      <div className="stats-row">
-        <div className="stat-card anim-enter anim-delay-1"><div className="value">{progress.streak || 0}</div><div className="label">Day Streak</div></div>
-        <div className="stat-card emerald anim-enter anim-delay-2"><div className="value">{progress.completedTasks || 0}/{progress.totalTasks || 0}</div><div className="label">Tasks Done</div></div>
-        <div className="stat-card cyan anim-enter anim-delay-3"><div className="value">{progress.totalQuestions ? Math.round((progress.correctAnswers / progress.totalQuestions) * 100) : 0}%</div><div className="label">Quiz Accuracy</div></div>
-        <div className="stat-card violet anim-enter anim-delay-4"><div className="value">{progress.daysActive || 0}</div><div className="label">Days Active</div></div>
-      </div>
-
-      {/* Quick Actions */}
-      {nextActions.length > 0 && (
-        <div className="anim-enter anim-delay-3" style={{marginBottom:20}}>
-          <div style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1.5,fontFamily:'var(--font-mono)',fontWeight:600,marginBottom:10}}>Quick Actions</div>
-          <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-            {nextActions.map((a, i) => (
-              <button key={i} onClick={() => setPage(a.page)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 20px',background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:12,cursor:'pointer',transition:'all 0.2s',color:'var(--text)',fontFamily:'var(--font-display)',fontSize:14,fontWeight:500}} onMouseEnter={e => {e.currentTarget.style.borderColor=a.color;e.currentTarget.style.transform='translateY(-1px)';}} onMouseLeave={e => {e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.transform='none';}}>
-                <a.icon style={{width:18,height:18,color:a.color}} />
-                {a.label}
-                <span style={{marginLeft:4,color:'var(--text-muted)',fontSize:18}}>&rarr;</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid-2">
-        <div className="card clickable anim-enter anim-delay-4" onClick={() => setPage('tasks')}>
-          <div className="card-title"><Icons.checkSquare className="card-icon" /> Today's Tasks</div>
-          {tasksTotal > 0 ? (<>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10, fontFamily: 'var(--font-mono)' }}>{tasksDone} of {tasksTotal} completed</div>
-            <div className="progress-bar"><div className="fill fill-emerald" style={{ width: `${(tasksDone/tasksTotal)*100}%` }} /></div>
-            <div style={{ marginTop: 16 }}>
-              {todayTasks.tasks.filter(t => !t.completed).slice(0,3).map((t,i) => <div key={i} className="task-item" style={{marginBottom:4,padding:'10px 14px'}}><div className="checkbox"/><span className="task-text" style={{fontSize:13}}>{t.text}</span></div>)}
-              {todayTasks.tasks.filter(t => !t.completed).length > 3 && <div style={{fontSize:12,color:'var(--text-muted)',marginTop:10,fontFamily:'var(--font-mono)'}}>+{todayTasks.tasks.filter(t=>!t.completed).length-3} more</div>}
-            </div>
-          </>) : <div style={{fontSize:13,color:'var(--text-muted)'}}>No tasks yet.</div>}
-        </div>
-        <div className="card clickable anim-enter anim-delay-5" onClick={() => setPage('quiz')}>
-          <div className="card-title"><Icons.brain className="card-icon" /> Today's Quiz</div>
-          {todayQuiz ? (<>
-            <div style={{fontSize:13,color:'var(--text-muted)',marginBottom:14,fontFamily:'var(--font-mono)'}}>{todayQuiz.questions?.length||0} questions ready</div>
-            {todayQuiz.questions?.slice(0,2).map((q,i) => <div key={i} style={{background:'var(--bg-surface)',borderRadius:10,padding:'12px 16px',marginBottom:6,fontSize:13,border:'1px solid var(--border)'}}><span className={`task-category cat-${q.type?.replace(/\s+/g,'-').toLowerCase()}`}>{q.type}</span><div style={{marginTop:8,color:'var(--text-secondary)',lineHeight:1.5}}>{q.question.substring(0,80)}...</div></div>)}
-          </>) : <div style={{fontSize:13,color:'var(--text-muted)'}}>No quiz yet.</div>}
-        </div>
-      </div>
-
-      {/* Coding Practice Card */}
-      <div className="card clickable anim-enter anim-delay-5" onClick={() => setPage('codelab')}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          <div className="card-title" style={{marginBottom:0}}><Icons.code className="card-icon" /> Coding Practice</div>
-          <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>25 problems</span>
-        </div>
-        {codingTasks.length > 0 && (
-          <div style={{marginTop:14}}>
-            <div style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1,fontFamily:'var(--font-mono)',fontWeight:600,marginBottom:8}}>Assigned Today</div>
-            {codingTasks.slice(0,2).map((t,i) => (
-              <div key={i} style={{background:'var(--bg-surface)',borderRadius:8,padding:'10px 14px',marginBottom:4,fontSize:13,border:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8}}>
-                <Icons.code style={{width:14,height:14,color:'var(--violet)',flexShrink:0}} />
-                <span style={{color:'var(--text-secondary)'}}>{t.text.replace(/^LeetCode\s*#\d+\s*/i,'').split(' - ')[0]}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="card clickable anim-enter anim-delay-6" onClick={() => setPage('intel')}>
-        <div className="card-title"><Icons.radar className="card-icon" /> Latest Intel</div>
-        {latestIntel ? (<>
-          <div style={{fontSize:12,color:'var(--text-muted)',marginBottom:14,fontFamily:'var(--font-mono)'}}>Report from {latestIntel.date}</div>
-          {latestIntel.roles?.slice(0,3).map((r,i) => <div key={i} className="role-card"><div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{r.level} &middot; {r.location}</p></div>{r.url && <a href={r.url} target="_blank" rel="noopener">View</a>}</div>)}
-        </>) : <div style={{fontSize:13,color:'var(--text-muted)'}}>No intel reports yet.</div>}
-      </div>
-    </>
-  );
+function LocalSetup({setPage}) {
+ const [setup,setSetup]=useState(null),[error,setError]=useState('');
+ useEffect(()=>{api.get('/api/local-setup').then(setSetup).catch(e=>setError(e.message));},[]);
+ return <><div className="page-header"><h2>Set up your Job Quest</h2><p className="greeting-sub">Start locally. Add only the connections you want.</p></div>{error&&<p role="alert">{error}</p>}
+ <section className="card"><h3>Use on this Mac</h3><p>Available at localhost:3847. Tailscale and phone access are optional. Local practice uses your selected AI provider when you request coaching.</p></section>
+ <section className="card"><h3>Email and opportunities</h3><p>{setup?.careerBriefConfigured?'Your local career-review brief is connected.':'No career-review brief is connected yet.'} Account access and scan coverage are shown separately.</p><button className="btn btn-secondary" onClick={()=>setPage('opportunities')}>Configure accounts and sources</button></section>
+ <section className="card"><h3>Optional private phone access</h3><p>{setup?.privateAuthenticated?'You are connected through your private Tailscale link.':setup?.privateConfigured?'Your private link is configured. Open it from your phone with Tailscale connected.':'Local-only mode. Nothing needs installing to use Job Quest on this Mac.'}</p><p>For phone access away from home, use Tailscale on both devices with the same personal account. This Mac must stay awake and online.</p>{setup?.privateConfigured && setup?.privateOrigin && <p><a className="btn btn-primary" href={setup.privateOrigin+'/#dashboard'}>Open private Job Quest</a></p>}<div className="action-row"><a href="https://tailscale.com/download/mac" target="_blank" rel="noopener noreferrer">Tailscale for Mac</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noopener noreferrer">Tailscale for iPhone</a></div></section>
+ <section className="card"><h3>Review schedule</h3><p>{setup?.schedule==='external'?'Your existing career-review automation manages updates. No additional schedule is needed.':'No schedule was added by this setup. Use your existing review workflow or choose a schedule separately.'}</p></section>
+ <details className="card"><summary>Local connection configuration</summary><p>Use Job Quest’s configure-local command to connect local review files or a private Tailscale origin. These optional settings stay in your private data folder and do not turn on network access by themselves.</p><code>~/.job-quest/bin/configure-local.cjs --help</code></details></>;
 }
 
+function Dashboard(props) { return <window.DashboardHome {...props} />; }
+
 /* ===== DISCOVER CAROUSEL ===== */
-function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
+function nativeRoleStatus(key, actions, tracker) {
+  const entry = tracker?.[key];
+  const applied = Boolean(actions?.applied?.includes(key) || entry?.stage === 'applied' || entry?.applicationSubmitted === true);
+  const stage = applied && (!entry || ['discovered','researching','saved'].includes(entry.stage)) ? 'applied' : entry?.stage || 'discovered';
+  return { applied, stage, pipelineStarted: ['applied','phone-screen','onsite','offer','rejected'].includes(stage) };
+}
+
+function Discover({ allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole }) {
   const [viewMode, setViewMode] = useState('discover');
   const [currentIdx, setCurrentIdx] = useState(0);
   const [swipeDir, setSwipeDir] = useState(null);
   const [applyRole, setApplyRole] = useState(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const unseen = allRoles.filter(r => {
     const key = `${r.company}|${r.role}`;
-    return !roleActions.skipped.includes(key) && !roleActions.applied.includes(key) && !roleActions.saved.includes(key);
+    return !roleActions.skipped.includes(key) && !nativeRoleStatus(key, roleActions, roleTracker).pipelineStarted && !roleActions.saved.includes(key);
   });
   const savedRoles = allRoles.filter(r => roleActions.saved.includes(`${r.company}|${r.role}`));
-  const appliedRoles = allRoles.filter(r => roleActions.applied.includes(`${r.company}|${r.role}`));
+  const appliedRoles = allRoles.filter(r => nativeRoleStatus(`${r.company}|${r.role}`, roleActions, roleTracker).applied);
 
-  const doAction = (action) => {
-    if (!unseen[currentIdx]) return;
+  const doAction = async (action) => {
+    if (actionBusy || !unseen[currentIdx]) return;
     const role = unseen[currentIdx];
     const key = `${role.company}|${role.role}`;
     setSwipeDir(action === 'skip' ? 'left' : 'right');
-    setTimeout(() => {
+    setActionBusy(true); setActionError('');
+    try {
       const updated = { ...roleActions };
       if (action === 'skip') updated.skipped = [...updated.skipped, key];
       else if (action === 'save') updated.saved = [...updated.saved, key];
       else if (action === 'apply') { updated.applied = [...updated.applied, key]; updated.saved = updated.saved.filter(k => k !== key); }
+      await api.post('/api/role-actions', updated);
       setRoleActions(updated);
-      api.post('/api/role-actions', updated);
-      setSwipeDir(null);
-    }, 350);
+    } catch (error) { setActionError(error.message || 'Could not save this role. Retry.'); }
+    finally { setActionBusy(false); setSwipeDir(null); }
   };
 
   const handleApply = (role) => { setApplyRole(role); };
-  const confirmApply = () => {
-    if (!applyRole) return;
+  const confirmApply = async () => {
+    if (actionBusy || !applyRole) return;
     const key = `${applyRole.company}|${applyRole.role}`;
     const updated = { ...roleActions, applied: [...roleActions.applied, key], saved: roleActions.saved.filter(k => k !== key) };
+    setActionBusy(true); setActionError('');
+    try {
+    await api.post('/api/role-actions', updated);
     setRoleActions(updated);
-    api.post('/api/role-actions', updated);
-    if (applyRole.url) window.open(applyRole.url, '_blank');
+    // Application state changes only through explicit submission confirmation.
     setApplyRole(null);
+    } catch (error) { setActionError(error.message || 'Could not record your application. Retry.'); }
+    finally { setActionBusy(false); }
   };
 
   return (
     <>
-      <div className="page-header anim-enter"><h2>Discover Roles</h2><div className="greeting-sub">Swipe through roles matched for you.</div></div>
+      <div className="page-header anim-enter"><h2>Discover Roles</h2><div className="greeting-sub">Find listings, assess fit, and save roles. Manage applications and preparation in Intel.</div></div>
+      {actionError && !applyRole && <p role="alert" style={{color:'var(--rose)'}}>{actionError}</p>}
       <div className="discover-container">
         <div className="discover-tabs anim-enter anim-delay-1">
-          <div className={`discover-tab ${viewMode==='discover'?'active':''}`} onClick={() => setViewMode('discover')}>New ({unseen.length})</div>
-          <div className={`discover-tab ${viewMode==='saved'?'active':''}`} onClick={() => setViewMode('saved')}>Saved ({savedRoles.length})</div>
-          <div className={`discover-tab ${viewMode==='applied'?'active':''}`} onClick={() => setViewMode('applied')}>Applied ({appliedRoles.length})</div>
+          <button type="button" className={`discover-tab ${viewMode==='discover'?'active':''}`} onClick={() => setViewMode('discover')}>New ({unseen.length})</button>
+          <button type="button" className={`discover-tab ${viewMode==='saved'?'active':''}`} onClick={() => setViewMode('saved')}>Saved ({savedRoles.length})</button>
+          <button type="button" className={`discover-tab ${viewMode==='applied'?'active':''}`} onClick={() => setViewMode('applied')}>Applied ({appliedRoles.length})</button>
         </div>
 
         {viewMode === 'discover' && (unseen.length > 0 ? (
@@ -1310,24 +1239,24 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
               })}
             </div>
             <div className="discover-actions anim-enter anim-delay-3">
-              <button className="discover-btn skip" onClick={() => doAction('skip')} aria-label="Skip role"><Icons.x /></button>
-              <button className="discover-btn save" onClick={() => doAction('save')} aria-label="Save role"><Icons.heart /></button>
-              <button className="discover-btn apply" onClick={() => handleApply(unseen[currentIdx])} aria-label="Apply to role"><Icons.send /></button>
+              <button className="discover-btn skip" disabled={actionBusy} onClick={() => doAction('skip')} aria-label="Skip role"><Icons.x /></button>
+              <button className="discover-btn save" disabled={actionBusy} onClick={() => doAction('save')} aria-label="Save role"><Icons.heart /></button>
+              <button className="discover-btn apply" disabled={actionBusy} onClick={() => handleApply(unseen[currentIdx])} aria-label="Review application status"><Icons.send /></button>
             </div>
             <div className="discover-counter">{currentIdx + 1} / {unseen.length}</div>
           </>
         ) : (
-          <div className="discover-empty anim-enter anim-delay-2"><Icons.compass style={{width:56,height:56}} /><p style={{fontSize:16,color:'var(--text-muted)',marginBottom:8}}>All caught up!</p><p style={{fontSize:13,color:'var(--text-muted)'}}>You've reviewed all available roles. New intel arrives on your next scheduled run.</p></div>
+          <div className="discover-empty anim-enter anim-delay-2"><Icons.compass style={{width:56,height:56}} /><p style={{fontSize:16,color:'var(--text-muted)',marginBottom:8}}>No new native discoveries</p><p style={{fontSize:13,color:'var(--text-muted)'}}>This list does not establish inbox coverage. Open Opportunities for the connected career review and source status.</p></div>
         ))}
 
         {viewMode === 'saved' && (
           <div className="saved-list anim-enter anim-delay-2">
             {savedRoles.length > 0 ? savedRoles.map((r, i) => (
               <div key={i} className="role-card" style={{marginBottom:8}}>
-                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{r.level} &middot; {r.location}</p></div>
+                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{[r.level, r.location].filter(Boolean).join(' · ')}</p></div>
                 <div style={{display:'flex',gap:8}}>
-                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
-                  <button className="btn btn-primary" style={{padding:'7px 14px',fontSize:12}} onClick={() => handleApply(r)}>Apply</button>
+                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => onOpenRole ? onOpenRole(r) : setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
+                  <button className="btn btn-primary" style={{padding:'7px 14px',fontSize:12}} onClick={() => handleApply(r)}>Application status</button>
                 </div>
               </div>
             )) : <div className="discover-empty"><p style={{color:'var(--text-muted)'}}>No saved roles yet. Save roles from the Discover tab.</p></div>}
@@ -1338,9 +1267,9 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
           <div className="saved-list anim-enter anim-delay-2">
             {appliedRoles.length > 0 ? appliedRoles.map((r, i) => (
               <div key={i} className="role-card" style={{marginBottom:8}}>
-                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{r.level} &middot; {r.location}</p></div>
+                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{[r.level, r.location].filter(Boolean).join(' · ')}</p></div>
                 <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
+                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => onOpenRole ? onOpenRole(r) : setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
                   <span style={{fontSize:11,color:'var(--emerald)',fontFamily:'var(--font-mono)',fontWeight:600,display:'flex',alignItems:'center',gap:4}}><Icons.check style={{width:14,height:14}} /> Applied</span>
                 </div>
               </div>
@@ -1349,49 +1278,14 @@ function Discover({ allRoles, roleActions, setRoleActions, resume, setPage }) {
         )}
       </div>
 
-      {applyRole && <ApplyModal role={applyRole} resume={resume} onClose={() => setApplyRole(null)} onApply={confirmApply} />}
+      {applyRole && <ApplyModal role={applyRole} resume={resume} busy={actionBusy} error={actionError} onClose={() => { if (!actionBusy) { setApplyRole(null); setActionError(''); } }} onApply={confirmApply} />}
     </>
   );
 }
 
 /* ===== APPLY MODAL ===== */
-function ApplyModal({ role, resume, onClose, onApply }) {
-  const c = resume?.contact || {};
-  return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal">
-        <div className="modal-header">
-          <h3>Quick Apply</h3>
-          <button className="close-btn" onClick={onClose}><Icons.x /></button>
-        </div>
-        <div className="modal-role-info">
-          <h4>{role.company} &mdash; {role.role}</h4>
-          <p>{role.level} &middot; {role.location}</p>
-        </div>
-        {resume && c.name && <div className="modal-autofill"><Icons.zap style={{width:14,height:14}} /> Auto-filled from your resume</div>}
-        <div className="resume-grid">
-          <div className="modal-field"><label>Full Name</label><input defaultValue={c.name || ''} /></div>
-          <div className="modal-field"><label>Email</label><input type="email" defaultValue={c.email || ''} /></div>
-          <div className="modal-field"><label>Phone</label><input type="tel" defaultValue={c.phone || ''} /></div>
-          <div className="modal-field"><label>Location</label><input defaultValue={c.location || ''} /></div>
-        </div>
-        {c.linkedin && <div className="modal-field"><label>LinkedIn</label><input defaultValue={c.linkedin} /></div>}
-        <div className="modal-field"><label>Cover Note (optional)</label><textarea placeholder={`Why I'm excited about ${role.role} at ${role.company}...`} /></div>
-        {resume?.skills?.length > 0 && (
-          <div style={{marginBottom:16}}>
-            <label style={{display:'block',fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1,fontFamily:'var(--font-mono)',marginBottom:8}}>Matching Skills</label>
-            <div className="skill-tags">{resume.skills.slice(0,8).map((s,i) => <span key={i} className="skill-tag">{s}</span>)}</div>
-          </div>
-        )}
-        <div className="modal-actions">
-          <button className="btn btn-primary" onClick={onApply} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-            <Icons.send style={{width:16,height:16}} /> Apply & Open Posting
-          </button>
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
+function ApplyModal({ role, onClose, onApply, busy = false, error = '' }) {
+  return <div className="modal-overlay" onClick={e => {if(e.target === e.currentTarget) onClose();}}><div className="modal" role="dialog" aria-modal="true" aria-label="Application status"><h2>{role.company} — {role.role}</h2><p>Opening the listing does not submit an application. Confirm only after you have submitted it yourself.</p>{error && <p role="alert" style={{color:'var(--rose)'}}>{error}</p>}<div className="action-row">{role.url && <a className="btn btn-secondary" href={role.url} target="_blank" rel="noopener noreferrer">Open posting</a>}<button className="btn btn-primary" disabled={busy} onClick={onApply}>{busy ? 'Saving…' : 'I submitted this application'}</button><button className="btn btn-secondary" disabled={busy} onClick={onClose} autoFocus>Close</button></div></div></div>;
 }
 
 /* ===== PDF Viewer (canvas-based via PDF.js) ===== */
@@ -1493,7 +1387,7 @@ function TexEditor({ code, onChange }) {
   return <div ref={ref} style={{height:'100%',width:'100%'}} />;
 }
 
-function Resume({ resume, setResume }) {
+function Resume({ resume, setResume, active }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -1501,6 +1395,12 @@ function Resume({ resume, setResume }) {
   const [savedContent, setSavedContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'unsaved'
+  useEffect(() => {
+    if (saveStatus !== 'unsaved' && !saving) return;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveStatus, saving]);
   const [editInstruction, setEditInstruction] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editHistory, setEditHistory] = useState([]);
@@ -1520,7 +1420,7 @@ function Resume({ resume, setResume }) {
   const folderInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const saveTimerRef = useRef(null);
-  const [view, setView] = useState('files');
+  const [view, setView] = useState('home');
 
   const fileUrl = (name) => '/api/resume/file/' + name.split('/').map(encodeURIComponent).join('/');
   const isTextFile = (name) => /\.(tex|cls|sty|bib|bst|cfg|def|fd|dtx|ins|latexmkrc)$/i.test(name);
@@ -1755,7 +1655,8 @@ function Resume({ resume, setResume }) {
   const sortedDirs = Object.keys(tree).sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b));
   const canEdit = selectedFile && isTextFile(selectedFile);
 
-  if (view === 'master') return <MasterEditor onExit={() => setView('files')} />;
+  if (view === 'home') return <window.ResumeHome active={active} onOpenLatex={() => { loadFiles(); setView('files'); }} onOpenMaster={() => setView('master')} />;
+  if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;
 
   // Empty state — show upload zone
   if (!hasFiles || showUpload) {
@@ -1823,7 +1724,7 @@ function Resume({ resume, setResume }) {
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
       {/* Toolbar */}
       <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--bg-card)',flexShrink:0}}>
-        <h2 style={{fontSize:16,fontWeight:700,color:'var(--text)',margin:0,marginRight:8}}>Resume</h2>
+        <h2 style={{fontSize:16,fontWeight:700,color:'var(--text)',margin:0,marginRight:8}}>LaTeX workspace</h2><button className="btn btn-secondary" onClick={() => setView('home')}>Resume overview</button>
         <button className="btn btn-secondary" onClick={() => setView('master')} style={{padding:'6px 14px',fontSize:12}}>Master</button>
         {selectedFile && (
           <span style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--text-muted)',background:'var(--bg-surface)',padding:'3px 10px',borderRadius:4}}>
@@ -2081,9 +1982,15 @@ function MasterEditor({ onExit }) {
       .catch((err) => setErrors([err.message]));
   }, []);
 
-  if (!master) return <div style={{ padding: 28, color: 'var(--text-muted)' }}>{errors[0] || 'Loading master resume…'}</div>;
+  const dirty = Boolean(master && JSON.stringify(master) !== savedJson);
+  useEffect(() => {
+    if (!dirty && !saving && !proposal) return;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, saving, proposal]);
 
-  const dirty = JSON.stringify(master) !== savedJson;
+  if (!master) return <div style={{ padding: 28, color: 'var(--text-muted)' }}>{errors[0] || 'Loading master resume…'}</div>;
   const patch = (p) => setMaster({ ...master, ...p });
   const setContact = (k, v) => patch({ contact: { ...master.contact, [k]: v } });
   const setListItem = (key, i, p) => patch({ [key]: master[key].map((x, k) => (k === i ? { ...x, ...p } : x)) });
@@ -2135,7 +2042,7 @@ function MasterEditor({ onExit }) {
         <div style={{ flex: 1 }} />
         {status && <span style={{ fontSize: 11, color: 'var(--amber)', fontFamily: 'var(--font-mono)' }}>{status}</span>}
         {dirty && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>● Unsaved</span>}
-        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => { if (!dirty || window.confirm('Discard unsaved changes?')) onExit(); }}>← LaTeX files</button>
+        <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => { if (!dirty || window.confirm('Discard unsaved changes?')) onExit(); }}>Resume overview</button>
         <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} disabled={importing} onClick={importLatex}>Import from LaTeX</button>
         <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 16px' }} disabled={!dirty || saving} onClick={save}>Save</button>
       </div>
@@ -2180,6 +2087,7 @@ function MasterEditor({ onExit }) {
           <div key={e.id} style={{ borderTop: ei ? '1px solid var(--border)' : 'none', paddingTop: ei ? 12 : 0, marginTop: ei ? 12 : 0 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <RmField label="employer" value={e.employer} onChange={(v) => setListItem('experience', ei, { employer: v })} />
+              <RmField label="location" value={e.location || ''} onChange={(v) => setListItem('experience', ei, { location: v })} />
               <RmField label="start" value={e.start} placeholder="2019-03" onChange={(v) => setListItem('experience', ei, { start: v.trim() })} />
               <RmField label="end" value={e.end || ''} placeholder="Present" onChange={(v) => setListItem('experience', ei, { end: endOrNull(v) })} />
               <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ experience: rmMove(master.experience, ei, -1) })}>↑</button>
@@ -2249,6 +2157,16 @@ function MasterEditor({ onExit }) {
           </div>
         ))}
         <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ education: [...master.education, { school: '', degree: '', start: '', end: '' }] })}>+ Education</button>
+      </div>
+
+      <div style={rmCard}>
+        <div className="mc-section-title">Additional sections</div>
+        {(master.additionalSections || []).map((section, i) => <div key={i} style={{ marginBottom: 16 }}>
+          <RmField label="Section title" value={section.title} onChange={v => setListItem('additionalSections', i, { title: v })} />
+          <RmField label="Section content" value={section.body} multiline rows={4} onChange={v => setListItem('additionalSections', i, { body: v })} />
+          <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => removeListItem('additionalSections', i)}>Remove section</button>
+        </div>)}
+        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => patch({ additionalSections: [...(master.additionalSections || []), { title: '', body: '' }] })}>Add section</button>
       </div>
 
       <div style={rmCard}>
@@ -2483,115 +2401,38 @@ function AcceptedResumeLink({ roleKey, stage }) {
 function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRef }) {
   const [viewDate, setViewDate] = useState(null);
   const [expandedTask, setExpandedTask] = useState(null);
+  const [error, setError] = useState('');
   const viewing = viewDate ? allTasks.find(t => t.date === viewDate) : todayTasks;
-  // Upcoming days first (a prep plan can run weeks ahead), then the most recent past days.
-  const todayStamp = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
-  const taskTabs = [
-    ...allTasks.filter(t => t.date > todayStamp).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 7),
-    ...allTasks.filter(t => t.date < todayStamp).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4),
-  ];
-
-  const toggleTask = async (idx, e) => {
-    e.stopPropagation();
-    const date = viewing?.date;
-    if (!date || !viewing.tasks[idx]) return;
-    await api.post('/api/tasks/update', { date, taskIndex: idx, completed: !viewing.tasks[idx].completed });
-    refresh();
-  };
-
-  const handleTaskClick = (task, idx) => {
-    // Prep-plan tasks carry an explicit link to the workbook chapter, Code Lab drill, or System Design topic.
+  const today = new Date().toLocaleDateString('en-CA');
+  const openTask = (task, i) => {
     const link = task.link;
-    if (link && link.kind === 'workbook' && link.workbookId) {
-      window.open(`/workbooks/${encodeURIComponent(link.workbookId)}${link.chapter ? `#read/${encodeURIComponent(link.chapter)}` : ''}`, '_blank', 'noopener');
-      return;
-    }
-    if (link && link.kind === 'codelab' && link.problemId) {
-      if (codeLabInitialProblemRef) codeLabInitialProblemRef.current = link.problemId;
-      setPage('codelab');
-      return;
-    }
-    if (link && link.kind === 'sysdesign' && link.topicId) {
-      window.location.assign(`/?sd=${encodeURIComponent(link.topicId)}`);
-      return;
-    }
-    if (task.category === 'coding') {
-      if (codeLabInitialProblemRef) {
-        codeLabInitialProblemRef.current = task.problemId || null;
-      }
-      setPage('codelab');
-      return;
-    }
+    if (link?.kind === 'workbook' && link.workbookId) { window.location.assign(`/workbooks/${encodeURIComponent(link.workbookId)}${link.chapter ? `#read/${encodeURIComponent(link.chapter)}` : ''}`); return; }
+    if (link?.kind === 'codelab' || task.category === 'coding') { codeLabInitialProblemRef.current = link?.problemId || task.problemId || null; setPage('codelab'); return; }
+    if (link?.kind === 'sysdesign' && link.topicId) { window.location.assign(`/?sd=${encodeURIComponent(link.topicId)}`); return; }
     if (task.category === 'system-design') { setPage('sysdesign'); return; }
     if (task.category === 'behavioral') { setPage('behavioral'); return; }
-    setExpandedTask(expandedTask === idx ? null : idx);
+    setExpandedTask(expandedTask === i ? null : i);
   };
-
-  const getCategoryIcon = (cat) => {
-    const map = { coding: Icons.code, 'system-design': Icons.target, behavioral: Icons.brain, research: Icons.radar, networking: Icons.user, application: Icons.fileText };
-    return map[cat] || Icons.checkSquare;
+  const toggle = async (i) => {
+    try { await api.post('/api/tasks/update', {date:viewing.date, taskIndex:i, completed:!viewing.tasks[i].completed}); setError(''); refresh(); }
+    catch(e) { setError(e.message); }
   };
-
-  return (
-    <>
-      <div className="page-header anim-enter"><h2>Daily Tasks</h2></div>
-      {allTasks.length > 1 && <div className="tab-bar anim-enter anim-delay-1"><div className={`tab ${!viewDate?'active':''}`} onClick={() => setViewDate(null)}>Today</div>{taskTabs.map(t => <div key={t.date} className={`tab ${viewDate===t.date?'active':''}`} onClick={() => setViewDate(t.date)}>{t.date > todayStamp ? `▸ ${t.date}` : t.date}</div>)}</div>}
-      {viewing?.tasks ? (
-        <div className="anim-enter anim-delay-2">
-          <div className="card">
-            <div className="card-title"><Icons.calendar className="card-icon" /> Tasks for {viewing.date || 'Today'}</div>
-            <div style={{fontSize:12,color:'var(--text-muted)',marginBottom:16,fontFamily:'var(--font-mono)'}}>
-              {viewing.tasks.filter(t => t.completed).length} of {viewing.tasks.length} completed
-              <span style={{marginLeft:12,color:'var(--text-secondary)',fontSize:11}}>Click coding tasks to open Code Lab. Click others to expand details.</span>
-            </div>
-          </div>
-          {viewing.tasks.map((t,i) => {
-            const CatIcon = getCategoryIcon(t.category);
-            const linkKind = t.link && t.link.kind;
-            const isCoding = linkKind ? linkKind === 'codelab' : t.category === 'coding';
-            const isExpanded = expandedTask === i && !isCoding && !linkKind;
-            const hasContent = t.content && t.content.trim().length > 0;
-            return (
-              <div key={i} className="card" style={{marginBottom:8,padding:0,cursor:'pointer',transition:'all 0.2s',border: isExpanded ? '1px solid var(--border-glow)' : undefined}}>
-                <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 20px'}} onClick={() => handleTaskClick(t, i)}>
-                  <div className={`checkbox ${t.completed?'checked':''}`} onClick={(e) => toggleTask(i, e)} style={{flexShrink:0}} />
-                  <CatIcon style={{width:16,height:16,color: isCoding ? 'var(--violet)' : t.category === 'system-design' ? 'var(--cyan)' : t.category === 'behavioral' ? 'var(--amber)' : t.category === 'research' ? 'var(--blue)' : 'var(--text-muted)',flexShrink:0}} />
-                  <span className="task-text" style={{flex:1,fontSize:14,textDecoration:t.completed?'line-through':undefined,opacity:t.completed?0.5:1}}>{t.text}</span>
-                  <span className={`task-category cat-${t.category?.replace(/\s+/g,'-').toLowerCase()}`}>{t.category}</span>
-                  {t.roleKey && <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{t.roleKey.split('|')[0]}</span>}
-                  {t.minutes && <span style={{fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{t.minutes} min</span>}
-                  {linkKind === 'workbook' && <span style={{fontSize:11,color:'var(--emerald)',fontFamily:'var(--font-mono)',background:'var(--emerald-dim)',padding:'3px 8px',borderRadius:6}}>Open workbook &rarr;</span>}
-                  {linkKind === 'sysdesign' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',background:'var(--cyan-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
-                  {isCoding && <span style={{fontSize:11,color:'var(--violet)',fontFamily:'var(--font-mono)',background:'var(--violet-dim)',padding:'3px 8px',borderRadius:6}}>Open Lab &rarr;</span>}
-                  {!linkKind && t.category === 'system-design' && <span style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',background:'var(--cyan-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
-                  {!linkKind && t.category === 'behavioral' && <span style={{fontSize:11,color:'var(--amber)',fontFamily:'var(--font-mono)',background:'var(--amber-dim)',padding:'3px 8px',borderRadius:6}}>Practice &rarr;</span>}
-                  {!linkKind && !isCoding && t.category !== 'system-design' && t.category !== 'behavioral' && hasContent && <span style={{fontSize:16,color:'var(--text-muted)',transform:isExpanded?'rotate(180deg)':'rotate(0)',transition:'transform 0.2s'}}>&#9662;</span>}
-                </div>
-                {linkKind && hasContent && (
-                  <div style={{padding:'0 20px 14px 52px',marginTop:-6,fontSize:12,lineHeight:1.7,color:'var(--text-secondary)'}} dangerouslySetInnerHTML={{__html: marked.parse(t.content)}} />
-                )}
-                {isExpanded && hasContent && (
-                  <div style={{padding:'0 20px 20px 52px',borderTop:'1px solid var(--border)'}}>
-                    <div style={{paddingTop:16,fontSize:13,lineHeight:1.8,color:'var(--text-secondary)'}} dangerouslySetInnerHTML={{__html: marked.parse(t.content)}} />
-                  </div>
-                )}
-                {isExpanded && !hasContent && (
-                  <div style={{padding:'0 20px 20px 52px',borderTop:'1px solid var(--border)'}}>
-                    <div style={{paddingTop:16,fontSize:13,color:'var(--text-muted)',fontStyle:'italic'}}>No detailed content available for this task yet. The scheduled task will generate enriched content for future tasks.</div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="card anim-enter anim-delay-2"><div className="empty-state"><Icons.clipboard className="empty-icon" /><p>No tasks generated yet.<br/>The scheduled task runs on your configured schedule (see Dashboard).</p><div className="hint">Trigger a run manually from Scheduled Tasks</div></div></div>
-      )}
-    </>
-  );
+  return <>
+    <div className="page-header"><h2>Your practice plan</h2><p className="greeting-sub">{viewing?.date === today ? 'Today' : viewing?.date ? `Continue the plan from ${viewing.date}` : 'No plan loaded'}</p></div>
+    {allTasks.length > 1 && <label className="plan-date">Plan date <select value={viewDate || todayTasks?.date || ''} onChange={e => setViewDate(e.target.value)}>{allTasks.map(t => <option key={t.date} value={t.date}>{t.date}{t.date === today ? ' · Today' : ''}</option>)}</select></label>}
+    {error && <p role="alert">{error}</p>}
+    {viewing?.tasks?.length ? <>
+      <p className="plan-count">{viewing.tasks.filter(t => t.completed).length} of {viewing.tasks.length} marked complete. Completion and reviewed answers are separate.</p>
+      {viewing.tasks.map((task,i) => <article className="card plan-task" key={`${viewing.date}-${i}`}>
+        <div className="plan-task-heading"><input type="checkbox" checked={!!task.completed} aria-label={`Mark ${task.text} complete`} onChange={() => toggle(i)} /><h3>{task.text}</h3></div>
+        <div className="task-meta"><span>{task.category?.replaceAll('-', ' ')}</span>{task.minutes && <span>{task.minutes} minutes</span>}{task.roleKey && <span>{task.roleKey.split('|')[0]}</span>}</div>
+        {task.content && <div className="prose" dangerouslySetInnerHTML={{__html:safeMarkdown(task.content)}} />}
+        <button className="btn btn-secondary" onClick={() => openTask(task,i)}>{task.link?.kind === 'workbook' ? 'Open workbook' : task.category === 'coding' ? 'Open coding exercise' : task.category === 'system-design' ? 'Practice system design' : task.category === 'behavioral' ? 'Practice answer' : expandedTask === i ? 'Close details' : 'View details'}</button>
+      </article>)}
+    </> : <div className="card"><p>No tasks saved for this date.</p><button className="btn btn-primary" onClick={() => setPage('practice')}>Choose 5, 15 or 30 minutes</button></div>}
+  </>;
 }
 
-/* ===== QUIZ ===== */
 function Quiz({ todayQuiz, allQuizzes, progress, refresh }) {
   const [answers, setAnswers] = useState({});
   const [revealed, setRevealed] = useState({});
@@ -2683,13 +2524,17 @@ const DEFAULT_CHECKLISTS = {
   rejected: [],
 };
 
-function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage }) {
+function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, setPage, launchRole, roleTrackerPendingRef }) {
   const [selectedKey, setSelectedKey] = useState(null);
   const [filter, setFilter] = useState('all');
   const [newCheckItem, setNewCheckItem] = useState('');
   const [newTimelineEvent, setNewTimelineEvent] = useState('');
   const saveTimer = useRef(null);
   const trackerRevision = useRef(0);
+  const pendingTrackerRef = useRef(null);
+  const trackerSaveQueue = useRef(Promise.resolve());
+  const [trackerError, setTrackerError] = useState(null);
+  const [trackerSaving, setTrackerSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -2719,10 +2564,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
 
   // Determine stage for each role
   const getRoleStage = (key) => {
-    if (roleTracker[key]) return roleTracker[key].stage;
-    if (roleActions.applied?.includes(key)) return 'applied';
-    if (roleActions.saved?.includes(key)) return 'discovered';
-    return 'discovered';
+    return nativeRoleStatus(key, roleActions, roleTracker).stage;
   };
 
   const roles = Object.values(roleMap).map(r => ({
@@ -2744,9 +2586,17 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
     return true;
   }).sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
 
+  // A source-linked recruiter card opens the exact native role, without changing its status.
+  useEffect(() => {
+    if (launchRole?.key && roleMap[launchRole.key]) {
+      setFilter('all');
+      setSelectedKey(launchRole.key);
+    }
+  }, [launchRole?.request, allRoles.length]);
+
   // Auto-select first role
   useEffect(() => {
-    if (!selectedKey && filtered.length > 0) setSelectedKey(filtered[0].key);
+    if (!selectedKey && filtered.length > 0) setSelectedKey(launchRole?.key && roleMap[launchRole.key] ? launchRole.key : filtered[0].key);
   }, [filtered.length]);
 
   const selected = selectedKey ? roleMap[selectedKey] : null;
@@ -2754,16 +2604,35 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   const stage = selectedKey ? getRoleStage(selectedKey) : 'discovered';
   const companyTips = selected ? allTips.filter(t => t.company && selected.company.toLowerCase().includes(t.company.toLowerCase())) : [];
 
-  // Save tracker with debounce
+  // Retain unsaved edits and serialize writes so an older request cannot replace a newer edit.
   const saveTracker = (updated) => {
     trackerRevision.current++;
     setRoleTracker(updated);
+    pendingTrackerRef.current = updated;
+    roleTrackerPendingRef.current = true;
+    setTrackerError(null);
+    setTrackerSaving(true);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const timer = setTimeout(async () => {
-      try {
+      const request = trackerSaveQueue.current.catch(() => {}).then(async () => {
         await api.post('/api/role-tracker', updated);
+      });
+      trackerSaveQueue.current = request;
+      try {
+        await request;
+        if (pendingTrackerRef.current === updated) {
+          pendingTrackerRef.current = null;
+          roleTrackerPendingRef.current = false;
+          setTrackerError(null);
+          setTrackerSaving(false);
+        }
+      } catch (error) {
+        if (pendingTrackerRef.current === updated) {
+          setTrackerError(error.message || 'Could not save role changes.');
+          setTrackerSaving(false);
+        }
       } finally {
-        if (saveTimer.current === timer) saveTimer.current = null;
+        if (saveTimer.current === timer && !roleTrackerPendingRef.current) saveTimer.current = null;
       }
     }, 500);
     saveTimer.current = timer;
@@ -2789,6 +2658,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
     const t = ensureTracker();
     const now = new Date().toISOString();
     const entry = { ...t[selectedKey], stage: newStage };
+    if (newStage === 'applied') entry.applicationSubmitted = true;
     entry.timeline = [...(entry.timeline || []), { date: now, event: `Stage changed to ${STAGE_LABELS[newStage]}` }];
     // Add default checklist items for new stage if checklist is empty or all done
     const defaults = DEFAULT_CHECKLISTS[newStage] || [];
@@ -2851,10 +2721,16 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   return (
     <>
       <div className="codelab-toolbar anim-enter">
-        <h2>Intel</h2>
+        <h2>Intel</h2><p className="muted">Your role workspace: application status, interview preparation, workbooks and tailored resumes.</p>
         <div style={{flex:1}} />
-        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{roles.length} roles tracked</span>
+        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{roles.length} roles available</span>
       </div>
+
+      {trackerSaving && <p role="status" className="muted">Saving role changes…</p>}
+      {trackerError && <div role="alert" style={{marginBottom:12,color:'var(--rose)',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+        <span>Role changes are unsaved. {trackerError} Your edits are still here.</span>
+        <button type="button" className="btn btn-sm" onClick={() => saveTracker(pendingTrackerRef.current || roleTracker)}>Retry save</button>
+      </div>}
 
       <div className="intel-split anim-enter anim-delay-1" style={{border:'1px solid var(--border)',borderRadius:'var(--radius)',overflow:'hidden'}}>
         {/* Left Panel */}
@@ -2862,13 +2738,13 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
           <div className="intel-left-header">
             <div className="intel-filter-tabs">
               {[['all','All'],['saved','Saved'],['active','Active'],['applied','Applied'],['interviewing','Interview'],['archived','Archive']].map(([id,label]) => (
-                <div key={id} className={`intel-filter-tab ${filter===id?'active':''}`} onClick={() => setFilter(id)}>{label}</div>
+                <button type="button" key={id} className={`intel-filter-tab ${filter===id?'active':''}`} aria-pressed={filter===id} onClick={() => setFilter(id)}>{label}</button>
               ))}
             </div>
           </div>
           <div className="intel-role-list">
             {filtered.map(r => (
-              <div key={r.key} className={`intel-role-item ${selectedKey===r.key?'active':''}`} onClick={() => setSelectedKey(r.key)}>
+              <button type="button" key={r.key} className={`intel-role-item ${selectedKey===r.key?'active':''}`} aria-pressed={selectedKey===r.key} onClick={() => setSelectedKey(r.key)}>
                 <div className="iri-company">
                   <span className={`stage-dot stage-${r.stage}`} />
                   {r.company}
@@ -2876,12 +2752,11 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 </div>
                 <div className="iri-title">{r.role}</div>
                 <div className="iri-meta">
-                  <span>{r.level}</span>
-                  <span>&middot;</span>
+                  {r.level && <><span>{r.level}</span><span>&middot;</span></>}
                   <span>{STAGE_LABELS[r.stage]}</span>
                   {r.lastActivity && <><span>&middot;</span><span>{timeAgo(r.lastActivity)}</span></>}
                 </div>
-              </div>
+              </button>
             ))}
             {filtered.length === 0 && <div style={{padding:24,textAlign:'center',color:'var(--text-muted)',fontSize:13}}>No roles in this filter.</div>}
           </div>
@@ -2895,9 +2770,15 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
               <div style={{marginBottom:8}}>
                 <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:STAGE_COLORS[stage],fontWeight:600,textTransform:'uppercase',letterSpacing:1.5,marginBottom:4}}>{selected.company}</div>
                 <h3 style={{fontSize:22,fontWeight:700,marginBottom:4}}>{selected.role}</h3>
-                <div style={{fontSize:13,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{selected.level} &middot; {selected.location}</div>
+                <div style={{fontSize:13,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{[selected.level, selected.location].filter(Boolean).join(' · ')}</div>
               </div>
 
+              <p className="intel-current-stage">Application status: <strong>{STAGE_LABELS[stage]}</strong>. Change it after the corresponding step happens.</p>
+              <label className="intel-mobile-stage">Update application status
+                <select aria-label="Update application status" value={stage} onChange={e=>setStage(e.target.value)}>
+                  {STAGES.map(s=><option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+                </select>
+              </label>
               {/* Stage Stepper */}
               <div className="stage-stepper" style={{marginBottom:20}}>
                 {STAGES.filter(s => s !== 'rejected').map((s, i, arr) => {
@@ -2908,11 +2789,11 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                   return (
                     <div key={s} className="stage-step">
                       <div className="stage-step-wrap">
-                        <div className={`stage-step-dot ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}`}
+                        <button type="button" aria-label={`Mark role ${STAGE_LABELS[s]}`} aria-pressed={isCurrent} className={`stage-step-dot ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}`}
                           style={isCurrent ? {borderColor: STAGE_COLORS[s], background: `${STAGE_COLORS[s]}22`, color: STAGE_COLORS[s]} : {}}
                           onClick={() => setStage(s)}>
                           {isCompleted ? <Icons.check style={{width:12,height:12}} /> : (i + 1)}
-                        </div>
+                        </button>
                         <span className="stage-step-label">{STAGE_LABELS[s]}</span>
                       </div>
                       {i < arr.length - 1 && <div className={`stage-step-line ${isCompleted ? 'completed' : ''}`} />}
@@ -2921,9 +2802,9 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 })}
                 <div style={{marginLeft:8}}>
                   <div className="stage-step-wrap">
-                    <div className={`stage-step-dot ${stage === 'rejected' ? 'rejected' : ''}`} onClick={() => setStage(stage === 'rejected' ? 'discovered' : 'rejected')} style={{width:24,height:24,fontSize:9}}>
+                    <button type="button" aria-label={stage === 'rejected' ? 'Reopen role' : 'Mark role rejected'} className={`stage-step-dot ${stage === 'rejected' ? 'rejected' : ''}`} onClick={() => setStage(stage === 'rejected' ? 'discovered' : 'rejected')} style={{width:24,height:24,fontSize:9}}>
                       <Icons.x style={{width:10,height:10}} />
-                    </div>
+                    </button>
                     <span className="stage-step-label">Reject</span>
                   </div>
                 </div>
@@ -2971,7 +2852,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
               {/* Workbook */}
               <WorkbookRoleSection roleKey={selectedKey} />
 
-              <TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(setRoleTracker)} />
+              <TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); })} />
 
               {/* Notes */}
               <div className="mc-section">
@@ -2998,7 +2879,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
               {/* Action Buttons */}
               <div className="mc-actions">
                 {selected.url && <a href={selected.url} target="_blank" rel="noopener" className="btn btn-link" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6,fontSize:13}}><Icons.externalLink style={{width:14,height:14}} /> View Posting</a>}
-                {selected.url && stage === 'discovered' && <button className="btn btn-primary" style={{fontSize:13,display:'flex',alignItems:'center',gap:6}} onClick={() => { setStage('applied'); window.open(selected.url, '_blank'); }}><Icons.send style={{width:14,height:14}} /> Apply</button>}
+                {selected.url && stage === 'discovered' && <button className="btn btn-primary" style={{fontSize:13,display:'flex',alignItems:'center',gap:6}} onClick={() => { if (window.confirm('Have you submitted this application? Opening a posting does not count.')) setStage('applied'); }}><Icons.send style={{width:14,height:14}} /> I submitted this application</button>}
                 <AcceptedResumeLink roleKey={selectedKey} stage={stage} />
               </div>
             </>
@@ -3117,7 +2998,7 @@ function WorkbookCard({ wb, onChanged }) {
       {reviewWarning && <div style={{ color: 'var(--amber)', fontSize: 12, marginBottom: 10 }}>{reviewWarning}</div>}
       {error && <div role="alert" style={{ color: 'var(--rose)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <a className="btn btn-primary" style={btn} href={`/workbooks/${wb.id}`} target="_blank" rel="noopener">Open</a>
+        <a className="btn btn-primary" style={btn} href={`/workbooks/${wb.id}`}>Open workbook</a>
         {wb.source === 'interview' && !pending && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest('/api/workbooks', 'POST', { roleKey: (wb.roleKeys || [])[0] }))}>Create workbook</button>}
         {canExpand && wb.source !== 'interview' && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest(`/api/workbooks/${wb.id}/expand`, 'POST'))}>Expand to onsite</button>}
         {canRetry && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest(`/api/workbooks/${wb.id}/retry`, 'POST'))}>Retry failed</button>}
@@ -3574,7 +3455,7 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
               <div className="sd-messages">
                 {messages.filter(m => m.content !== '[Interview started]').map((m, i) => (
                   <div key={i} className={`sd-msg ${m.role}`}>
-                    <div className="sd-bubble" dangerouslySetInnerHTML={m.role === 'assistant' ? {__html: marked.parse(m.content)} : undefined}>
+                    <div className="sd-bubble" dangerouslySetInnerHTML={m.role === 'assistant' ? {__html: safeMarkdown(m.content)} : undefined}>
                       {m.role === 'user' ? m.content : undefined}
                     </div>
                   </div>
@@ -3601,7 +3482,37 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
   );
 }
 
+function useFeedbackReviews(kind, onDone) {
+  const [reviews, setReviews] = useState({});
+  const [reviewError, setReviewError] = useState('');
+  const completed = useRef(new Set()); const doneRef = useRef(onDone); doneRef.current = onDone;
+  const refreshReviews = async () => {
+    try {
+      const result = await api.get('/api/feedback');
+      const list = Array.isArray(result) ? result : result.attempts || [];
+      const next = {};
+      list.filter(a => a.kind === kind).forEach(a => {
+        if (!next[a.questionId]) next[a.questionId] = a;
+        if (a.status === 'done' && !completed.current.has(a.id)) {completed.current.add(a.id); doneRef.current?.(a);}
+      });
+      setReviews(next);
+    } catch(e) {setReviewError('Cannot load review status. Your saved answer is retained.');}
+  };
+  useEffect(() => {refreshReviews(); const id = setInterval(refreshReviews, 3000); return () => clearInterval(id);}, []);
+  const retry = async a => {try {await api.post(`/api/feedback/${a.id}/retry`, {}); setReviewError(''); await refreshReviews();} catch(e) {setReviewError(e.message);}};
+  return {reviews,reviewError,setReviewError,refreshReviews,retry};
+}
+function ReviewStatus({attempt,onRetry,error}) {
+  return <div className="review-status" role="status">{error && <p role="alert">{error}</p>}{attempt && <>
+    {['queued','running'].includes(attempt.status) && <p>{attempt.status === 'queued' ? 'Awaiting review' : 'Reviewing'} — your submitted answer is saved. You can leave this page.</p>}
+    {attempt.status === 'failed' && <p>{attempt.error || 'Review failed. Your answer is saved.'} <button className="btn btn-secondary" onClick={() => onRetry(attempt)}>Retry review</button></p>}
+    {attempt.status === 'done' && <p>Review saved{attempt.superseded ? ' for an earlier answer; your newer draft is unchanged' : ''}.{attempt.evaluation?.nextRep && ` Next rep: ${attempt.evaluation.nextRep}`}</p>}
+  </>}</div>;
+}
+function questionIdentity(text) {let h=2166136261;for(const c of text.trim().toLowerCase()) {h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return `bq_text_${(h>>>0).toString(16)}`;}
+
 function Behavioral() {
+  const [legacyAnswers, setLegacyAnswers] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -3615,13 +3526,18 @@ function Behavioral() {
   const [draftQuestions, setDraftQuestions] = useState({}); // key -> [questions from Claude]
   const [draftResponses, setDraftResponses] = useState({}); // key -> {q0: 'answer', q1: 'answer', ...}
   const [generatingAll, setGeneratingAll] = useState(false);
-  const saveTimer = useRef(null);
+  const saveTimer = useRef({});
+  const revisions = useRef({});
+  const assistanceEvidence = useRef({});
+  const [answerAssistance, setAnswerAssistance] = useState({});
+  const saveChains = useRef({});
+  const feedback = useFeedbackReviews('behavioral', a => {if (!a.superseded) setEvaluations(prev => ({...prev,[a.questionId]:a.evaluation}));});
 
   useEffect(() => {
     Promise.all([
       api.get('/api/tasks'),
       api.get('/api/behavioral/answers'),
-      api.get('/api/resume'),
+      api.get('/api/resume/master').then(master => master?.summary || master?.headline || ['experience','projects','skills','education','additionalSections'].some(key => master?.[key]?.length) ? master : api.get('/api/resume')),
     ]).then(([allTaskDays, savedAnswers, resume]) => {
       const seen = new Set();
       const bqs = [];
@@ -3630,51 +3546,76 @@ function Behavioral() {
           const key = t.text.toLowerCase().trim();
           if (!seen.has(key)) {
             seen.add(key);
-            bqs.push({ text: t.text, content: t.content || '', date: day.date, key: 'bq_' + bqs.length });
+            bqs.push({ text: t.text, content: t.content || '', date: day.date, key: questionIdentity(t.text) });
           }
         });
       });
       setQuestions(bqs);
+      const activeKeys = new Set(bqs.map(q => q.key));
+      setLegacyAnswers(Object.entries(savedAnswers || {}).filter(([key,value]) => !activeKeys.has(key) && value?.answer));
       const restoredAnswers = {};
       const restoredEvals = {};
       Object.entries(savedAnswers || {}).forEach(([k, v]) => {
-        if (v.answer) restoredAnswers[k] = v.answer;
-        if (v.evaluation) restoredEvals[k] = v.evaluation;
+        revisions.current[k] = v.revision || 0;
+        if (v.answer !== undefined) restoredAnswers[k] = sessionStorage.getItem(`jq-behavioral-${k}`) ?? v.answer;
+        if (v.evaluation && !v.evaluation.error && Number.isFinite(v.evaluation.score)) restoredEvals[k] = v.evaluation;
       });
+      bqs.forEach(q => {const draft=sessionStorage.getItem(`jq-behavioral-${q.key}`);if(draft!==null) restoredAnswers[q.key]=draft;});
+      const restoredHelp = {};
+      for (const key of new Set([...Object.keys(savedAnswers || {}), ...bqs.map(q => q.key)])) {
+        let local;try {local=JSON.parse(sessionStorage.getItem(`jq-behavioral-help-${key}`));}catch {}
+        const saved=savedAnswers?.[key]?.assistance || {};
+        const evidence={};
+        for (const flag of ['assisted','revealed']) {
+          if(saved[flag]===true || local?.[flag]===true)evidence[flag]=true;
+          else if(saved[flag]===false || local?.[flag]===false)evidence[flag]=false;
+        }
+        restoredHelp[key]=Object.keys(evidence).length ? evidence : null;
+      }
+      assistanceEvidence.current=restoredHelp;setAnswerAssistance(restoredHelp);
       setAnswers(restoredAnswers);
       setEvaluations(restoredEvals);
       setResumeData(resume);
       setLoading(false);
-    });
+    }).catch(e => {feedback.setReviewError(e.message);setLoading(false);});
   }, []);
 
   const saveAnswer = (key, answer) => {
-    api.post('/api/behavioral/answers', { key, answer });
+    const promise = (saveChains.current[key] || Promise.resolve()).catch(() => {}).then(async () => {
+      const q = questions.find(q => q.key === key);
+      const result = await api.post('/api/behavioral/answers', {key,answer,question:q?.text,expectedRevision:revisions.current[key] || 0,assistance:assistanceEvidence.current[key] || null});
+      revisions.current[key] = result.revision;
+      if (sessionStorage.getItem(`jq-behavioral-${key}`) === answer) sessionStorage.removeItem(`jq-behavioral-${key}`);
+      feedback.setReviewError('');
+    });
+    saveChains.current[key] = promise;
+    return promise;
   };
-
-  const updateAnswer = (key, value) => {
-    const updated = { ...answers, [key]: value };
-    setAnswers(updated);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveAnswer(key, value), 1000);
+  const recordHelp = (key, flags) => {
+    const old=assistanceEvidence.current[key] || {};
+    const next={...old};for(const flag of ['assisted','revealed'])if(flags[flag]===true)next[flag]=true;
+    assistanceEvidence.current[key]=next;setAnswerAssistance(prev => ({...prev,[key]:next}));
+    sessionStorage.setItem(`jq-behavioral-help-${key}`,JSON.stringify(next));
   };
-
-  const submitForReview = async (q) => {
-    const key = q.key;
-    const userAnswer = answers[key];
-    if (!userAnswer?.trim() || evaluatingKey === key) return;
-    setEvaluatingKey(key);
+  const revealGuidance = key => {
+    recordHelp(key,{revealed:true});setRevealedFrameworks(prev => ({...prev,[key]:true}));
+    clearTimeout(saveTimer.current[key]);
+    saveAnswer(key,sessionStorage.getItem(`jq-behavioral-${key}`) ?? answers[key] ?? '').catch(e => feedback.setReviewError(e.message));
+  };
+  const updateAnswer = (key,value) => {
+    setAnswers(prev => ({...prev,[key]:value})); sessionStorage.setItem(`jq-behavioral-${key}`,value);
+    clearTimeout(saveTimer.current[key]);
+    saveTimer.current[key] = setTimeout(() => saveAnswer(key,value).catch(e => feedback.setReviewError(e.message)),600);
+  };
+  const submitForReview = async q => {
+    const key=q.key,userAnswer=answers[key]; if(!userAnswer?.trim() || evaluatingKey) return;
+    setEvaluatingKey(key); clearTimeout(saveTimer.current[key]);
     try {
-      const result = await api.post('/api/evaluate-answer', {
-        question: q.text,
-        userAnswer,
-        sampleAnswer: q.content || 'Use STAR framework: Situation, Task, Action, Result. Focus on leadership, impact, and quantifiable outcomes.',
-        category: 'behavioral'
-      });
-      const updated = { ...evaluations, [key]: result };
-      setEvaluations(updated);
-      api.post('/api/behavioral/answers', { key, answer: userAnswer, evaluation: result });
-    } catch (e) { console.error('Evaluation failed:', e); }
+      await saveAnswer(key,userAnswer);
+      const result=await api.post('/api/evaluate-answer',{key,question:q.text,userAnswer,sampleAnswer:q.content,category:'behavioral',expectedRevision:revisions.current[key],attemptId:crypto.randomUUID(),assistance:assistanceEvidence.current[key] || null});
+      revisions.current[key] = result.attempt.answerRevision;
+      feedback.setReviewError(''); await feedback.refreshReviews();
+    }catch(e){feedback.setReviewError(e.message);}
     setEvaluatingKey(null);
   };
 
@@ -3695,6 +3636,7 @@ function Behavioral() {
         setDraftQuestions(prev => ({ ...prev, [key]: result.questions }));
         setDraftMode(prev => ({ ...prev, [key]: 'asking' }));
       } else if (result.draft) {
+        recordHelp(key,{assisted:true});
         updateAnswer(key, result.draft);
         setDraftMode(prev => ({ ...prev, [key]: 'done' }));
       }
@@ -3724,11 +3666,11 @@ function Behavioral() {
 
   const selected = questions[selectedIdx];
 
-  if (loading) return <div className="page-header anim-enter"><h2>Behavioral Practice</h2><p style={{color:'var(--text-muted)',marginTop:8}}>Loading questions...</p></div>;
+  if (loading) return <div className="page-header anim-enter"><h2>Behavioral Practice</h2><ReviewStatus error={feedback.reviewError} attempt={feedback.reviews[questions[selectedIdx]?.key]} onRetry={feedback.retry} /><p style={{color:'var(--text-muted)',marginTop:8}}>Loading questions...</p></div>;
 
   if (questions.length === 0) return (
     <div className="page-header anim-enter">
-      <h2>Behavioral Practice</h2>
+      <h2>Behavioral Practice</h2><ReviewStatus error={feedback.reviewError} attempt={feedback.reviews[questions[selectedIdx]?.key]} onRetry={feedback.retry} />
       <div className="card" style={{marginTop:20,textAlign:'center',padding:'60px 40px'}}>
         <Icons.messageCircle style={{width:48,height:48,color:'var(--text-muted)',marginBottom:16}} />
         <h3 style={{color:'var(--text-secondary)',fontSize:16,fontWeight:500,marginBottom:8,textTransform:'none',letterSpacing:0}}>No behavioral questions yet</h3>
@@ -3743,9 +3685,10 @@ function Behavioral() {
   return (
     <>
       <div className="page-header anim-enter">
-        <h2>Behavioral Practice</h2>
+        <h2>Behavioral Practice</h2><ReviewStatus error={feedback.reviewError} attempt={feedback.reviews[questions[selectedIdx]?.key]} onRetry={feedback.retry} />
         <div className="greeting-sub">{completedCount}/{questions.length} practiced &middot; Write STAR responses and get AI feedback</div>
       </div>
+      {legacyAnswers.length > 0 && <details className="card"><summary>Earlier saved answers ({legacyAnswers.length})</summary><p>These answers are preserved. Their original question identity could not be confirmed, so they are shown separately from current questions.</p>{legacyAnswers.map(([id,item]) => <article key={id}><h3>{item.question || `Saved answer ${id}`}</h3><p style={{whiteSpace:'pre-wrap'}}>{item.answer}</p>{item.evaluation && <p>Earlier feedback: {item.evaluation.feedback || item.evaluation.summary || 'Saved with this answer.'}</p>}</article>)}</details>}
       <div className="intel-split anim-enter anim-delay-1" style={{display:'flex',gap:0,height:'calc(100vh - 160px)',overflow:'hidden'}}>
         <div className="intel-left" style={{width:320,minWidth:280,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column'}}>
           <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -3805,12 +3748,12 @@ function Behavioral() {
                 {selected.content && (
                   <div style={{marginBottom:24}}>
                     {!revealedFrameworks[key] ? (
-                      <button className="prep-reveal-btn" onClick={() => setRevealedFrameworks(prev => ({...prev, [key]: true}))}>
+                      <button className="prep-reveal-btn" onClick={() => revealGuidance(key)}>
                         Show Guidance & STAR Framework
                       </button>
                     ) : (
                       <div className="card" style={{background:'var(--bg-surface)',padding:20}}>
-                        <div style={{fontSize:13,lineHeight:1.8,color:'var(--text-secondary)'}} dangerouslySetInnerHTML={{__html: marked.parse(selected.content)}} />
+                        <div style={{fontSize:13,lineHeight:1.8,color:'var(--text-secondary)'}} dangerouslySetInnerHTML={{__html: safeMarkdown(selected.content)}} />
                         <button style={{marginTop:12,background:'none',border:'none',color:'var(--text-muted)',fontSize:11,cursor:'pointer',fontFamily:'var(--font-mono)'}} onClick={() => setRevealedFrameworks(prev => ({...prev, [key]: false}))}>
                           Hide guidance
                         </button>
@@ -3818,6 +3761,8 @@ function Behavioral() {
                     )}
                   </div>
                 )}
+
+                {(answerAssistance[key]?.assisted || answerAssistance[key]?.revealed) && <p style={{fontSize:13,color:'var(--text-secondary)'}}>Help or guidance has been used for this answer. That context stays attached after hiding guidance or reloading.</p>}
 
                 {/* Q&A Flow - Claude needs more info */}
                 {mode === 'asking' && askQuestions.length > 0 && (
@@ -3941,15 +3886,23 @@ function Trainer() {
   const [evaluatingId, setEvaluatingId] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
-  const saveTimer = useRef(null);
+  const saveTimer = useRef({});
+  const revisions = useRef({}); const saveChains = useRef({});
+  const feedback = useFeedbackReviews('trainer', attempt => load(attempt));
 
-  const load = () => api.get('/api/trainer/questions').then(({ questions: qs, config: cfg }) => {
+  const load = (completedAttempt) => api.get('/api/trainer/questions').then(({ questions: qs, config: cfg }) => {
     const sorted = [...(qs || [])].reverse();
     setQuestions(sorted);
     setConfig(cfg);
     setDrafts(prev => {
       const next = { ...prev };
-      sorted.forEach(q => { if (q.answer && next[q.id] === undefined) next[q.id] = q.answer; });
+      sorted.forEach(q => {
+        const local=sessionStorage.getItem(`jq-trainer-${q.id}`);
+        const cleared=completedAttempt?.questionId===q.id && !completedAttempt.superseded && q.evaluation?.attemptId===completedAttempt.id && q.draft==='' && next[q.id]===completedAttempt.answer && local===null;
+        if(local===null || revisions.current[q.id]===undefined)revisions.current[q.id]=q.draftRevision||0;
+        if(cleared)next[q.id]='';
+        else if(next[q.id]===undefined)next[q.id]=local ?? q.draft ?? (q.exchanges?.length?'':q.answer||'');
+      });
       return next;
     });
     setSelectedId(prev => prev || (sorted.find(q => q.status === 'pending') || sorted[0])?.id || null);
@@ -3958,35 +3911,23 @@ function Trainer() {
 
   useEffect(() => { load(); }, []);
 
-  const updateDraft = (id, value) => {
-    setDrafts(prev => ({ ...prev, [id]: value }));
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => api.post('/api/trainer/answer', { id, answer: value }), 1000);
+  const saveDraft = (id,answer) => {
+    const promise=(saveChains.current[id]||Promise.resolve()).catch(()=>{}).then(async()=>{
+      const result=await api.post('/api/trainer/answer',{id,answer,expectedRevision:revisions.current[id]||0});
+      revisions.current[id]=result.revision;
+      if(sessionStorage.getItem(`jq-trainer-${id}`)===answer) sessionStorage.removeItem(`jq-trainer-${id}`);
+      feedback.setReviewError('');
+    });saveChains.current[id]=promise;return promise;
   };
-
-  const submitForFeedback = async (q) => {
-    const answer = drafts[q.id];
-    if (!answer?.trim() || evaluatingId) return;
-    setEvaluatingId(q.id);
-    try {
-      const result = await api.post('/api/trainer/evaluate', { id: q.id, answer });
-      if (result.question) {
-        setQuestions(prev => prev.map(x => x.id === q.id ? result.question : x));
-        setDrafts(prev => ({ ...prev, [q.id]: '' }));
-      }
-    } catch (e) { console.error('Trainer evaluation failed:', e); }
-    setEvaluatingId(null);
+  const updateDraft=(id,value)=>{setDrafts(prev=>({...prev,[id]:value}));sessionStorage.setItem(`jq-trainer-${id}`,value);clearTimeout(saveTimer.current[id]);saveTimer.current[id]=setTimeout(()=>saveDraft(id,value).catch(e=>feedback.setReviewError(e.message)),600);};
+  const requestFeedback=async(q,wrapUp=false)=>{
+    const answer=drafts[q.id];if(evaluatingId || (!wrapUp&&!answer?.trim()))return;
+    setEvaluatingId(q.id);clearTimeout(saveTimer.current[q.id]);
+    try{if(!wrapUp)await saveDraft(q.id,answer);await api.post('/api/trainer/evaluate',{id:q.id,answer:wrapUp?undefined:answer,wrapUp,expectedRevision:revisions.current[q.id]||0,attemptId:crypto.randomUUID()});feedback.setReviewError('');await feedback.refreshReviews();}
+    catch(e){feedback.setReviewError(e.message);}setEvaluatingId(null);
   };
-
-  const wrapUpInterview = async (q) => {
-    if (evaluatingId) return;
-    setEvaluatingId(q.id);
-    try {
-      const result = await api.post('/api/trainer/evaluate', { id: q.id, wrapUp: true });
-      if (result.question) setQuestions(prev => prev.map(x => x.id === q.id ? result.question : x));
-    } catch (e) { console.error('Trainer wrap-up failed:', e); }
-    setEvaluatingId(null);
-  };
+  const submitForFeedback=q=>requestFeedback(q);
+  const wrapUpInterview=q=>requestFeedback(q,true);
 
   // Legacy single-shot records render through the same timeline.
   const exchangesOf = (q) => {
@@ -4027,11 +3968,11 @@ function Trainer() {
   const answeredCount = questions.filter(q => q.status === 'answered').length;
   const pendingCount = questions.filter(q => q.status === 'pending').length;
 
-  if (loading) return <div className="page-header anim-enter"><h2>Interview Trainer</h2><p style={{color:'var(--text-muted)',marginTop:8}}>Loading...</p></div>;
+  if (loading) return <div className="page-header anim-enter"><h2>Interview Trainer</h2><ReviewStatus error={feedback.reviewError} attempt={feedback.reviews[selectedId]} onRetry={feedback.retry} /><p style={{color:'var(--text-muted)',marginTop:8}}>Loading...</p></div>;
 
   if (questions.length === 0) return (
     <div className="page-header anim-enter">
-      <h2>Interview Trainer</h2>
+      <h2>Interview Trainer</h2><ReviewStatus error={feedback.reviewError} attempt={feedback.reviews[selectedId]} onRetry={feedback.retry} />
       <div className="card" style={{marginTop:20,textAlign:'center',padding:'60px 40px'}}>
         <Icons.zap style={{width:48,height:48,color:'var(--text-muted)',marginBottom:16}} />
         <h3 style={{color:'var(--text-secondary)',fontSize:16,fontWeight:500,marginBottom:8,textTransform:'none',letterSpacing:0}}>No trainer questions yet</h3>
@@ -4051,7 +3992,7 @@ function Trainer() {
     <>
       <div className="page-header anim-enter" style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between'}}>
         <div>
-          <h2>Interview Trainer</h2>
+          <h2>Interview Trainer</h2><ReviewStatus error={feedback.reviewError} attempt={feedback.reviews[selectedId]} onRetry={feedback.retry} />
           <div className="greeting-sub">
             {answeredCount}/{questions.length} answered &middot; {pendingCount} waiting
             {config && ` · hourly ${config.startHour ?? 9}:00–${config.endHour ?? 21}:00${config.phone ? ' → ' + config.phone : ''}`}
@@ -4202,11 +4143,75 @@ function Trainer() {
   );
 }
 
+function cleanProblemDescription(text, title) {
+  const lines = String(text || '').split('\n');
+  const normalized = value => value.replace(/[*#`]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+  const out=[];let starter=false,code=false;
+  for(const line of lines){
+    if(normalized(line) === normalized(title)) continue;
+    if(/use open in code lab to run this exercise/i.test(line)) continue;
+    if(/^\s*(?:#{1,4}\s*)?(?:\*\*)?starter(?: code)?(?:\*\*)?:?\s*$/i.test(line)){starter=true;continue;}
+    if(starter){if(/^\s*```/.test(line)){if(code){starter=false;code=false;}else code=true;continue;}if(/^\s*(?:#{1,4}\s*)?(?:\*\*)?follow-up/i.test(line)){starter=false;}else continue;}
+    out.push(line);
+  }
+  return out.join('\n').trim();
+}
+
 function CodeLab({ sessionRef, initialProblemRef }) {
   const session = sessionRef?.current || {};
+  // BEGIN CODE DRAFT CONTROLLER — independent problem queues, also exercised by UI tests.
+  function createCodeDraftController({ request, changed, readLocal, writeLocal, schedule = setTimeout, cancel = clearTimeout }) {
+    const records = Object.create(null);
+    const emit = id => {
+      const r=records[id];
+      try{writeLocal(id,{code:r.code,revision:r.revision,dirty:r.dirty});}catch{r.error='Browser backup is unavailable. Keep this page open until your draft saves.';}
+      changed(Object.fromEntries(Object.entries(records).map(([key,s])=>[key,{code:s.code,revision:s.revision,dirty:s.dirty,saving:!!s.inFlight,error:s.error||'',conflict:s.conflict||null}])));
+    };
+    function hydrate(id,code,revision){
+      if(records[id])return;
+      let local;try{local=readLocal(id);}catch{}
+      const valid=local&&typeof local.code==='string'&&Number.isSafeInteger(local.revision)&&local.revision>=0;
+      const dirty=valid&&local.dirty===true&&local.code!==code;
+      records[id]={code:dirty?local.code:code,revision:dirty?local.revision:revision,dirty,generation:0};
+      if(dirty&&local.revision!==revision)records[id].conflict={code,revision};
+      emit(id);if(dirty&&!records[id].conflict)records[id].timer=schedule(()=>flush(id),700);
+    }
+    function edit(id,code){
+      const r=records[id];if(!r)return;
+      r.code=code;r.dirty=true;r.generation++;r.error='';cancel(r.timer);emit(id);
+      if(!r.conflict)r.timer=schedule(()=>flush(id),700);
+    }
+    async function flush(id){
+      const r=records[id];if(!r)return false;cancel(r.timer);
+      if(r.conflict)return false;
+      if(r.inFlight){const ok=await r.inFlight;return ok&&r.dirty?flush(id):ok;}
+      if(!r.dirty)return true;
+      const code=r.code,revision=r.revision,generation=r.generation;
+      const pending=(async()=>{
+        try{
+          const result=await request(id,{code,expectedRevision:revision});
+          r.revision=result.revision;if(r.generation===generation)r.dirty=false;r.error='';return true;
+        }catch(error){
+          if(error.status===409&&error.current)r.conflict=error.current;
+          r.error=error.message||'Your draft remains in this browser. Retry saving when connected.';return false;
+        }finally{r.inFlight=null;emit(id);}
+      })();
+      r.inFlight=pending;emit(id);
+      const ok=await pending;return ok&&r.dirty?flush(id):ok;
+    }
+    function resolve(id,useSaved){
+      const r=records[id];if(!r?.conflict)return Promise.resolve(false);
+      const remote=r.conflict;r.conflict=null;r.revision=remote.revision;r.error='';r.generation++;
+      if(useSaved){r.code=remote.code;r.dirty=false;cancel(r.timer);emit(id);return Promise.resolve(true);}
+      r.dirty=true;emit(id);return flush(id);
+    }
+    return {hydrate,edit,flush,resolve,get:id=>records[id]};
+  }
+  // END CODE DRAFT CONTROLLER
+
   const [problems, setProblems] = useState({ categories: [], problems: [] });
   const [progress, setProgress] = useState({ solved: {}, bookmarked: [], savedCode: {} });
-  const [selectedId, setSelectedId] = useState(initialProblemRef?.current || session.selectedId || null);
+  const [selectedId, setSelectedId] = useState(() => {try{return initialProblemRef?.current || session.selectedId || sessionStorage.getItem('jq-codelab-selected') || null;}catch{return initialProblemRef?.current || session.selectedId || null;}});
   const [code, setCode] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [testResults, setTestResults] = useState(session.testResults || null);
@@ -4222,6 +4227,22 @@ function CodeLab({ sessionRef, initialProblemRef }) {
   const draggingRef = useRef(false);
   const [dailyTasks, setDailyTasks] = useState([]);
   const dropdownRef = useRef(null);
+  const [draftStates,setDraftStates]=useState({}),[loadError,setLoadError]=useState(''),[editorEpoch,setEditorEpoch]=useState(0);
+  const selectedRef=useRef(selectedId);selectedRef.current=selectedId;
+  const draftController=useRef(null);
+  if(!draftController.current)draftController.current=createCodeDraftController({
+    request:async(id,body)=>{
+      const response=await fetch(`/api/problems/${encodeURIComponent(id)}/draft`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const result=await response.json();if(!response.ok){const error=new Error(result.error||'Code could not save. Your browser draft is preserved.');error.status=response.status;error.current=result.current;throw error;}return result;
+    },
+    changed:setDraftStates,
+    readLocal:id=>JSON.parse(sessionStorage.getItem(`jq-codelab-draft-${id}`)||'null'),
+    writeLocal:(id,value)=>sessionStorage.setItem(`jq-codelab-draft-${id}`,JSON.stringify(value)),
+  });
+  useEffect(()=>{if(selectedId)try{sessionStorage.setItem('jq-codelab-selected',selectedId);}catch{}},[selectedId]);
+  // A navigation request can arrive while Code Lab remains mounted but hidden.
+  useEffect(()=>{const id=initialProblemRef?.current;if(id&&problems.problems?.length){initialProblemRef.current=null;if(problems.problems.some(p=>p.id===id)){setSelectedId(id);setLoadError('');}else setLoadError('The requested problem is unavailable. Choose another problem.');}});
+
 
   const writeCodeLabSession = (updates) => {
     if (!sessionRef) return;
@@ -4266,8 +4287,9 @@ function CodeLab({ sessionRef, initialProblemRef }) {
       api.get('/api/problems/progress'),
       api.get('/api/tasks'),
     ]).then(([probs, prog, allTaskDays]) => {
+      (probs.problems||[]).forEach(p=>draftController.current.hydrate(p.id,Object.hasOwn(prog.savedCode||{},p.id)?prog.savedCode[p.id]:(p.starterCode||''),prog.draftRevisions?.[p.id]||0));
       setProblems(probs);
-      setProgress(prog);
+      setProgress(prog);setLoadError('');
 
       // Extract today's coding tasks and match to problems
       const today = new Date().toISOString().slice(0, 10);
@@ -4284,10 +4306,10 @@ function CodeLab({ sessionRef, initialProblemRef }) {
 
       // If navigated from a task click, use that specific problem
       const requestedId = initialProblemRef?.current;
-      if (requestedId) {
+      if (requestedId && probs.problems?.some(p=>p.id===requestedId)) {
         setSelectedId(requestedId);
         initialProblemRef.current = null;
-      } else if (!session.selectedId) {
+      } else if (!probs.problems?.some(p=>p.id===selectedRef.current)) {
         // Auto-select first unsolved daily problem, or first problem overall
         const firstUnsolved = matched.find(m => m.problem && !prog.solved?.[m.problem.id]);
         if (firstUnsolved) {
@@ -4296,13 +4318,14 @@ function CodeLab({ sessionRef, initialProblemRef }) {
           setSelectedId(probs.problems[0].id);
         }
       }
-    });
+    }).catch(e=>setLoadError(e.message||'Could not load Code Lab. Your browser drafts are preserved.'));
   }, []);
 
   const problem = problems.problems?.find(p => p.id === selectedId);
 
   // Load saved code or starter code when problem changes
-  const problemCode = problem ? (progress.savedCode?.[problem.id] || problem.starterCode || '') : '';
+  const problemCode = problem ? (draftStates[problem.id]?.code ?? (Object.hasOwn(progress.savedCode||{},problem.id)?progress.savedCode[problem.id]:(problem.starterCode||''))) : '';
+  const draftState=problem?draftStates[problem.id]:null;
   const prevProblemRef = useRef(null);
   useEffect(() => {
     if (!problem) return;
@@ -4326,14 +4349,12 @@ function CodeLab({ sessionRef, initialProblemRef }) {
   }, []);
 
   const saveCode = (newCode) => {
-    setCode(newCode);
-    // Debounced save
-    clearTimeout(window._codeSaveTimer);
-    window._codeSaveTimer = setTimeout(() => {
-      const updated = { ...progress, savedCode: { ...progress.savedCode, [selectedId]: newCode } };
-      setProgress(updated);
-      api.post('/api/problems/progress', updated);
-    }, 1000);
+    setCode(newCode);draftController.current.edit(selectedId,newCode);
+  };
+  const resolveCodeConflict=async(useSaved)=>{
+    const id=selectedId;
+    await draftController.current.resolve(id,useSaved);
+    if(useSaved&&selectedRef.current===id){setCode(draftController.current.get(id).code);setEditorEpoch(n=>n+1);}
   };
 
   const runTests = async () => {
@@ -4343,17 +4364,15 @@ function CodeLab({ sessionRef, initialProblemRef }) {
     setBottomTab('results');
     try {
       const res = await api.post('/api/run-code', { code, functionName: problem.functionName, testCases: problem.testCases, adapters: problem.adapters || null });
-      setTestResults(res);
-      // Auto-save code and mark solved when all tests pass
+      if(selectedRef.current===problem.id)setTestResults(res);
+      // Save this problem's draft through its revision queue; solved state never
+      // carries a savedCode snapshot that could replace another device's work.
       if (res.results?.length > 0 && res.results.every(r => r.passed)) {
-        clearTimeout(window._codeSaveTimer);
-        const updated = {
-          ...progress,
-          savedCode: { ...progress.savedCode, [problem.id]: code },
-          solved: { ...progress.solved, [problem.id]: { solvedAt: progress.solved?.[problem.id]?.solvedAt || new Date().toISOString(), attempts: (progress.solved?.[problem.id]?.attempts || 0) + 1 } }
-        };
-        setProgress(updated);
-        api.post('/api/problems/progress', updated);
+        await draftController.current.flush(problem.id);
+        const solved={solvedAt:progress.solved?.[problem.id]?.solvedAt||new Date().toISOString(),attempts:(progress.solved?.[problem.id]?.attempts||0)+1};
+        try{const saved=await api.post('/api/problems/progress',{solved:{[problem.id]:solved}});
+          setProgress(prev=>({...prev,solved:saved.progress?.solved||{...prev.solved,[problem.id]:solved}}));
+        }catch(error){setLoadError('Tests passed, but solved status could not be saved. Your code draft is preserved. Run tests again when connected.');}
       }
     } catch (err) {
       setTestResults({
@@ -4393,7 +4412,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
         problemTitle: problem.title,
         problemDescription: problem.description,
         code,
-        conversationId: activeConvId,
+        conversationId: activeConvId || undefined,
         userMessage: activeConvId ? userMsg : undefined,
       });
       const latestHistory = sessionRef?.current?.chatHistory || historyWithUser;
@@ -4427,7 +4446,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
 
   if (!problem) return (
     <div className="anim-enter" style={{display:'flex',alignItems:'center',justifyContent:'center',flex:1}}>
-      <div className="empty-state"><Icons.code className="empty-icon" /><p>Loading problems...</p></div>
+      <div className="empty-state"><Icons.code className="empty-icon" /><p role={loadError?'alert':'status'}>{loadError||'Loading problems...'}</p>{loadError&&<button className="btn btn-secondary" onClick={()=>window.location.reload()}>Reload Code Lab</button>}</div>
     </div>
   );
 
@@ -4526,7 +4545,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
               <ul style={{margin:'4px 0 0 16px',padding:0}}>{problem.issues.map((m, i) => <li key={i}>{m}</li>)}</ul>
             </div>
           )}
-          <div className="prob-desc">{problem.description}</div>
+          <div className="prob-desc prose" dangerouslySetInnerHTML={{__html: safeMarkdown(cleanProblemDescription(problem.description, problem.title))}} />
 
           {problem.examples?.map((ex, i) => (
             <div key={i} className="example-box">
@@ -4568,8 +4587,14 @@ function CodeLab({ sessionRef, initialProblemRef }) {
 
         {/* Right: Editor + Bottom Panel */}
         <div className="codelab-right">
+          <div style={{padding:'8px 12px',fontSize:13,borderBottom:'1px solid var(--border)'}} role="status">
+            {loadError&&<p role="alert">{loadError}</p>}
+            {draftState?.conflict ? <div><p role="alert">This problem has newer saved code on another device. Your version remains in the editor.</p><details><summary>Compare the saved version</summary><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{draftState.conflict.code||'(Empty code)'}</pre></details><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}><button className="btn btn-secondary" onClick={()=>resolveCodeConflict(true)}>Use saved code</button><button className="btn btn-secondary" onClick={()=>resolveCodeConflict(false)}>Save my current code instead</button></div></div>
+              : draftState?.error ? <p role="alert">{draftState.error} <button className="btn btn-secondary" onClick={()=>draftController.current.flush(selectedId)}>Retry save</button></p>
+              : <span>{draftState?.saving?'Saving code…':draftState?.dirty?'Draft kept in this browser; waiting to save.':(draftState?.revision>0||Object.hasOwn(progress.savedCode||{},problem.id)?'Code saved. Changes save automatically.':'Ready. Changes save automatically.')}</span>}
+          </div>
           <div className="editor-container">
-            <CMEditor code={problemCode} onChange={saveCode} key={selectedId} />
+            <CMEditor code={problemCode} onChange={saveCode} key={`${selectedId}:${editorEpoch}`} />
           </div>
 
           {showBottom && (
@@ -4664,7 +4689,7 @@ function CodeLab({ sessionRef, initialProblemRef }) {
                     <div className="chat-messages" style={{flex:1,overflow:'auto',paddingBottom:8}}>
                       {chatHistory.filter(m => !m.content.startsWith('You are a coding mentor')).map((m, i) => (
                         <div key={i} className={`chat-msg ${m.role}`}>
-                          <div className="chat-bubble" style={{fontSize:14,lineHeight:1.7,maxWidth:'90%'}} dangerouslySetInnerHTML={m.role === 'assistant' ? {__html: marked.parse(m.content)} : undefined}>
+                          <div className="chat-bubble" style={{fontSize:14,lineHeight:1.7,maxWidth:'90%'}} dangerouslySetInnerHTML={m.role === 'assistant' ? {__html: safeMarkdown(m.content)} : undefined}>
                             {m.role === 'user' ? m.content : undefined}
                           </div>
                           <div style={{clear:'both'}} />

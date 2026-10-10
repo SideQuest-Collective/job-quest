@@ -139,17 +139,20 @@ test('server: drills are verified in the real Python runner, then a plan links t
 test('Tasks page opens plan links and shows their details', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
   const tasks = html.slice(html.indexOf('function Tasks('), html.indexOf('/* ===== QUIZ ===== */'));
-  assert.match(tasks, /window\.open\(`\/workbooks\/\$\{encodeURIComponent\(link\.workbookId\)\}\$\{link\.chapter \? `#read\/\$\{encodeURIComponent\(link\.chapter\)\}` : ''\}`, '_blank', 'noopener'\)/);
-  assert.match(tasks, /codeLabInitialProblemRef\.current = link\.problemId;\s*setPage\('codelab'\)/);
+  assert.match(tasks, /window\.location\.assign\(`\/workbooks\/\$\{encodeURIComponent\(link\.workbookId\)\}\$\{link\.chapter \? `#read\/\$\{encodeURIComponent\(link\.chapter\)\}` : ''\}`\)/);
+  assert.match(tasks, /codeLabInitialProblemRef\.current = link\?\.problemId \|\| task\.problemId \|\| null; setPage\('codelab'\)/);
   assert.match(tasks, /window\.location\.assign\(`\/\?sd=\$\{encodeURIComponent\(link\.topicId\)\}`\)/);
-  assert.match(tasks, /Open workbook &rarr;/);
-  assert.match(tasks, /\{linkKind && hasContent && \(/);
+  assert.match(tasks, /dangerouslySetInnerHTML=\{\{__html:safeMarkdown\(task\.content\)\}\}/);
+  assert.match(tasks, /task\.link\?\.kind === 'workbook' \? 'Open workbook'/);
+  assert.match(tasks, /expandedTask === i \? 'Close details' : 'View details'/);
 });
 
-test('Tasks tabs list upcoming plan days first, then recent past days', () => {
+test('Tasks date picker keeps every saved plan date and distinguishes today from continuation', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
   const tasks = html.slice(html.indexOf('function Tasks('), html.indexOf('/* ===== QUIZ ===== */'));
-  assert.match(tasks, /allTasks\.filter\(t => t\.date > todayStamp\)\.sort\(\(a, b\) => a\.date\.localeCompare\(b\.date\)\)\.slice\(0, 7\)/);
-  assert.match(tasks, /allTasks\.filter\(t => t\.date < todayStamp\)\.sort\(\(a, b\) => b\.date\.localeCompare\(a\.date\)\)\.slice\(0, 4\)/);
-  assert.doesNotMatch(tasks, /allTasks\.slice\(0,7\)/);
+  assert.match(tasks, /viewDate \? allTasks\.find\(t => t\.date === viewDate\) : todayTasks/);
+  assert.match(tasks, /allTasks\.map\(t => <option key=\{t\.date\} value=\{t\.date\}>/);
+  assert.match(tasks, /onChange=\{e => setViewDate\(e\.target\.value\)\}/);
+  assert.match(tasks, /viewing\?\.date === today \? 'Today' : viewing\?\.date \? `Continue the plan from \$\{viewing\.date\}`/);
+  assert.match(tasks, /No tasks saved for this date/);
 });

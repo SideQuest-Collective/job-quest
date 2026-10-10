@@ -25,7 +25,7 @@ Check, in this order, and fix what you can in place:
 
 - Do not change any line that starts with `@@`, any `@@tests` block, or the code inside reference solutions.
 - Keep the markup valid per the format spec. Code re-runs the format checks and the tests after you finish; if either fails, all of your edits are thrown away.
-- Do not invent facts about the company.
+- Do not invent facts about the company. Cut any passage or question about what the company does (products, business, news, values); keep the focus on answering interview questions.
 
 ## Format spec
 

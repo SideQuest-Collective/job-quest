@@ -6,12 +6,24 @@ const path = require('node:path');
 
 const html = () => fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
 
-test('dashboard greeting loads the profile and contains no literal personal name', () => {
-  const dashboard = html().split('function Dashboard(')[1].split('/* ===== DISCOVER')[0];
-  const heading = dashboard.match(/<h2>(.*?)<\/h2>/)[1];
-  assert.equal(heading, '{greeting}{profile?.name ? `, ${profile.name}` : \'\'}');
-  assert.match(dashboard, /api\.get\('\/api\/profile'\)/);
-  assert.match(dashboard, /const \[profile, setProfile\] = useState\(null\)/);
+test('dashboard preserves native continuation and filters sourced highlights by actual role state', () => {
+  const vm = require('node:vm');
+  const home = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard-home.jsx'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'opportunities.jsx'), 'utf8');
+  const window = {};
+  vm.runInNewContext(source.split('window.Opportunities =')[0] + home.split('window.DashboardHome =')[0], {window, URL, Date});
+  const role = {company:'Example', role:'Backend Engineer', url:'https://example.org/jobs/1'};
+  const job = {id:'job',kind:'job',company:role.company,title:role.role,sourceLinks:[role.url],checkedAt:'2026-10-09'};
+  const contact = {id:'contact',kind:'recruiter',company:'Other',title:'Engineer',checkedAt:'2026-10-09'};
+  const due = {...contact,id:'due',status:'snoozed',nextReminderAt:'2000-01-01T00:00:00Z'};
+  const paused = {...contact,id:'paused',status:'hold_preference'};
+  assert.deepEqual(Array.from(window.dashboardHighlights([job,contact,due,paused],[role]).map(v=>v.id)),['contact','due','job']);
+  assert.deepEqual(Array.from(window.dashboardHighlights([job,contact],[role],{applied:['Example|Backend Engineer']}).map(v=>v.id)),['contact']);
+  assert.deepEqual(Array.from(window.dashboardHighlights([job],[role],{skipped:['Example|Backend Engineer']}).map(v=>v.id)),[]);
+  assert.deepEqual(Array.from(window.dashboardHighlights([job],[role],{}, {'Example|Backend Engineer':{stage:'phone-screen'}}).map(v=>v.id)),[]);
+  assert.match(home,/fetch\('\/api\/profile'\)/);
+  assert.match(home,/continuation\.href/);
+  assert.match(home,/reviewSource\?\.mode==='external'/);
 });
 
 test('the role page shows a workbook card and every JSON prep-plan trace is gone', () => {
@@ -30,11 +42,11 @@ test('the Prep Plans tab is replaced by Workbooks', () => {
   const h = html();
   assert.doesNotMatch(h, /function PrepPlans|<PrepPlans|id: 'prepplans'/);
   assert.match(h, /\{ id: 'workbooks', icon: Icons\.clipboard, label: 'Workbooks' \}/);
-  assert.match(h, /page === 'workbooks' && <Workbooks setPage=\{setPage\} \/>/);
+  assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*hidden=\{page !== 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
   assert.match(h, /page === 'workbooks' \|\| page === 'behavioral'/);
   for (const needle of [
     'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
-    '>Open<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
+    '>Open workbook<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
     'Auto-build for saved and applied roles', 'window.confirm(',
   ]) assert.ok(h.includes(needle), needle);
 });

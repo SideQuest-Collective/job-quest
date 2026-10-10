@@ -15,6 +15,7 @@ const { renderPrompt, extractJson, verifyKeywords, keywordCountsOk } = require('
 const { diffTailored, lineDiff } = require('./diff');
 const { readTracker, writeTracker } = require('../interview/tracker-effects');
 const { writeFileAtomic } = require('../interview/atomic');
+const { extractResume } = require('./import-file');
 
 const TARGET = 90;
 const MAX_ROUNDS = 3;
@@ -437,7 +438,40 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     return { round: n, ...diffTailored(readMaster(dataDir), readJson(path.join(dir, `round-${n}`, 'tailored.json'))) };
   }
 
-  async function importLatex(texPath) {
+  let importBusy = false;
+  async function withImportLock(propose) {
+    if (importBusy) throw new ServiceError(409, 'A resume import is already running. Wait for its draft before importing another file.');
+    importBusy = true;
+    try { return await propose(); } finally { importBusy = false; }
+  }
+  const importFile = file => withImportLock(() => proposeFile(file));
+  const importLatex = file => withImportLock(() => proposeLatex(file));
+
+  async function proposeFile(file) {
+    if (!fs.existsSync(file)) throw new ServiceError(404, 'Resume file not found');
+    if (path.extname(file).toLowerCase() === '.tex') return proposeLatex(file);
+    const source = await extractResume(file);
+    const cwd = path.join(dataDir, 'resume', 'import');
+    fs.mkdirSync(cwd, { recursive: true });
+    const r = await d.runAgent({
+      agent: 'resume-to-master', prompt: renderPrompt('resume-to-master', { text: JSON.stringify(source.text) }),
+      cwd, profile: 'read', timeoutMs: ANALYST_TIMEOUT_MS, logFile: path.join(cwd, 'agents.log'),
+    });
+    if (!r.ok) throw new ServiceError(502, r.timedOut ? 'The resume converter timed out. Your original is saved; try again.' : 'The resume converter failed. Your original is saved; check your configured AI runtime and try again.');
+    const parsed = extractJson(r.stdout);
+    if (!parsed.ok) throw new ServiceError(502, `The resume converter: ${parsed.error}`);
+    const current = readMaster(dataDir);
+    const base = emptyMaster();
+    const v = parsed.value && typeof parsed.value === 'object' ? parsed.value : {};
+    const proposed = assignIds(current, { ...base, ...v, version: 1, contact: { ...base.contact, ...(v.contact || {}) }, meta: current.meta || base.meta });
+    return { proposed, errors: validateMaster(proposed).errors,
+      diff: lineDiff(JSON.stringify(current, null, 2), JSON.stringify(proposed, null, 2)),
+      source: { filename: path.basename(file), format: source.format, characters: source.characters },
+      warnings: ['Review the draft against your original before saving. Check dates, contact details, and every bullet; conversion can omit or misread text.'],
+    };
+  }
+
+  async function proposeLatex(texPath) {
     if (!fs.existsSync(texPath)) throw new ServiceError(404, `LaTeX file not found: ${path.basename(texPath)}`);
     const cwd = path.join(dataDir, 'resume', 'import');
     fs.mkdirSync(cwd, { recursive: true });
@@ -456,7 +490,7 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
   }
 
   return {
-    tailoredDir, listMeta, requestTailor, autoTailor, runJob, getRecord, retry, setJd, accept, remove, pdfPath, diff, importLatex,
+    tailoredDir, listMeta, requestTailor, autoTailor, runJob, getRecord, retry, setJd, accept, remove, pdfPath, diff, importLatex, importFile,
   };
 }
 
