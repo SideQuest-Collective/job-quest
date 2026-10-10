@@ -33,7 +33,7 @@ function tailoredCardHarness(hookResult, resumeApi = {}, props = {}) {
 }
 
 test('failed tailored list GET exposes an error without an empty state or losing accepted records', async () => {
-  const source = html.match(/function useTailoredRecord\(roleKey\) \{[\s\S]*?\n\}/);
+  const source = html.match(/function useTailoredRecord\(roleKey, recordId = null\) \{[\s\S]*?\n\}/);
   assert.ok(source, 'tailored record hook exists');
   const states = [];
   let cursor = 0, response;
@@ -115,11 +115,12 @@ test('Accept works when the onAccepted prop is omitted', async () => {
 
 test('Resume Manager has a Master editor wired to the master API', () => {
   assert.ok(html.includes('function MasterEditor({ onExit })'));
-  assert.ok(html.includes("const [view, setView] = useState('home');"));
-  assert.ok(html.includes("if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;"));
+  // The Master tab shows the overview and switches into the structured editor in place.
+  assert.ok(html.includes("if (editing) return <MasterEditor onExit={() => setEditing(false)} />;"));
+  assert.ok(html.includes("onOpenMaster={() => setEditing(true)}"));
   assert.ok(html.includes("resumeApi.send('PUT', '/api/resume/master'"));
   assert.ok(html.includes("'/api/resume/master/import-latex'"));
-  assert.equal(html.split("onClick={() => setView('master')}").length - 1, 2, 'both Resume layouts link to the Master editor');
+  assert.equal(html.split("setView('master')").length - 1, 0, 'the LaTeX editor no longer carries its own Master link; the tab bar does');
 });
 
 const editor = html.slice(html.indexOf('function MasterEditor({ onExit })'), html.indexOf('/* ===== TASKS ===== */'));
@@ -187,7 +188,7 @@ test('Master editor has up and down controls for employers, roles, and projects'
 });
 
 test('the Intel role page shows the tailored-resume card and the accepted-PDF link', () => {
-  assert.ok(html.includes('function TailoredResumeCard({ roleKey, onAccepted = async () => {} })'));
+  assert.ok(html.includes('function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () => {} })'));
   assert.ok(html.includes('function AcceptedResumeLink({ roleKey, stage })'));
   assert.ok(html.includes("<TailoredResumeCard key={selectedKey} roleKey={selectedKey} onAccepted={() => api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setRoleTracker(value); })} />"));
   assert.ok(html.includes('<AcceptedResumeLink roleKey={selectedKey} stage={stage} />'));
@@ -239,7 +240,7 @@ test('Accept awaits the server and refreshes the tracker only after success', as
 });
 
 test('tailored records poll active work and refresh other subscribers after mutations', async () => {
-  const source = html.match(/function useTailoredRecord\(roleKey\) \{[\s\S]*?\n\}/);
+  const source = html.match(/function useTailoredRecord\(roleKey, recordId = null\) \{[\s\S]*?\n\}/);
   assert.ok(source, 'shared tailored-record hook exists');
   for (const status of ['queued', 'running', 'done', 'failed']) {
     const effects = [], timers = [], cleared = [], updates = [];
@@ -267,4 +268,19 @@ test('tailored records poll active work and refresh other subscribers after muta
     assert.deepEqual(cleared, timers.length ? [42] : []);
   }
   assert.ok(html.includes("window.dispatchEvent(new Event('resume-tailored-updated'))"));
+});
+
+test('Resume page opens on the Library tab with Master and LaTeX editor tabs', () => {
+  assert.ok(html.includes("const RL_TABS = [['library', 'Library'], ['master', 'Master'], ['editor', 'LaTeX editor']];"));
+  assert.ok(html.includes("return RL_TABS.some(([id]) => id === t) ? t : 'library';"));
+  assert.ok(html.includes('function ResumeEditor({ resume, setResume })'));
+  assert.ok(html.includes("<Resume resume={resume} setResume={setResume} active={page === 'resume'} setPage={setPage} onOpenRole={openNativeRole} />"));
+  assert.ok(html.includes("{tab === 'master' && <ResumeMaster active={active && tab === 'master'} />}"), 'Master tab hosts the overview/import page');
+  const lib = html.slice(html.indexOf('function ResumeLibrary('), html.indexOf('function Resume({'));
+  assert.ok(lib.includes("resumeApi.get('/api/resume/library')"));
+  assert.ok(lib.includes("`/api/resume/tailored/${r.id}/used`"));
+  assert.ok(lib.includes("`/api/resume/tailored/${r.id}/run-now`"));
+  assert.ok(lib.includes('<TailoredResumeCard roleKey={r.roleKeys[0]} recordId={r.id} />'), 'details reuse the full tailored card');
+  assert.ok(lib.includes("onOpenRole({ company: key.slice(0, i), role: key.slice(i + 1) })"), 'Open in Intel uses the app-level role launch');
+  assert.ok(!html.includes('jq-intel-focus'), 'no sessionStorage handoff remains');
 });

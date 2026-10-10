@@ -785,7 +785,7 @@ function App() {
         {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
         {visited.current.has('tasks') && <section className="page-surface" hidden={page !== 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
-        {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} /></section>}
+        {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} setPage={setPage} onOpenRole={openNativeRole} /></section>}
         {visited.current.has('intel') && <section className="page-surface" hidden={page !== 'intel'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} /></section>}
         {visited.current.has('workbooks') && <section className="page-surface" hidden={page !== 'workbooks'}><Workbooks setPage={setPage} /></section>}
         {visited.current.has('calendar') && <section className="page-surface" hidden={page !== 'calendar'}><Calendar progress={progress} /></section>}
@@ -1387,7 +1387,7 @@ function TexEditor({ code, onChange }) {
   return <div ref={ref} style={{height:'100%',width:'100%'}} />;
 }
 
-function Resume({ resume, setResume, active }) {
+function ResumeEditor({ resume, setResume }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -1420,7 +1420,6 @@ function Resume({ resume, setResume, active }) {
   const folderInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const saveTimerRef = useRef(null);
-  const [view, setView] = useState('home');
 
   const fileUrl = (name) => '/api/resume/file/' + name.split('/').map(encodeURIComponent).join('/');
   const isTextFile = (name) => /\.(tex|cls|sty|bib|bst|cfg|def|fd|dtx|ins|latexmkrc)$/i.test(name);
@@ -1655,8 +1654,6 @@ function Resume({ resume, setResume, active }) {
   const sortedDirs = Object.keys(tree).sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b));
   const canEdit = selectedFile && isTextFile(selectedFile);
 
-  if (view === 'home') return <window.ResumeHome active={active} onOpenLatex={() => { loadFiles(); setView('files'); }} onOpenMaster={() => setView('master')} />;
-  if (view === 'master') return <MasterEditor onExit={() => setView('home')} />;
 
   // Empty state — show upload zone
   if (!hasFiles || showUpload) {
@@ -1666,8 +1663,6 @@ function Resume({ resume, setResume, active }) {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}>
         <div style={{padding:'20px 28px 0'}}>
-          <h2 style={{fontSize:22,fontWeight:700,color:'var(--text)',marginBottom:4}}>Resume</h2>
-          <button className="btn btn-secondary" onClick={() => setView('master')} style={{marginBottom:12,fontSize:12,padding:'6px 14px'}}>Master resume</button>
           <div style={{fontSize:13,color:'var(--text-muted)',marginBottom:16}}>Upload your LaTeX resume project to get started</div>
           {hasFiles && <button className="btn btn-secondary" onClick={() => setShowUpload(false)} style={{marginBottom:16,fontSize:12,padding:'6px 14px'}}>← Back to Editor</button>}
         </div>
@@ -1724,8 +1719,6 @@ function Resume({ resume, setResume, active }) {
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
       {/* Toolbar */}
       <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--bg-card)',flexShrink:0}}>
-        <h2 style={{fontSize:16,fontWeight:700,color:'var(--text)',margin:0,marginRight:8}}>LaTeX workspace</h2><button className="btn btn-secondary" onClick={() => setView('home')}>Resume overview</button>
-        <button className="btn btn-secondary" onClick={() => setView('master')} style={{padding:'6px 14px',fontSize:12}}>Master</button>
         {selectedFile && (
           <span style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--text-muted)',background:'var(--bg-surface)',padding:'3px 10px',borderRadius:4}}>
             {selectedFile}
@@ -2189,7 +2182,7 @@ const RM_STATUS = { queued: 'Queued', running: 'Tailoring…', done: 'Done', 'be
 const rmScoreColor = (s) => (s >= 90 ? 'var(--emerald)' : s >= 75 ? 'var(--amber)' : 'var(--rose)');
 const rmActionBtn = { fontSize: 12, padding: '5px 12px' };
 
-function useTailoredRecord(roleKey) {
+function useTailoredRecord(roleKey, recordId = null) {
   const [records, setRecords] = useState(null);
   const [error, setError] = useState('');
   const load = useCallback(() => {
@@ -2202,7 +2195,7 @@ function useTailoredRecord(roleKey) {
     return () => window.removeEventListener('resume-tailored-updated', load);
   }, [load, roleKey]);
   const mine = (records || []).filter((m) => (m.roleKeys || []).includes(roleKey));
-  const record = mine.find((m) => m.status !== 'failed') || mine[0] || null;
+  const record = recordId ? (mine.find((m) => m.id === recordId) || null) : (mine.find((m) => m.status !== 'failed') || mine[0] || null);
   const active = !!record && RM_ACTIVE.includes(record.status);
   useEffect(() => {
     if (!active) return undefined;
@@ -2212,8 +2205,8 @@ function useTailoredRecord(roleKey) {
   return { record, reload: load, loaded: records !== null, error };
 }
 
-function TailoredResumeCard({ roleKey, onAccepted = async () => {} }) {
-  const { record, reload, loaded, error: listError } = useTailoredRecord(roleKey);
+function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () => {} }) {
+  const { record, reload, loaded, error: listError } = useTailoredRecord(roleKey, recordId);
   const [detail, setDetail] = useState(null);
   const [diff, setDiff] = useState(null);
   const [showDiff, setShowDiff] = useState(false);
@@ -2394,6 +2387,286 @@ function AcceptedResumeLink({ roleKey, stage }) {
     <a href={`/api/resume/tailored/${record.id}/pdf`} target="_blank" rel="noopener" className="btn btn-link" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
       <Icons.fileText style={{ width: 14, height: 14 }} /> Accepted resume ({record.bestScore})
     </a>
+  );
+}
+
+/* ===== RESUME LIBRARY ===== */
+const RL_TABS = [['library', 'Library'], ['master', 'Master'], ['editor', 'LaTeX editor']];
+const RL_FILTERS = [['all', 'All'], ['active', 'In progress'], ['target', '90+'], ['below', 'Below 90'], ['failed', 'Failed'], ['used', 'Used to apply']];
+const RL_STAGE = { saved: 'Saved', discovered: 'Discovered', researching: 'Researching', applied: 'Applied', 'phone-screen': 'Phone screen', onsite: 'Onsite', offer: 'Offer', rejected: 'Rejected' };
+const rlKindLabel = (kind) => (kind === 'resume' ? 'resume' : kind === 'workbook' || kind === 'workbooks' ? 'workbook' : kind);
+const rlWhen = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+};
+
+function rlMatches(r, filter) {
+  if (filter === 'active') return RM_ACTIVE.includes(r.status) || r.deferred;
+  if (filter === 'target') return typeof r.bestScore === 'number' && r.bestScore >= 90;
+  if (filter === 'below') return typeof r.bestScore === 'number' && r.bestScore < 90;
+  if (filter === 'failed') return r.status === 'failed';
+  if (filter === 'used') return r.used;
+  return true;
+}
+
+function rlQueueText(r) {
+  const q = r.queue;
+  if (r.deferred || (q && q.status === 'deferred')) return 'Waiting for tomorrow (daily auto-tailor cap reached)';
+  if (r.status === 'running' || (q && q.status === 'running')) {
+    const n = (r.rounds || []).length;
+    return n ? `Tailoring: ${n} round${n === 1 ? '' : 's'} scored so far` : 'Tailoring: reading the job description';
+  }
+  if (q && q.ahead.length) {
+    const kinds = {};
+    q.ahead.forEach((j) => { const k = rlKindLabel(j.kind); kinds[k] = (kinds[k] || 0) + 1; });
+    return 'Queued behind ' + Object.entries(kinds).map(([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`).join(' and ');
+  }
+  return 'Queued: starts next';
+}
+
+function RlScore({ r }) {
+  if (typeof r.bestScore !== 'number') return <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>;
+  const c = r.categories;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: rmScoreColor(r.bestScore), border: `1px solid ${rmScoreColor(r.bestScore)}` }}>{r.bestScore}</span>
+      {c && <span title="Keywords /30 · Parseability /30 · Structure /15 · History /15 · Content /10" style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>K{Math.round(c.K)} P{Math.round(c.P)} S{Math.round(c.S)} H{Math.round(c.H)} C{Math.round(c.C)}</span>}
+    </span>
+  );
+}
+
+function ResumeLibrary({ setPage, onOpenRole }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [sort, setSort] = useState('newest');
+  const [openId, setOpenId] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(() => resumeApi.get('/api/resume/library')
+    .then((d) => { setData(d); setError(''); })
+    .catch((err) => setError(err.message)), []);
+  useEffect(() => {
+    load();
+    window.addEventListener('resume-tailored-updated', load);
+    return () => window.removeEventListener('resume-tailored-updated', load);
+  }, [load]);
+  const records = data ? data.records : [];
+  const active = records.filter((r) => RM_ACTIVE.includes(r.status) || r.deferred);
+  const polling = records.some((r) => RM_ACTIVE.includes(r.status));
+  useEffect(() => {
+    if (!polling) return undefined;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [polling, load]);
+
+  const mutate = async (id, fn) => {
+    setBusyId(id);
+    try { await fn(); await load(); window.dispatchEvent(new Event('resume-tailored-updated')); }
+    catch (err) { setError(err.message); }
+    finally { setBusyId(null); }
+  };
+  const toggleUsed = (r) => mutate(r.id, () => resumeApi.send('PUT', `/api/resume/tailored/${r.id}/used`, { used: !r.used }));
+  const runNow = (r) => mutate(r.id, () => resumeApi.send('POST', `/api/resume/tailored/${r.id}/run-now`));
+  const openInIntel = (r) => {
+    const key = r.roleKeys[0] || '';
+    const i = key.indexOf('|');
+    if (onOpenRole && i > 0) onOpenRole({ company: key.slice(0, i), role: key.slice(i + 1) });
+    else setPage('intel');
+  };
+
+  if (!data && !error) return <div style={{ padding: 28, color: 'var(--text-muted)' }}>Loading resumes…</div>;
+
+  const q = query.trim().toLowerCase();
+  const shown = records
+    .filter((r) => rlMatches(r, filter))
+    .filter((r) => !q || `${r.company} ${r.role}`.toLowerCase().includes(q))
+    .sort((a, b) => {
+      if (sort === 'score') return (b.bestScore ?? -1) - (a.bestScore ?? -1);
+      if (sort === 'company') return a.company.localeCompare(b.company) || a.role.localeCompare(b.role);
+      return String(b.updatedAt).localeCompare(String(a.updatedAt));
+    });
+  const s = data ? data.summary : null;
+  const chips = s ? [
+    ['active', 'In progress', s.active + s.deferred, 'var(--amber)'],
+    ['target', '90 or higher', s.atTarget, 'var(--emerald)'],
+    ['below', 'Below 90', s.belowTarget, 'var(--amber)'],
+    ['failed', 'Failed', s.failed, 'var(--rose)'],
+    ['used', 'Used to apply', s.used, 'var(--cyan)'],
+  ] : [];
+  const cell = { padding: '10px 12px', borderTop: '1px solid var(--border)', fontSize: 13, verticalAlign: 'middle' };
+  const head = { ...rmLabel, display: 'table-cell', margin: 0, padding: '8px 12px', textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' };
+
+  return (
+    <div style={{ padding: '20px 28px', maxWidth: 1200 }}>
+      {error && <div style={{ fontSize: 12, color: 'var(--rose)', marginBottom: 10 }}>{error}</div>}
+
+      {s && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
+          <div style={{ ...rmCard, marginBottom: 0, padding: '10px 16px', minWidth: 110 }}>
+            <div style={rmLabel}>Resumes</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{s.total}</div>
+          </div>
+          <div style={{ ...rmCard, marginBottom: 0, padding: '10px 16px', minWidth: 110 }}>
+            <div style={rmLabel}>Avg best score</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: s.avgScore == null ? 'var(--text-muted)' : rmScoreColor(s.avgScore) }}>{s.avgScore ?? '—'}</div>
+          </div>
+          {chips.map(([f, label, n, color]) => (
+            <button key={f} onClick={() => setFilter(filter === f ? 'all' : f)} style={{ ...rmCard, marginBottom: 0, padding: '10px 16px', minWidth: 110, textAlign: 'left', cursor: 'pointer', borderColor: filter === f ? color : 'var(--border)', color: 'var(--text)' }}>
+              <div style={rmLabel}>{label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: n ? color : 'var(--text-muted)' }}>{n}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <div style={{ ...rmCard, borderColor: 'var(--amber)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            In progress{polling && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>· refreshes every few seconds</span>}
+          </div>
+          {active.map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+              <span style={{ fontWeight: 600, minWidth: 120 }}>{r.company}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13, flex: 1, minWidth: 180 }}>{r.role}</span>
+              <span style={{ fontSize: 12, color: 'var(--amber)' }}>{rlQueueText(r)}</span>
+              {(r.rounds || []).filter((x) => x.status === 'scored').map((x) => (
+                <span key={x.n} style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: rmScoreColor(x.score) }}>R{x.n} {x.score}</span>
+              ))}
+              {r.deferred && <button className="btn btn-secondary" style={rmActionBtn} disabled={busyId === r.id} onClick={() => runNow(r)}>Run now</button>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search company or role" style={{ ...rmInput, width: 240 }} />
+        <div className="tab-bar" style={{ marginBottom: 0 }}>
+          {RL_FILTERS.map(([f, label]) => <div key={f} className={`tab ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{label}</div>)}
+        </div>
+        <div style={{ flex: 1 }} />
+        <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ ...rmInput, width: 'auto' }}>
+          <option value="newest">Recently updated</option>
+          <option value="score">Highest score</option>
+          <option value="company">Company A–Z</option>
+        </select>
+      </div>
+
+      {records.length === 0 ? (
+        <div style={{ ...rmCard, color: 'var(--text-muted)', fontSize: 13 }}>
+          No tailored resumes yet. Save or apply to a role, or choose “Tailor resume” on a role in Intel.
+        </div>
+      ) : shown.length === 0 ? (
+        <div style={{ ...rmCard, color: 'var(--text-muted)', fontSize: 13 }}>No resumes match this filter.</div>
+      ) : (
+        <div style={{ ...rmCard, padding: 0, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+            <thead>
+              <tr>
+                <th style={head}>Company · role</th>
+                <th style={head}>ATS score</th>
+                <th style={head}>Status</th>
+                <th style={head}>Stage</th>
+                <th style={head} title="Accepted resumes count automatically; click to change">Used to apply</th>
+                <th style={head}>Updated</th>
+                <th style={head}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => {
+                const open = openId === r.id;
+                return (
+                  <React.Fragment key={r.id}>
+                    <tr onClick={() => setOpenId(open ? null : r.id)} style={{ cursor: 'pointer', background: open ? 'var(--bg-surface)' : undefined }}>
+                      <td style={cell}>
+                        <div style={{ fontWeight: 600 }}>{r.company}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{r.role}</div>
+                      </td>
+                      <td style={cell}><RlScore r={r} /></td>
+                      <td style={{ ...cell, fontSize: 12 }}>
+                        <span style={{ color: r.status === 'failed' ? 'var(--rose)' : RM_ACTIVE.includes(r.status) ? 'var(--amber)' : 'var(--text-secondary)' }}>
+                          {RM_STATUS[r.status] || r.status}{r.deferred ? ' (daily cap)' : ''}
+                        </span>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.roundCount} round{r.roundCount === 1 ? '' : 's'} · {r.trigger === 'manual' ? 'manual' : 'auto'}</div>
+                      </td>
+                      <td style={{ ...cell, fontSize: 12 }}>{RL_STAGE[r.stage] || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                      <td style={cell} onClick={(e) => e.stopPropagation()}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!r.used} disabled={busyId === r.id} onChange={() => toggleUsed(r)} />
+                          {r.used ? 'Yes' : 'No'}
+                          {typeof r.usedToApply !== 'boolean' && r.accepted && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>(accepted)</span>}
+                        </label>
+                      </td>
+                      <td style={{ ...cell, fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{rlWhen(r.updatedAt)}</td>
+                      <td style={{ ...cell, whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                        {r.bestRound && <a href={`/api/resume/tailored/${r.id}/pdf`} target="_blank" rel="noopener" style={{ fontSize: 12, marginRight: 10, color: 'var(--cyan)' }}>PDF</a>}
+                        <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => setOpenId(open ? null : r.id)}>{open ? 'Close' : 'Details'}</button>
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: '4px 16px 16px', background: 'var(--bg-surface)' }}>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 4px', flexWrap: 'wrap' }}>
+                            <span>Created {rlWhen(r.createdAt)}</span>
+                            {r.acceptedAt && <span>Accepted {rlWhen(r.acceptedAt)}</span>}
+                            {r.jdUrl && <a href={r.jdUrl} target="_blank" rel="noopener" style={{ color: 'var(--cyan)' }}>Job posting</a>}
+                            <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => openInIntel(r)}>Open role in Intel</button>
+                          </div>
+                          <TailoredResumeCard roleKey={r.roleKeys[0]} recordId={r.id} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Master tab: dev's import/overview page, with the structured editor as its edit mode.
+function ResumeMaster({ active }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) return <MasterEditor onExit={() => setEditing(false)} />;
+  return <window.ResumeHome active={active} onOpenMaster={() => setEditing(true)} onOpenLatex={() => window.dispatchEvent(new CustomEvent('jq-resume-tab', { detail: 'editor' }))} />;
+}
+
+function Resume({ resume, setResume, active = true, setPage = () => {}, onOpenRole = null }) {
+  const [tab, setTab] = useState(() => {
+    try { const t = localStorage.getItem('jq-resume-tab'); return RL_TABS.some(([id]) => id === t) ? t : 'library'; } catch { return 'library'; }
+  });
+  const pick = (t) => { setTab(t); try { localStorage.setItem('jq-resume-tab', t); } catch {} };
+  // First visit with no master yet: start on Master so the import flow is what a new user sees.
+  useEffect(() => {
+    let stored = null;
+    try { stored = localStorage.getItem('jq-resume-tab'); } catch {}
+    if (stored) return;
+    resumeApi.get('/api/resume/master').then((m) => { if (!(m && Array.isArray(m.experience) && m.experience.length)) setTab('master'); }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const go = (e) => { if (RL_TABS.some(([id]) => id === e.detail)) pick(e.detail); };
+    window.addEventListener('jq-resume-tab', go);
+    return () => window.removeEventListener('jq-resume-tab', go);
+  }, []);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 20px 0', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)', flexShrink: 0 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', margin: '0 8px 10px 0' }}>Resume</h2>
+        {RL_TABS.map(([id, label]) => (
+          <div key={id} onClick={() => pick(id)} style={{ padding: '6px 4px 10px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: tab === id ? 'var(--amber)' : 'var(--text-muted)', borderBottom: `2px solid ${tab === id ? 'var(--amber)' : 'transparent'}`, marginBottom: -1 }}>{label}</div>
+        ))}
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflow: tab === 'editor' ? 'hidden' : 'auto' }}>
+        {tab === 'library' && <ResumeLibrary setPage={setPage} onOpenRole={onOpenRole} />}
+        {tab === 'master' && <ResumeMaster active={active && tab === 'master'} />}
+        {tab === 'editor' && <ResumeEditor resume={resume} setResume={setResume} />}
+      </div>
+    </div>
   );
 }
 
