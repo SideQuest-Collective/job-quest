@@ -84,7 +84,8 @@ process.env.JOB_QUEST_REPLY_QUEUE = outreachStorage.queuePath;
 
 // --- Shared job queue (workbooks, resume tailoring) ---
 const jobHandlers = {};
-const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers });
+// Resume tailoring takes minutes; workbook builds take about an hour. Run resumes first.
+const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers, priority: ['resume'] });
 const roleEvents = createRoleEventBus();
 const feedbackService = createFeedbackService({ dataDir: DATA_DIR, queue: jobQueue, handlers: jobHandlers });
 const feedbackRoute = fn => (req, res) => { try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save or load feedback. Your existing data has been preserved.' }); } };
