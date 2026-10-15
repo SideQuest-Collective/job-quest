@@ -590,6 +590,7 @@
 <script type="text/babel" src="/content-readiness.jsx"></script>
 <script type="text/babel" src="/dashboard-home.jsx"></script>
 <script type="text/babel" src="/resume-home.jsx"></script>
+<script type="text/babel" src="/daily-drop.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -614,6 +615,7 @@ const Icons = {
   mapPin: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>,
   externalLink: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
   check: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+  headphones: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>,
   zap: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
   code: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>,
   play: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
@@ -642,7 +644,7 @@ const api = {
 /* ===== PAGE HASH ROUTING ===== */
 const PAGE_IDS = new Set([
   'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel',
-  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup',
+  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup', 'dailydrop',
 ]);
 
 function readPageHash() {
@@ -749,6 +751,7 @@ function App() {
   const navItems = [
     { id: 'dashboard', icon: Icons.target, label: 'Dashboard' },
     { id: 'practice', icon: Icons.play, label: 'Practice' },
+    { id: 'dailydrop', icon: Icons.headphones, label: 'Daily Drop' },
     { id: 'opportunities', icon: Icons.briefcase, label: 'Outreach' },
     { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
     { id: 'tasks', icon: Icons.checkSquare, label: 'Daily Tasks', badge: taskCount || null },
@@ -795,6 +798,7 @@ function App() {
         {visited.current.has('codelab') && <section className="page-surface" hidden={page !== 'codelab'}><CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('sysdesign') && <section className="page-surface" hidden={page !== 'sysdesign'}><SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} /></section>}
         {visited.current.has('behavioral') && <section className="page-surface" hidden={page !== 'behavioral'}><Behavioral /></section>}
+        {visited.current.has('dailydrop') && <section className="page-surface" hidden={page !== 'dailydrop'}><window.DailyDrop active={page === 'dailydrop'} /></section>}
         {visited.current.has('trainer') && <section className="page-surface" hidden={page !== 'trainer'}><Trainer /></section>}
         {(visited.current.has('practice') || visited.current.has('learn')) && <section className="page-surface" hidden={!['practice','learn'].includes(page)}>
           <nav className="practice-modes" aria-label="Practice mode" style={{display:'flex',gap:8,marginBottom:24,maxWidth:1050,marginLeft:'auto',marginRight:'auto'}}>
@@ -808,6 +812,7 @@ function App() {
         {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities onConfigureIntel={()=>{setIntelConfigureRequest(n=>n+1);setPage('setup');}} active={page==='opportunities'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
 
       </div>
+      {window.DailyDropOnboarding && <window.DailyDropOnboarding setPage={setPage} />}
     </div>
   );
 }
@@ -1154,6 +1159,7 @@ function LocalSetup({setPage,onConfigureOutreach,active,intelConfigureRequest}) 
  <section className="card"><h3>Optional private phone access</h3><p>{setup?.privateAuthenticated?'You are connected through your private Tailscale link.':setup?.privateConfigured?'Your private link is configured. Open it from your phone with Tailscale connected.':'Local-only mode. Nothing needs installing to use Job Quest on this Mac.'}</p><p>For phone access away from home, use Tailscale on both devices with the same personal account. This Mac must stay awake and online.</p>{setup?.privateConfigured && setup?.privateOrigin && <p><a className="btn btn-primary" href={setup.privateOrigin+'/#dashboard'}>Open private Job Quest</a></p>}<div className="action-row"><a href="https://tailscale.com/download/mac" target="_blank" rel="noopener noreferrer">Tailscale for Mac</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noopener noreferrer">Tailscale for iPhone</a></div></section>
  <window.IntelSetup active={active} configureRequest={intelConfigureRequest}/>
  <window.ContentReadiness/>
+ <window.DailyDropSetupCard/>
  <details className="card"><summary>Local connection configuration</summary><p>Use Job Quest’s configure-local command to connect local review files or a private Tailscale origin. These optional settings stay in your private data folder and do not turn on network access by themselves.</p><code>~/.job-quest/bin/configure-local.cjs --help</code></details></>;
 }
 

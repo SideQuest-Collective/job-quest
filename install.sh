@@ -146,6 +146,8 @@ cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
 cp "$APP_DIR/skill/bin/run-interview-trainer.sh" "$BIN_DIR/run-interview-trainer.sh"
 cp "$APP_DIR/skill/bin/install-trainer-schedule.sh" "$BIN_DIR/install-trainer-schedule.sh"
 cp "$APP_DIR/skill/bin/run-trainer-replies.sh" "$BIN_DIR/run-trainer-replies.sh"
+cp "$APP_DIR/skill/bin/run-daily-podcast.sh" "$BIN_DIR/run-daily-podcast.sh"
+cp "$APP_DIR/skill/bin/install-podcast-schedule.sh" "$BIN_DIR/install-podcast-schedule.sh"
 cp "$APP_DIR/skill/bin/import-workbook.sh" "$BIN_DIR/import-workbook.sh"
 
 # Dedicated Full Disk Access entry point for the trainer reply poller (macOS).
