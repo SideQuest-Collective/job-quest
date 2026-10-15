@@ -15,13 +15,54 @@
 
   const openOnboarding = () => window.dispatchEvent(new CustomEvent('jq:daily-drop-setup'));
 
+  // The key is only "connected" once Google has actually returned audio for it. Until then the fix is shown here.
+  const keyProblem = (state) => state.hasKey && !(state.key && state.key.verified) ? state.key || { message: 'This key has not been checked yet.', remediation: '' } : null;
+
   function SetupPrompt({ state }) {
     const missing = [!state.hasKey && 'voices', !(state.schedule && state.schedule.installed) && 'morning schedule'].filter(Boolean);
-    if (!missing.length) return null;
+    const problem = keyProblem(state);
+    if (!missing.length && !problem) return null;
     return (
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Daily Drop still needs its {missing.join(' and ')}.</div>
+        <div style={{ fontSize: 14, color: 'var(--text-secondary)', flex: 1, minWidth: 240 }}>
+          {missing.length > 0 && <div>Daily Drop still needs its {missing.join(' and ')}.</div>}
+          {problem && <div role="alert" style={{ color: 'var(--rose)', marginTop: missing.length ? 6 : 0 }}>{problem.code === 'unchecked' ? "The saved Gemini key hasn't been tested yet. Check it in the Voices card below." : "The saved Gemini key can't record audio yet. Fix it in the Voices card below."}</div>}
+        </div>
         <button className="btn btn-primary" onClick={openOnboarding}>Set up Daily Drop</button>
+      </div>
+    );
+  }
+
+  // Manage the Gemini key here: see whether it works, replace it, check it again or remove it.
+  // The key itself never comes back from the server; only its last four characters do.
+  function VoicesCard({ state, reload }) {
+    const [editing, setEditing] = useState(false), [draft, setDraft] = useState(''), [busy, setBusy] = useState(false), [note, setNote] = useState('');
+    const key = state.key || { verified: false, code: 'no-key', source: 'none' };
+    const verdict = (r) => (r.key.verified ? 'Voices connected.' : `${r.key.message} ${r.key.remediation}`);
+    const run = async (fn) => { setBusy(true); setNote(''); try { await fn(); } catch (e) { setNote(e.message); } finally { setBusy(false); reload(); } };
+    const save = () => run(async () => { const r = await req('/api/podcast/config', 'PUT', { apiKey: draft }); setDraft(''); setEditing(false); setNote(verdict(r)); });
+    const check = () => run(async () => setNote(verdict(await req('/api/podcast/key/verify', 'POST'))));
+    const remove = () => { if (window.confirm('Remove the saved Gemini key? Episodes stop until a new one is added.')) run(async () => { await req('/api/podcast/key', 'DELETE'); setNote('Key removed.'); }); };
+    const when = key.checkedAt ? new Date(key.checkedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+    return (
+      <div className="card" aria-label="Voices">
+        <div className="card-title" style={{ fontWeight: 600, marginBottom: 8 }}>Voices</div>
+        {!state.hasKey && <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 0 }}>No Gemini key saved. The hosts need one to record. Create it at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>; a short test recording checks it before anything else runs.</p>}
+        {state.hasKey && key.verified && <p role="status" style={{ fontSize: 14, color: 'var(--emerald)', marginTop: 0 }}>Connected. Key {key.hint}{key.source === 'env' ? ' from GEMINI_API_KEY' : ''}{when ? `, checked ${when}` : ''}.</p>}
+        {state.hasKey && !key.verified && <p role="alert" style={{ fontSize: 14, color: 'var(--rose)', marginTop: 0, lineHeight: 1.5 }}>Key {key.hint} can't record audio. {key.message} {key.remediation}</p>}
+        {editing && <label style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>New Gemini API key<input type="password" autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Paste key" style={field} /></label>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {editing
+            ? <>
+                <button className="btn btn-primary" disabled={busy || !draft.trim()} onClick={save}>{busy ? 'Testing…' : 'Save and test'}</button>
+                <button className="btn btn-secondary" disabled={busy} onClick={() => { setEditing(false); setDraft(''); }}>Cancel</button>
+              </>
+            : <button className="btn btn-primary" disabled={busy || key.source === 'env'} onClick={() => setEditing(true)}>{state.hasKey ? 'Replace key' : 'Add key'}</button>}
+          {state.hasKey && !editing && <button className="btn btn-secondary" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check the key again'}</button>}
+          {state.hasKey && !editing && key.source !== 'env' && <button className="btn btn-secondary" disabled={busy} onClick={remove}>Remove key</button>}
+        </div>
+        {key.source === 'env' && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>This key is set by the GEMINI_API_KEY environment variable, so it can only be changed there.</p>}
+        {note && <div role="status" style={{ fontSize: 13, marginTop: 10, color: 'var(--text-secondary)' }}>{note}</div>}
       </div>
     );
   }
@@ -72,7 +113,7 @@
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
             {ep && ep.status === 'ready' && <button className="btn btn-secondary" onClick={loadScript}>{showScript ? 'Hide transcript' : 'Read transcript'}</button>}
-            <button className="btn btn-secondary" disabled={busy || !state.hasKey} onClick={generate}>{busy ? 'Making episode…' : 'Make a new episode now'}</button>
+            <button className="btn btn-secondary" disabled={busy || !(state.key && state.key.verified)} title={state.key && state.key.verified ? undefined : 'Connect a working Gemini key first'} onClick={generate}>{busy ? 'Making episode…' : 'Make a new episode now'}</button>
           </div>
           {note && <div role="status" style={{ fontSize: 13, marginTop: 10, color: 'var(--text-secondary)' }}>{note}</div>}
           {showScript && script && (
@@ -83,6 +124,7 @@
             </div>
           )}
         </div>
+        <VoicesCard state={state} reload={reload} />
         {eps.length > 1 && (
           <div className="card">
             <div className="card-title" style={{ fontWeight: 600, marginBottom: 8 }}>Past episodes</div>
@@ -210,9 +252,9 @@
 
           {step === 'voices' && <>
             <h2 id="dd-onb-title" style={{ margin: '8px 0' }}>Connect the voices</h2>
-            {info.hasKey
-              ? <p role="status" style={{ color: 'var(--emerald)' }}>A Gemini key is already saved. You can keep it or paste a new one.</p>
-              : <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>The hosts use Gemini text-to-speech, about $0.16 an episode with a free tier. Create a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a> and paste it here. It stays on this Mac.</p>}
+            {info.hasKey && info.key.verified && <p role="status" style={{ color: 'var(--emerald)' }}>A working Gemini key is already saved. You can keep it or paste a new one.</p>}
+            {info.hasKey && !info.key.verified && <p role="alert" style={{ color: 'var(--rose)', lineHeight: 1.5 }}>The saved key can't record audio yet. {info.key.message} {info.key.remediation}</p>}
+            {!info.hasKey && <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>The hosts use Gemini text-to-speech, about $0.16 an episode with a free tier. Create a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a> and paste it here. It stays on this Mac, and a short test recording checks it works before anything else runs.</p>}
             <label style={{ fontSize: 14 }}>Gemini API key<input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={info.hasKey ? 'Saved' : 'Paste key'} style={field} /></label>
           </>}
 
@@ -241,7 +283,15 @@
               <button className="btn btn-secondary" disabled={busy} onClick={() => close('skip')}>No thanks</button>
             </>}
             {step === 'voices' && <>
-              <button className="btn btn-primary" disabled={busy || (!key.trim() && !info.hasKey)} onClick={() => act(async () => { if (key.trim()) await req('/api/podcast/config', 'PUT', { apiKey: key }); setKey(''); await load(); next(); })}>Save and continue</button>
+              <button className="btn btn-primary" disabled={busy || (!key.trim() && !info.hasKey)} onClick={() => act(async () => {
+                // Saving runs a short test recording. A key that cannot record stays on this step with the fix shown.
+                const r = key.trim() ? await req('/api/podcast/config', 'PUT', { apiKey: key }) : { key: info.key };
+                setKey('');
+                const v = await load();
+                if (!(r.key && r.key.verified) && !(v.key && v.key.verified)) throw new Error(`${r.key ? r.key.message : ''} ${r.key ? r.key.remediation : ''}`.trim());
+                next();
+              })}>{key.trim() ? 'Save and test' : 'Continue'}</button>
+              {info.hasKey && !info.key.verified && <button className="btn btn-secondary" disabled={busy} onClick={() => act(async () => { const r = await req('/api/podcast/key/verify', 'POST'); await load(); if (!r.key.verified) throw new Error(`${r.key.message} ${r.key.remediation}`.trim()); next(); })}>Check the key again</button>}
               <button className="btn btn-secondary" disabled={busy} onClick={back}>Back</button>
               <button className="btn btn-secondary" disabled={busy} onClick={next}>Skip this step</button>
             </>}
@@ -251,11 +301,11 @@
               <button className="btn btn-secondary" disabled={busy} onClick={() => act(async () => { await req('/api/podcast/onboarding', 'POST', { action: 'done' }); setDone('Set up without a schedule'); next(); })}>Skip, I'll make episodes by hand</button>
             </>}
             {step === 'finish' && <>
-              <button className="btn btn-primary" disabled={busy || !info.hasKey} onClick={() => act(async () => { await req('/api/podcast/generate', 'POST', { force: true, deliver: true }); setOpen(false); if (setPage) setPage('dailydrop'); })}>Make my first episode now</button>
+              <button className="btn btn-primary" disabled={busy || !info.key.verified} onClick={() => act(async () => { await req('/api/podcast/generate', 'POST', { force: true, deliver: true }); setOpen(false); if (setPage) setPage('dailydrop'); })}>Make my first episode now</button>
               <button className="btn btn-secondary" disabled={busy} onClick={() => setOpen(false)}>I'll wait</button>
             </>}
           </div>
-          {!info.hasKey && step === 'finish' && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>Add a Gemini key on the Daily Drop page before the first episode can be recorded.</p>}
+          {!info.key.verified && step === 'finish' && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>{info.hasKey ? `The saved Gemini key can't record audio yet. ${info.key.remediation}` : 'Add a Gemini key on the Daily Drop page before the first episode can be recorded.'}</p>}
         </div>
       </div>
     );
@@ -265,7 +315,7 @@
   function DailyDropSetupCard() {
     const [info, setInfo] = useState(null);
     useEffect(() => { req('/api/podcast/onboarding').then(setInfo).catch(() => {}); }, []);
-    const ready = info && info.hasKey && info.schedule.installed;
+    const ready = info && info.key && info.key.verified && info.schedule.installed;
     return (
       <section className="card" aria-label="Daily Drop podcast">
         <h3>Daily Drop podcast</h3>

@@ -48,6 +48,37 @@ function writeApiKey(dataDir, key) {
   fs.chmodSync(file, 0o600);
 }
 
+// Whether the saved key has been proven to record audio. Tied to the key itself, so a new key starts unchecked.
+function keyStatusFile(dataDir) { return path.join(podcastDir(dataDir), 'key-status.json'); }
+function writeKeyStatus(dataDir, apiKey, status) {
+  writeJson(keyStatusFile(dataDir), { ...status, keyHash: shortHash(apiKey) });
+  return readKeyStatus(dataDir);
+}
+// Where the active key comes from: the environment wins over the secrets file.
+function keySource(dataDir) {
+  if (process.env.GEMINI_API_KEY) return 'env';
+  return readJson(secretsFile(dataDir), {}).geminiApiKey ? 'file' : 'none';
+}
+function removeApiKey(dataDir) {
+  fs.rmSync(secretsFile(dataDir), { force: true });
+  fs.rmSync(keyStatusFile(dataDir), { force: true });
+}
+// The status never includes the key itself; `hint` is the last four characters so the person can tell keys apart.
+function readKeyStatus(dataDir) {
+  const apiKey = readApiKey(dataDir);
+  if (!apiKey) {
+    const { REMEDIATION } = require('./verify');
+    return { verified: false, code: 'no-key', message: 'No Gemini API key is saved.', remediation: REMEDIATION['no-key'], source: 'none' };
+  }
+  const meta = { source: keySource(dataDir), hint: `…${apiKey.slice(-4)}` };
+  const saved = readJson(keyStatusFile(dataDir), null);
+  if (!saved || saved.keyHash !== shortHash(apiKey)) {
+    return { verified: false, code: 'unchecked', message: 'This key has not been checked yet.', remediation: 'Check the key to make sure it can record audio.', ...meta };
+  }
+  const { keyHash, ...status } = saved;
+  return { ...status, ...meta };
+}
+
 function readConfig(dataDir) {
   const saved = readJson(path.join(podcastDir(dataDir), 'config.json'), {});
   return { ...DEFAULT_CONFIG, ...saved, hosts: Array.isArray(saved.hosts) && saved.hosts.length === 2 ? saved.hosts : DEFAULT_CONFIG.hosts };
@@ -109,6 +140,6 @@ const shortHash = (s) => crypto.createHash('sha1').update(String(s)).digest('hex
 
 module.exports = {
   DEFAULT_CONFIG, podcastDir, episodesDir, episodeDir, readJson, writeJson,
-  readApiKey, writeApiKey, readConfig, writeConfig, readHistory, recordAired, markFuzzy, listEpisodes, shortHash,
+  readApiKey, writeApiKey, removeApiKey, keySource, readKeyStatus, writeKeyStatus, readConfig, writeConfig, readHistory, recordAired, markFuzzy, listEpisodes, shortHash,
   SNOOZE_DAYS, readOnboarding, writeOnboarding, shouldShowOnboarding,
 };

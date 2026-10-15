@@ -10,6 +10,21 @@ const { buildGroups } = require('./groups');
 const { pickConcepts } = require('./picker');
 const { writeScript } = require('./script');
 const { renderEpisodeAudio } = require('./tts');
+const { verifyApiKey } = require('./verify');
+
+// Prove the key can record audio before any cheat-sheet or script agent runs. A key that failed
+// earlier is checked again here, so a billing fix takes effect on the next scheduled run by itself.
+async function ensureVerifiedKey({ dataDir, config, fetchFn, log }) {
+  let status = store.readKeyStatus(dataDir);
+  if (status.verified) return status;
+  const apiKey = store.readApiKey(dataDir);
+  if (apiKey) {
+    log('checking the Gemini key can record audio');
+    status = store.writeKeyStatus(dataDir, apiKey, await verifyApiKey({ apiKey, model: config.model, hosts: config.hosts, ...(fetchFn ? { fetchFn } : {}) }));
+    if (status.verified) return status;
+  }
+  throw Object.assign(new Error(`${status.message} ${status.remediation}`.trim()), { code: status.code });
+}
 
 function localDate(d = new Date()) {
   const z = (n) => String(n).padStart(2, '0');
@@ -74,6 +89,7 @@ async function generateEpisode({ dataDir, date = localDate(), force = false, del
   save({ status: 'building', step: 'cheat sheets', error: null });
 
   try {
+    await ensureVerifiedKey({ dataDir, config, fetchFn, log });
     if (buildSheets && config.sheetsPerRun > 0) await topUpSheets(dataDir, config.sheetsPerRun, log);
     if (group) {
       const g = await buildGroups({ dataDir, cards: rawCards(dataDir).cards });

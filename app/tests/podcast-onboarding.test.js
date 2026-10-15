@@ -66,7 +66,9 @@ test('onboarding routes: auto-show, decline, key + schedule complete the setup',
   };
   const app = express();
   app.use(express.json());
-  registerPodcastRoutes(app, { dataDir: d, schedule });
+  // Saving a key runs a test recording; answer it with audio so the key counts as connected.
+  const fetchFn = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ steps: [{ content: [{ type: 'audio', data: Buffer.alloc(2400).toString('base64') }] }] }) });
+  registerPodcastRoutes(app, { dataDir: d, schedule, fetchFn });
   const server = app.listen(0);
   t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -92,6 +94,7 @@ test('onboarding routes: auto-show, decline, key + schedule complete the setup',
   assert.strictEqual(store.readConfig(d).hour, 7);
   o = (await call('GET', '/api/podcast/onboarding')).body;
   assert.strictEqual(o.hasKey, true);
+  assert.strictEqual(o.key.verified, true);
   assert.strictEqual(o.show, false, 'configured means no auto-show even while pending');
 });
 
