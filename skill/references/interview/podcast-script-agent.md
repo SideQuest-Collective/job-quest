@@ -34,6 +34,7 @@ The due review question below must be one of the scenarios.
 
 These come from what makes the best educational shows and tutorial dialogues stick. They are not optional flavour; the episode is built from them.
 
+- **From first principles.** Reason it out, never recite it. Start from what must be true in that room: what the interviewer actually needs to see, what the constraint forbids, what a correct answer has to guarantee. Build the move up from those truths one step at a time so every decision is derived in front of Tarun rather than announced. {{hostB}} brings the questions; {{hostA}} works through them patiently and rigorously, enjoying it. It should sound like two friends who do this for fun, with the recorder left on.
 - **Curiosity gap first.** Open every scenario with the question, and delay the answer. The listener should feel the gap before anything is explained.
 - **Generate, don't receive.** The pause is the point. Tarun answers in his head before the hosts do; people remember what they produced far better than what they heard. Never fill a pause with a hint.
 - **{{hostB}} is the listener's stand-in.** Tutorial dialogues beat lectures because the learner's side asks the deep "why" questions and voices the tempting wrong answer. {{hostB}} does exactly that: "why not just sort it?", "what if the graph has a cycle?", "I'd have reached for a lock here, what's wrong with that?" {{hostA}} answers the question, not the topic.
