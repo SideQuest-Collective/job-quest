@@ -22,16 +22,23 @@ function jaccard(a, b) {
 }
 
 // Roles worth studying: tracked and not rejected, or saved. Returns [{roleKey, company, role, stage, weight}].
+// Roles the person has closed out. A rejected role stays closed even if it is still in the saved or applied lists.
+function closedRoleKeys(dataDir) {
+  const tracker = readJson(path.join(dataDir, 'role-tracker.json'), {});
+  return new Set(Object.entries(tracker).filter(([, v]) => v && v.stage === 'rejected').map(([k]) => k));
+}
+
 function activeRoles(dataDir) {
   const tracker = readJson(path.join(dataDir, 'role-tracker.json'), {});
   const actions = readJson(path.join(dataDir, 'role-actions.json'), {});
+  const closed = closedRoleKeys(dataDir);
   const out = new Map();
   for (const [key, v] of Object.entries(tracker)) {
     const stage = v && v.stage;
-    if (!stage || stage === 'rejected') continue;
+    if (!stage || closed.has(key)) continue;
     out.set(key, { roleKey: key, stage, weight: STAGE_WEIGHT[stage] ?? 1 });
   }
-  for (const key of actions.saved || []) if (!out.has(key)) out.set(key, { roleKey: key, stage: 'saved', weight: 1 });
+  for (const key of actions.saved || []) if (!out.has(key) && !closed.has(key)) out.set(key, { roleKey: key, stage: 'saved', weight: 1 });
   return [...out.values()].map((r) => {
     const [company, ...rest] = r.roleKey.split('|');
     return { ...r, company, role: rest.join('|') };
@@ -122,4 +129,4 @@ function buildMaster(dataDir, { threshold = 0.5 } = {}) {
   return { builtAt: new Date().toISOString(), grouped: !!groups, sources, missing: missingSheets(dataDir).map(({ roleKey, stage }) => ({ roleKey, stage })), cards };
 }
 
-module.exports = { STAGE_WEIGHT, activeRoles, workbookIndex, sheetIdFor, missingSheets, rawCards, buildMaster, tokens, jaccard };
+module.exports = { closedRoleKeys, STAGE_WEIGHT, activeRoles, workbookIndex, sheetIdFor, missingSheets, rawCards, buildMaster, tokens, jaccard };

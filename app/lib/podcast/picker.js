@@ -6,18 +6,27 @@
 const fs = require('fs');
 const path = require('path');
 const { readJson, readHistory, shortHash } = require('./store');
+const { closedRoleKeys } = require('./master');
 
 const DAY = 86400000;
 
 function daysBetween(a, b) { return Math.floor((new Date(b) - new Date(a)) / DAY); }
 
-function recentWeakSpots(dataDir, today, { windowDays = 21 } = {}) {
+// A session's role comes from its ingestion record; sessions of a closed role no longer feed episodes.
+function sessionRoleKey(dataDir, folder) {
+  const rec = readJson(path.join(dataDir, 'interview-sessions', `${folder}.json`), null);
+  return rec && rec.roleKey ? String(rec.roleKey) : null;
+}
+
+function recentWeakSpots(dataDir, today, { windowDays = 21, closed = new Set() } = {}) {
   const dir = path.join(dataDir, 'interview-work', 'sessions');
   if (!fs.existsSync(dir)) return [];
   const out = [];
   for (const folder of fs.readdirSync(dir).sort().reverse()) {
     const m = folder.match(/^(\d{4}-\d{2}-\d{2})_\d{4}(?:_(.+))?$/);
     if (!m || daysBetween(m[1], today) > windowDays) continue;
+    const roleKey = sessionRoleKey(dataDir, folder);
+    if (roleKey && closed.has(roleKey)) continue;
     const a = readJson(path.join(dir, folder, 'analysis.json'), null);
     if (!a || !Array.isArray(a.weakSpots)) continue;
     const asked = Array.isArray(a.asked) ? a.asked : [];
@@ -37,7 +46,14 @@ function recentWeakSpots(dataDir, today, { windowDays = 21 } = {}) {
   return out;
 }
 
-function dueReviewQuestions(dataDir, now, readWorkbook) {
+// Review questions from a workbook whose roles are all closed are skipped.
+function workbookClosed(dataDir, wbId, closed) {
+  const meta = readJson(path.join(dataDir, 'workbooks', wbId, 'meta.json'), null);
+  const keys = meta && Array.isArray(meta.roleKeys) ? meta.roleKeys : [];
+  return keys.length > 0 && keys.every((k) => closed.has(k));
+}
+
+function dueReviewQuestions(dataDir, now, readWorkbook, { closed = new Set() } = {}) {
   const srs = readJson(path.join(dataDir, 'trainer', 'workbook-srs.json'), {});
   const due = Object.entries(srs)
     .filter(([, v]) => v && !v.retired && v.dueAt && new Date(v.dueAt) <= now)
@@ -46,6 +62,7 @@ function dueReviewQuestions(dataDir, now, readWorkbook) {
   const cache = new Map();
   for (const [key] of due) {
     const [wbId, qId] = key.split(':');
+    if (workbookClosed(dataDir, wbId, closed)) continue;
     if (!cache.has(wbId)) { try { cache.set(wbId, readWorkbook(dataDir, wbId)); } catch { cache.set(wbId, null); } }
     const wb = cache.get(wbId);
     const q = wb && wb.questions.find((x) => x.id === qId);
@@ -67,7 +84,8 @@ function pickConcepts({ dataDir, master, today, now = new Date(), readWorkbook, 
     return d < 3 ? -100 : Math.min(d, 10) - h.airCount; // hold back for 3 days, then return on a widening schedule
   };
 
-  const weak = recentWeakSpots(dataDir, today)
+  const closed = closedRoleKeys(dataDir);
+  const weak = recentWeakSpots(dataDir, today, { closed })
     .map((w) => ({ ...w, score: freshness(w.id) + (w.date ? 10 - Math.min(10, daysBetween(w.date, today)) : 0) }))
     .filter((w) => w.score > -50)
     .sort((a, b) => b.score - a.score)
@@ -94,7 +112,7 @@ function pickConcepts({ dataDir, master, today, now = new Date(), readWorkbook, 
     cards.push({ id: c.id, kind: 'card', title: c.title, category: c.category, bullets: c.bullets, code: c.code, companies: c.companies, shared: c.shared });
   }
 
-  const review = readWorkbook ? dueReviewQuestions(dataDir, now, readWorkbook).filter((q) => !aired(q.id) || freshness(q.id) > -50).slice(0, counts.review) : [];
+  const review = readWorkbook ? dueReviewQuestions(dataDir, now, readWorkbook, { closed }).filter((q) => !aired(q.id) || freshness(q.id) > -50).slice(0, counts.review) : [];
   return { weak, cards, review, all: [...weak, ...cards, ...review] };
 }
 

@@ -96,6 +96,26 @@ function goodScript(words = 1400, { pauses = 7 } = {}) {
   return { title: 'Lock the rule', summary: 'Why the rule comes before code.', takeaways: ['a', 'b', 'c'], segments: segs };
 }
 
+test('closed roles leave the podcast: saved-but-rejected roles, their session weak spots and their workbook reviews', () => {
+  const d = fixture();
+  const w = (rel, v) => { fs.mkdirSync(path.dirname(path.join(d, rel)), { recursive: true }); fs.writeFileSync(path.join(d, rel), JSON.stringify(v)); };
+  // 'Old|Gone' is rejected in the tracker but still sits in the saved list; its interview and workbook must not feed episodes.
+  w('role-actions.json', { saved: ['Linear|PE', 'Old|Gone'], skipped: [], applied: ['Old|Gone'] });
+  w('interview-work/sessions/2026-10-12_0900_old-onsite/analysis.json', { asked: [{ title: 'Dead question', rubric: 'r' }], weakSpots: [{ label: 'Weak spot from the dead role', ref: 0 }] });
+  w('interview-sessions/2026-10-12_0900_old-onsite.json', { folder: '2026-10-12_0900_old-onsite', roleKey: 'Old|Gone', status: 'ingested' });
+  w('workbooks/old-gone/meta.json', { id: 'old-gone', roleKeys: ['Old|Gone'], status: 'ready' });
+  w('trainer/workbook-srs.json', { 'old-gone:q1': { dueAt: '2026-10-01T00:00:00Z' }, 'citadel-swe:q1': { dueAt: '2026-10-01T00:00:00Z' } });
+  const { activeRoles } = require('../lib/podcast/master');
+  assert.ok(!activeRoles(d).some((r) => r.roleKey === 'Old|Gone'), 'a rejected role is not revived by the saved or applied lists');
+
+  const readWorkbook = (dir, id) => ({ questions: [{ id: 'q1', prompt: `${id} question?`, answer: 'a', topic: 't' }] });
+  const picked = pickConcepts({ dataDir: d, master: buildMaster(d), today: '2026-10-15', now: new Date('2026-10-15T12:00:00Z'), readWorkbook, counts: { weak: 5, cards: 3, review: 3 } });
+  assert.ok(!picked.weak.some((x) => /dead role/.test(x.label)), 'weak spots from a closed role are skipped');
+  assert.ok(picked.weak.some((x) => /Counting rule/.test(x.label)), 'weak spots from live roles still come through');
+  assert.ok(!picked.review.some((x) => x.workbookId === 'old-gone'), 'review questions from a closed role are skipped');
+  assert.ok(picked.review.some((x) => x.workbookId === 'citadel-swe'), 'review questions from live roles still come through');
+});
+
 test('script validation enforces hosts, length and pause beats', () => {
   const ok = validateScript(goodScript(), { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
   assert.ok(ok.ok, ok.errors.join('; '));
