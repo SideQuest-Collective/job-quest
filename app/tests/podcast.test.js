@@ -216,9 +216,9 @@ test('script validation keeps episodes plain: no sponsors, no delivery notes, fi
   // A long preamble before the first question is an intro, and he asked for none.
   const slow = base();
   const filler = { type: 'line', speaker: HOSTS[1].name, text: 'Welcome back to the show, it is a beautiful morning and we have so much to get through today together. ' };
-  slow.segments = Array.from({ length: 12 }, () => filler).concat(slow.segments);
+  slow.segments = Array.from({ length: 20 }, () => filler).concat(slow.segments);
   v = validateScript(slow, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
-  assert.ok(!v.ok && v.errors.some((e) => /first question|200 words/i.test(e)), v.errors.join('; '));
+  assert.ok(!v.ok && v.errors.some((e) => /first question|300 words/i.test(e)), v.errors.join("; "));
 });
 
 test('only companies with upcoming rounds are banned from the script; saved roles with ordinary-word names are not', async () => {

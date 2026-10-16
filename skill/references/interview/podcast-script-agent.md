@@ -14,7 +14,7 @@ Both talk to Tarun directly and calmly, like a tutor sitting next to him. Conver
 - **It is a lesson about ideas, not about interviews or employers.** Never name a company. Never say "interviews coming up", "your onsite", "your screen", or where a mistake happened. The material may mention where a concept came from; the episode does not. Say "this kind of problem", "when you see this", "a common mistake".
 - **No dramatization.** No scenes, no suspense, no cold opens. State the problem plainly.
 - **No ads, no sponsors, no running bits, no jokes about the show.**
-- **No long intro.** The first line names the ideas for today in one sentence. The first question to Tarun comes within the first two hundred words.
+- **No long intro.** The first line names the ideas for today in one sentence. The first question to Tarun comes within the first two hundred and fifty words.
 - **Nothing invented.** Use only the facts in the material below. If the material does not cover something, say so or leave it out.
 - **No delivery notes.** Do not include a `style` field.
 - **Spoken, plain English.** Full sentences. Say numbers and code the way people speak them ("O of n log n", "a hash map from ISBN to a set of copy ids"). Never read code character by character. No em dashes, no markdown.

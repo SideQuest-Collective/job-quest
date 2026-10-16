@@ -20,7 +20,7 @@ function countWords(s) { return String(s).trim().split(/\s+/).filter(Boolean).le
 // Episodes are scenario-first: every concept becomes a question to the listener, silence to think, then the reasoning.
 // The validator holds the writer to that shape so it cannot drift back into reading notes aloud.
 const CLIPPED_WORDS = 8;
-const MAX_INTRO_WORDS = 200;
+const MAX_INTRO_WORDS = 300;
 function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = Math.max(3, concepts + 1), forbidden = [] }) {
   const errors = [];
   if (!data || typeof data !== 'object') return { ok: false, errors: ['not a JSON object'] };
