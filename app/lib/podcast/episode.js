@@ -32,6 +32,12 @@ function localDate(d = new Date()) {
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
 }
 
+// Spaced retrieval across days: the most recent ready episode before this date supplies rules to recall first.
+function previousTakeaways(dataDir, date) {
+  const prev = store.listEpisodes(dataDir).find((e) => e.date < date && e.status === 'ready' && Array.isArray(e.takeaways) && e.takeaways.length);
+  return prev ? prev.takeaways.slice(0, 3) : [];
+}
+
 function masterFile(dataDir) { return path.join(store.podcastDir(dataDir), 'master-cheatsheet.json'); }
 function refreshMaster(dataDir) {
   const master = buildMaster(dataDir);
@@ -114,7 +120,8 @@ async function generateEpisode({ dataDir, date = localDate(), force = false, del
     log(`topic sheets ready: ${topicSheets.length} of ${ranking.topics.length}`);
 
     save({ step: 'picking concepts' });
-    const picked = pickConcepts({ dataDir, master, topics: topicSheets, today: date, readWorkbook });
+    const picked = pickConcepts({ dataDir, master, topics: topicSheets, today: date, readWorkbook, counts: { topics: config.topicsPerEpisode, algorithmTopics: config.algorithmTopics } });
+    picked.recall = previousTakeaways(dataDir, date);
     if (!picked.all.length) throw new Error('Nothing to cover yet. Build at least one cheat sheet first.');
     log(`picked ${picked.topics.length} topics, ${picked.cards.length} cards, ${picked.review.length} review questions`);
 
@@ -140,4 +147,4 @@ async function generateEpisode({ dataDir, date = localDate(), force = false, del
   }
 }
 
-module.exports = { localDate, refreshMaster, readMaster, masterFile, generateEpisode, deliverIMessage };
+module.exports = { previousTakeaways, localDate, refreshMaster, readMaster, masterFile, generateEpisode, deliverIMessage };

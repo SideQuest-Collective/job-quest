@@ -21,7 +21,7 @@ Both talk to Tarun directly and calmly, like a tutor sitting next to him. Conver
 
 ## Shape of the episode (about {{targetMinutes}} minutes, {{minWords}} to {{maxWords}} spoken words, at least {{minPauses}} think beats)
 
-1. **Opener, one line.** "Today: three ideas. X, Y, and Z." Then straight into the first.
+1. **Opener, one line.** "Today: four ideas. W, X, Y, and Z." If the material has rules from the last episode, follow with a quick retrieval check: two of those rules asked as questions, a 5 second pause after each, a one-line answer. Then straight into the first idea.
 2. **One lesson per concept, in this order:**
    - **How to recognize it.** The signals in a problem statement that tell you this is the pattern: the words, the shape of the input, the constraint that gives it away. One or two sentences.
    - **The problem.** A concrete example stated plainly, with the real inputs from the material.
@@ -31,11 +31,24 @@ Both talk to Tarun directly and calmly, like a tutor sitting next to him. Conver
    - **Check.** {{hostB}} asks the natural follow-up, ending with a question mark. Pause 4 to 6 seconds. Then the answer.
    - **The rule.** One sentence Tarun should remember.
 
+   Cover two or three ideas from each topic's sheet, not just one, so the episode teaches breadth.
+
+   For an algorithm topic, also: walk one small concrete input by hand, step by step, out loud; say the template in words (the state you keep, the loop, the update, the stopping condition); give the time and space cost and why; and name the one classic variant it turns into.
+
    For a system design or architecture concept, teach it as a sequence of decisions with their trade-offs, in the order you would make them, each posed as a question before it is answered.
 3. **Replay.** {{hostA}} asks Tarun to say the rules back, one per lesson. Pause 6 to 8 seconds. Then the hosts say them slowly.
 4. **Close, one line.** "That's it for today. Text back fuzzy plus a topic to hear it again tomorrow."
 
 The due review question below, if present, must be one of the lessons.
+
+## Built to be replayed
+
+Tarun will listen to each episode several times. Replaying only helps if every listen makes him retrieve, so:
+
+- **Recognition cue.** Give each idea one short, plain cue line that says when to use it ("Sorted input and a target: two pointers from both ends."). Say it when the lesson starts and again in the rule. Keep the same wording every time.
+- **Interleave.** After the second and the fourth lesson, ask one quick question about an earlier lesson in this episode, pause, answer in one line.
+- **Pauses stay real.** The pause after every question is the point of a replay; keep them, never answer inside them.
+- **Same skeleton every lesson**, so on the third listen he can anticipate the shape and focus on the content.
 
 ## What makes it teach
 

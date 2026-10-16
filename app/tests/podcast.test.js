@@ -80,7 +80,7 @@ test('picker mixes weak spots and cards and holds back recently aired ones', () 
 });
 
 // A script shaped the way episodes must be: every pause follows a question to the listener, lines are full sentences.
-function goodScript(words = 1400, { pauses = 7 } = {}) {
+function goodScript(words = 1900, { pauses = 7 } = {}) {
   const segs = [];
   const sentence = 'You lock the rule first and then you write the code out loud. ';
   const linesPerPause = Math.max(2, Math.floor(words / 39 / pauses));

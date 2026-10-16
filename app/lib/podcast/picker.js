@@ -76,7 +76,7 @@ function dueReviewQuestions(dataDir, now, readWorkbook, { closed = new Set() } =
 // Episodes are built from the ranked topics (anticipated questions), not from past interviews: weak spots are off
 // unless asked for, and master cards only fill in when no topic sheet exists yet.
 function pickConcepts({ dataDir, master, topics = null, today, now = new Date(), readWorkbook, counts = {} }) {
-  counts = { weak: 0, topics: 3, cards: 0, review: 1, ...counts };
+  counts = { weak: 0, topics: 4, algorithmTopics: 2, cards: 0, review: 1, ...counts };
   const history = readHistory(dataDir);
   const aired = (id) => history[id] && history[id].lastAired;
   const freshness = (id) => {
@@ -94,11 +94,16 @@ function pickConcepts({ dataDir, master, topics = null, today, now = new Date(),
     .sort((a, b) => b.score - a.score)
     .slice(0, counts.weak);
 
-  const topicsPicked = (topics || [])
+  const { isAlgorithmTopic } = require('./topics');
+  const eligible = (topics || [])
     .map((t) => ({ ...t, score: t.importance + freshness(t.id) * 4 }))
     .filter((t) => t.score > -50)
+    .sort((a, b) => b.score - a.score);
+  // Reserve slots for algorithm topics so every day drills at least that many, then fill by importance.
+  const algoFirst = eligible.filter((t) => isAlgorithmTopic(t)).slice(0, Math.min(counts.algorithmTopics, counts.topics));
+  const rest = eligible.filter((t) => !algoFirst.includes(t)).slice(0, counts.topics - algoFirst.length);
+  const topicsPicked = [...rest, ...algoFirst]
     .sort((a, b) => b.score - a.score)
-    .slice(0, counts.topics)
     .map((t) => ({
       id: t.id, kind: 'topic', title: t.title, importance: t.importance, roleCount: t.roleCount, questionCount: t.questionCount,
       cards: t.cards || [],

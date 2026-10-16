@@ -19,6 +19,14 @@ const MERGE_THRESHOLD = 0.34;
 // Company pitches, logistics and behavioral rounds are not concepts to learn.
 const SKIP_TOPIC = /^(company|about the company|culture|logistics|behavio(u)?ral.*|why [a-z].*)$/i;
 
+// Algorithm topics get reserved episode slots and their sheets are built first.
+const ALGO_NAME = /algorithm|graph|hash|sort|heap|interval|string|stack|tree|binary search|sliding|window|two pointer|dynamic programming|recurs|backtrack|traversal|union find|topolog|greedy|queue|linked list|array|bfs|dfs|trie|prefix sum/i;
+function isAlgorithmTopic(t) {
+  const cards = Array.isArray(t.cards) ? t.cards : [];
+  if (cards.length) return cards.filter((c) => c.category === 'algorithms').length * 2 > cards.length || ALGO_NAME.test(t.title);
+  return ALGO_NAME.test(t.title || '');
+}
+
 function topicsFile(dataDir) { return path.join(dataDir, 'podcast', 'topics.json'); }
 function topicGroupsFile(dataDir) { return path.join(dataDir, 'podcast', 'topic-groups.json'); }
 function namesHash(names) { return crypto.createHash('sha256').update([...names].sort().join('\n')).digest('hex'); }
@@ -215,7 +223,9 @@ async function buildTopicGroups({ dataDir, ranking, runAgentFn = runAgent, timeo
 }
 
 function missingTopicSheets(dataDir, ranking) {
-  return (ranking && ranking.topics ? ranking.topics : []).filter((t) => { const s = readSheet(dataDir, t.id); return !s || s.sourceHash !== t.sourceHash; });
+  const missing = (ranking && ranking.topics ? ranking.topics : []).filter((t) => { const s = readSheet(dataDir, t.id); return !s || s.sourceHash !== t.sourceHash; });
+  // Stable: algorithm topics first, each group still in ranking order.
+  return [...missing.filter((t) => isAlgorithmTopic(t)), ...missing.filter((t) => !isAlgorithmTopic(t))];
 }
 
 async function topUpTopicSheets(dataDir, ranking, limit, log = () => {}, opts = {}) {
@@ -240,4 +250,4 @@ function readTopicSheets(dataDir, ranking) {
   return out;
 }
 
-module.exports = { SHEET_AGENT, GROUPS_AGENT, topicsFile, topicSheetFile, topicGroupsFile, rankTopics, readRanking, readTopicGroups, validateTopicGroups, buildTopicGroups, buildTopicSheet, missingTopicSheets, topUpTopicSheets, readTopicSheets, readSheet };
+module.exports = { isAlgorithmTopic, SHEET_AGENT, GROUPS_AGENT, topicsFile, topicSheetFile, topicGroupsFile, rankTopics, readRanking, readTopicGroups, validateTopicGroups, buildTopicGroups, buildTopicSheet, missingTopicSheets, topUpTopicSheets, readTopicSheets, readSheet };

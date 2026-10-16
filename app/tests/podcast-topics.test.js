@@ -142,3 +142,51 @@ test('topic names that differ by wording are merged, behavioral is not a concept
   const again = await topics.buildTopicGroups({ dataDir: d, ranking: r, runAgentFn });
   assert.ok(again.cached && calls === 1, 'the grouping is reused while the topic names are unchanged');
 });
+
+test('every episode reserves slots for algorithm topics and covers four topics by default', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-algo-'));
+  const sheet = (cat) => [1, 2, 3].map((n) => ({ title: `idea ${n}`, category: cat, bullets: ['a.', 'b.', 'c.', 'd.'] }));
+  const mk = (title, importance, cat) => ({ id: require('../lib/podcast/store').shortHash(title), title, importance, roleCount: 1, questionCount: 3, questions: [{ prompt: `${title}?`, answer: 'a', type: 'written' }], cards: sheet(cat) });
+  const pool = [
+    mk('Backend and system design', 300, 'design'), mk('Complexity and tradeoffs', 200, 'fundamentals'), mk('API design', 150, 'design'),
+    mk('Exact money arithmetic', 120, 'fundamentals'), mk('Graph traversal and ordering', 60, 'algorithms'), mk('Hash maps and counting', 50, 'algorithms'), mk('Intervals', 10, 'algorithms'),
+  ];
+  const p = pickConcepts({ dataDir: d, master: { cards: [] }, topics: pool, today: '2026-10-17', now: new Date('2026-10-17T12:00:00Z') });
+  assert.strictEqual(p.topics.length, 4);
+  const algo = p.topics.filter((t) => topics.isAlgorithmTopic(t));
+  assert.strictEqual(algo.length, 2, p.topics.map((t) => t.title).join(' | '));
+  assert.deepStrictEqual(algo.map((t) => t.title), ['Graph traversal and ordering', 'Hash maps and counting']);
+  assert.ok(p.topics.some((t) => t.title === 'Backend and system design'));
+
+  // Day over day the algorithm slots move down the list once the top ones have aired.
+  store.recordAired(d, p.topics.map((t) => t.id), '2026-10-17');
+  const next = pickConcepts({ dataDir: d, master: { cards: [] }, topics: pool, today: '2026-10-18', now: new Date('2026-10-18T12:00:00Z') });
+  assert.ok(next.topics.some((t) => t.title === 'Intervals'), next.topics.map((t) => t.title).join(' | '));
+});
+
+test('algorithm topics are recognized by name before a sheet exists and their sheets are built first', () => {
+  assert.ok(topics.isAlgorithmTopic({ title: 'Sorting and heaps' }));
+  assert.ok(topics.isAlgorithmTopic({ title: 'Stacks and tree traversal' }));
+  assert.ok(!topics.isAlgorithmTopic({ title: 'Backend and system design' }));
+  assert.ok(!topics.isAlgorithmTopic({ title: 'Exact money arithmetic' }));
+  assert.ok(topics.isAlgorithmTopic({ title: 'Odd name', cards: [{ category: 'algorithms' }, { category: 'algorithms' }, { category: 'design' }] }));
+  const { d, readWorkbook } = fixture();
+  const r = topics.rankTopics(d, { readWorkbook });
+  const order = topics.missingTopicSheets(d, r).map((t) => t.title);
+  const firstNonAlgo = order.findIndex((t) => !topics.isAlgorithmTopic({ title: t }));
+  assert.ok(order.slice(firstNonAlgo).every((t) => !topics.isAlgorithmTopic({ title: t })), order.join(' | '));
+});
+
+test('the brief carries the previous episode\'s rules so the new one opens with a spaced retrieval check', () => {
+  const m = materialText({ weak: [], topics: [], cards: [], review: [], recall: ['Index at write time.', 'Sort by start, compare to the last end.'] });
+  assert.match(m, /Rules from the last episode/);
+  assert.match(m, /Index at write time\./);
+  assert.ok(!/Rules from the last episode/.test(materialText({ weak: [], topics: [], cards: [], review: [], recall: [] })));
+  const { previousTakeaways } = require('../lib/podcast/episode');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-recall-'));
+  store.writeJson(path.join(store.episodeDir(d, '2026-10-15'), 'episode.json'), { date: '2026-10-15', status: 'ready', takeaways: ['old rule'] });
+  store.writeJson(path.join(store.episodeDir(d, '2026-10-16'), 'episode.json'), { date: '2026-10-16', status: 'ready', takeaways: ['rule a', 'rule b'] });
+  store.writeJson(path.join(store.episodeDir(d, '2026-10-17'), 'episode.json'), { date: '2026-10-17', status: 'failed' });
+  assert.deepStrictEqual(previousTakeaways(d, '2026-10-17'), ['rule a', 'rule b']);
+  assert.deepStrictEqual(previousTakeaways(d, '2026-10-16'), ['old rule'], 'a regenerated day recalls the day before, not itself');
+});

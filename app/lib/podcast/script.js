@@ -84,6 +84,10 @@ function materialText(picked) {
       parts.push(`- ${w.label}${w.question ? `\n  The problem: ${w.question.title}\n  What a strong answer does: ${w.question.rubric}` : ''}`);
     }
   }
+  if (picked.recall && picked.recall.length) {
+    parts.push('### Rules from the last episode (open with a quick retrieval check: ask him two of these as questions, pause after each, then answer in one line)');
+    for (const r of picked.recall) parts.push(`- ${r}`);
+  }
   for (const t of picked.topics || []) {
     parts.push(`### Topic: ${t.title} (${t.questionCount} anticipated question${t.questionCount === 1 ? '' : 's'} across ${t.roleCount} role${t.roleCount === 1 ? '' : 's'})`);
     for (const c of t.cards || []) parts.push(`#### ${c.title} (${c.category})\n${c.bullets.map((b) => `- ${b}`).join('\n')}${c.code ? `\nCode, describe it in words:\n${c.code}` : ''}`);

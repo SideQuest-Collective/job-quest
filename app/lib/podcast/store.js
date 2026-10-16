@@ -11,10 +11,12 @@ const DEFAULT_CONFIG = {
     { name: 'Maya', voice: 'Kore', role: 'coach', style: 'warm, quick, a little playful' },
     { name: 'Dev', voice: 'Puck', role: 'skeptical interviewer', style: 'dry, sharp, curious' },
   ],
-  targetMinutes: 11,
+  targetMinutes: 15,
   hour: 8,
   minute: 30,
   sheetsPerRun: 3,
+  topicsPerEpisode: 4,
+  algorithmTopics: 2,
   imessage: true,
 };
 
@@ -84,7 +86,7 @@ function readConfig(dataDir) {
   return { ...DEFAULT_CONFIG, ...saved, hosts: Array.isArray(saved.hosts) && saved.hosts.length === 2 ? saved.hosts : DEFAULT_CONFIG.hosts };
 }
 function writeConfig(dataDir, patch) {
-  const allowed = ['enabled', 'targetMinutes', 'hour', 'minute', 'sheetsPerRun', 'imessage', 'hosts', 'model'];
+  const allowed = ['enabled', 'targetMinutes', 'hour', 'minute', 'sheetsPerRun', 'topicsPerEpisode', 'algorithmTopics', 'imessage', 'hosts', 'model'];
   const next = { ...readConfig(dataDir) };
   for (const k of allowed) if (patch[k] !== undefined) next[k] = patch[k];
   next.targetMinutes = Math.min(20, Math.max(5, Number(next.targetMinutes) || DEFAULT_CONFIG.targetMinutes));
