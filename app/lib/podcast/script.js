@@ -20,6 +20,7 @@ function countWords(s) { return String(s).trim().split(/\s+/).filter(Boolean).le
 // Episodes are scenario-first: every concept becomes a question to the listener, silence to think, then the reasoning.
 // The validator holds the writer to that shape so it cannot drift back into reading notes aloud.
 const CLIPPED_WORDS = 8;
+const MAX_INTRO_WORDS = 200;
 function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = Math.max(3, concepts + 1) }) {
   const errors = [];
   if (!data || typeof data !== 'object') return { ok: false, errors: ['not a JSON object'] };
@@ -27,7 +28,7 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
   if (typeof data.title !== 'string' || !data.title.trim()) errors.push('missing title');
   if (typeof data.summary !== 'string' || !data.summary.trim()) errors.push('missing summary');
   if (!Array.isArray(data.segments) || data.segments.length < 10) errors.push('segments must be a list of at least 10 items');
-  let words = 0, pauses = 0, lines = 0, clipped = 0, prevLine = null;
+  let words = 0, pauses = 0, lines = 0, clipped = 0, prevLine = null, wordsBeforeFirstPause = null;
   (data.segments || []).forEach((s, i) => {
     const at = `segment ${i + 1}`;
     if (!s || typeof s !== 'object') { errors.push(`${at}: not an object`); return; }
@@ -35,13 +36,15 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
       const n = Number(s.seconds);
       if (!(n >= 4 && n <= 10)) errors.push(`${at}: pause seconds must be 4 to 10, long enough to actually think`);
       if (!prevLine || !/\?/.test(prevLine.text || '')) errors.push(`${at}: a pause must follow a question to the listener; the line before it has no question mark`);
+      if (wordsBeforeFirstPause === null) wordsBeforeFirstPause = words;
       pauses++;
     } else if (s.type === 'line') {
       if (!names.includes(s.speaker)) errors.push(`${at}: speaker must be ${names.join(' or ')}`);
       if (typeof s.text !== 'string' || !s.text.trim()) errors.push(`${at}: empty text`);
       else if (s.text.length > 600) errors.push(`${at}: text is ${s.text.length} chars > 600`);
       else if (/[—]/.test(s.text)) errors.push(`${at}: remove em dashes`);
-      else if (/lightning round/i.test(s.text)) errors.push(`${at}: no lightning round; every concept is a scenario with a think beat`);
+      else if (/lightning round/i.test(s.text)) errors.push(`${at}: no lightning round; every concept is a lesson with a think beat`);
+      else if (/brought to you by|our sponsor|sponsored by/i.test(s.text)) errors.push(`${at}: no sponsors or ads, real or made up`);
       const n = countWords(s.text || '');
       words += n; lines++;
       if (n < CLIPPED_WORDS) clipped++;
@@ -52,6 +55,7 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
   if (words < minWords) errors.push(`only ${words} spoken words; need at least ${minWords}`);
   if (words > maxWords) errors.push(`${words} spoken words; keep it under ${maxWords}`);
   if (pauses < minPauses) errors.push(`only ${pauses} think beats (a question, then a pause); need at least ${minPauses}: one per concept plus the closing replay`);
+  if (wordsBeforeFirstPause !== null && wordsBeforeFirstPause > MAX_INTRO_WORDS) errors.push(`${wordsBeforeFirstPause} words before the first question; ask it within the first ${MAX_INTRO_WORDS} words, no long intro`);
   if (lines && clipped / lines > 0.5) errors.push(`${clipped} of ${lines} lines are under ${CLIPPED_WORDS} words; that reads like clipped commentary, write full conversational sentences`);
   if (errors.length) return { ok: false, errors, words, pauses };
   return {
@@ -61,7 +65,7 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
       takeaways: Array.isArray(data.takeaways) ? data.takeaways.map(String).slice(0, 5) : [],
       segments: data.segments.map((s) => (s.type === 'pause'
         ? { type: 'pause', seconds: Number(s.seconds) }
-        : { type: 'line', speaker: s.speaker, text: s.text.trim(), ...(s.style ? { style: String(s.style).slice(0, 60) } : {}) })),
+        : { type: 'line', speaker: s.speaker, text: s.text.trim() })),
     },
   };
 }

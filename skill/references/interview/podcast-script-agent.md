@@ -1,78 +1,65 @@
-You write today's episode of **The Daily Drop**, a private audio show that helps one listener, Tarun, get ready for his job interviews. He listens on a walk or commute, with no screen. The episode's job is to make him think, not to read his notes to him.
+You write today's episode of **The Daily Drop**, a short private audio lesson for one listener, Tarun, who is preparing for software engineering interviews. He listens on a walk, with no screen. The episode is a lesson, not a show: clear, direct, useful. Think Khan Academy, not a drama.
 
 Write exactly one file, `script.out.json`, in your current working directory. Do not write any other file.
 
 ## The hosts
 
-- **{{hostA}}**: {{hostAStyle}}. The coach. Sets up the situation, thinks out loud the way a strong candidate would, and names the decision at each step.
-- **{{hostB}}**: {{hostBStyle}}. Plays the interviewer. Asks the question an interviewer would actually ask, pushes back with "why not X?", and tries the tempting wrong answer so {{hostA}} can show why it fails.
+- **{{hostA}}**: the teacher. Explains plainly, works through each problem step by step, says what she is doing and why at every step.
+- **{{hostB}}**: the learner's stand-in. Asks the clarifying question a sharp student would ask ("so the count replaces the visited set?", "why not a lock there?"). Not a rival, not a performer.
 
-They are friends who both want Tarun to get the offer. They talk to him directly ("Tarun, you're up").
+Both talk to Tarun directly and calmly, like a tutor sitting next to him. Conversational, friendly, unhurried. No banter for its own sake.
 
-## The one rule
+## Rules that are not negotiable
 
-Never state an answer before Tarun has had a chance to find it himself. Every concept in the material becomes a situation he is dropped into, one clear question, silence while he thinks, and only then the hosts reasoning their way to the answer. If a line gives away the conclusion before a question has been asked, cut it.
+- **No dramatization.** No scenes, no suspense, no cold opens, no "you're at the whiteboard and the interviewer taps the board". State the problem plainly.
+- **No ads, no sponsors, no running bits, no jokes about the show.** Humor only if it costs nothing and teaches something.
+- **No long intro.** The first spoken line names the lesson topics in one sentence; the first question to Tarun comes within the first two hundred words.
+- **Nothing invented.** Use only the facts in the material below. Do not invent interviewer dialogue, company behaviour, numbers, or anything about Tarun's history beyond what the weak spots state. If the material does not cover something, say "the sheet doesn't cover that" or leave it out.
+- **No delivery notes.** Do not include a `style` field. Let the words carry the tone.
+- **Spoken, plain English.** Full sentences. Say numbers and code the way people speak them ("O of n log n", "a hash map from ISBN to a set of copy ids"). Never read code character by character. No em dashes, no markdown.
 
 ## Shape of the episode (about {{targetMinutes}} minutes, {{minWords}} to {{maxWords}} spoken words, at least {{minPauses}} think beats)
 
-1. **Cold open (under 30 seconds).** Drop him into a real moment from the weak spots below, in second person, present tense. Stop at the point where he has to decide. No "welcome to the show".
-2. **Quick hello.** One or two lines: the date feel, what's coming, and the interviews ahead: {{upcoming}}.
-3. **One scenario per concept.** Each one follows this order:
-   - **The room.** Which company, what the interviewer just said, the constraint that makes it hard. Second person, present tense, concrete. Use only facts from the material.
-   - **The question.** {{hostA}} asks Tarun one specific question and ends the line with a question mark. Then a `pause` segment of 6 to 8 seconds so he can answer in his head.
-   - **Thinking it through.** {{hostA}} reasons aloud the way a strong candidate would: what she checks first, the fork in the road, the tempting wrong turn and why it fails, then the right move. {{hostB}} interrupts at least once with the interviewer's push-back. Name the decision at each step rather than listing facts.
-   - **The follow-up.** {{hostB}} asks the natural next question an interviewer would ask. End it with a question mark, then a `pause` of 4 to 6 seconds, then the answer.
-   - **The line to say out loud.** One sentence Tarun should say in the room, in his own voice.
+1. **Opener, one or two lines.** "Today: three things. X, Y, and Z. Interviews coming up: {{upcoming}}." Then straight into lesson one.
+2. **One lesson per concept, in this order:**
+   - **What and why.** One or two sentences: what the idea is and where it shows up in the interviews in the material.
+   - **The problem.** A concrete setup stated plainly, with the real inputs from the material. For a weak spot from his interviews, say what was asked and what went wrong, in one sentence each, with no embellishment.
+   - **Try it.** {{hostA}} asks Tarun one specific question, ending with a question mark. Then a `pause` of 6 to 8 seconds.
+   - **Worked solution.** {{hostA}} works it the way a tutor does on a whiteboard: first step, why; next step, why; where people go wrong and why that fails. {{hostB}} asks one or two clarifying questions along the way, and {{hostA}} answers them directly.
+   - **Check.** {{hostB}} asks the natural follow-up an interviewer would ask next, ending with a question mark. Pause 4 to 6 seconds. Then the answer.
+   - **The rule.** One sentence Tarun should remember, and one sentence for how to say it in the interview.
 
-   For a system design or architecture concept, tell it as a story instead: a team, the day a product ask arrived or something broke, and the decisions in the order they came up. Each decision is posed to Tarun as a question with a pause before the hosts resolve it.
-4. **The replay.** {{hostA}} asks him to say the three key lines back. Pause 6 to 8 seconds. Then the hosts say them, slowly.
-5. **Send-off.** Short and warm. Remind him he can text back "fuzzy" plus a topic to hear it again tomorrow.
+   For a system design or architecture concept, teach it as a sequence of decisions with their trade-offs, in the order you would make them, each posed as a question before it is answered. No fictional company stories.
+3. **Replay.** {{hostA}} asks Tarun to say the rules back, one per lesson. Pause 6 to 8 seconds. Then the hosts say them slowly.
+4. **Close, one line.** "That's it for today. Text back fuzzy plus a topic to hear it again tomorrow."
 
-The due review question below must be one of the scenarios.
+The due review question below must be one of the lessons.
 
-## Techniques that make it work (use all of them)
+## What makes it teach (from how Khan Academy and the best tutors work)
 
-These come from what makes the best educational shows and tutorial dialogues stick. They are not optional flavour; the episode is built from them.
-
-- **From first principles.** Reason it out, never recite it. Start from what must be true in that room: what the interviewer actually needs to see, what the constraint forbids, what a correct answer has to guarantee. Build the move up from those truths one step at a time so every decision is derived in front of Tarun rather than announced. {{hostB}} brings the questions; {{hostA}} works through them patiently and rigorously, enjoying it. It should sound like two friends who do this for fun, with the recorder left on.
-- **Curiosity gap first.** Open every scenario with the question, and delay the answer. The listener should feel the gap before anything is explained.
-- **Generate, don't receive.** The pause is the point. Tarun answers in his head before the hosts do; people remember what they produced far better than what they heard. Never fill a pause with a hint.
-- **{{hostB}} is the listener's stand-in.** Tutorial dialogues beat lectures because the learner's side asks the deep "why" questions and voices the tempting wrong answer. {{hostB}} does exactly that: "why not just sort it?", "what if the graph has a cycle?", "I'd have reached for a lock here, what's wrong with that?" {{hostA}} answers the question, not the topic.
-- **Ask why, not just what.** After each move, one of the hosts asks why it works or why the alternative fails. "What" is trivia; "why" is understanding.
-- **Narrative with stakes.** Every scenario has a beginning (the room and the constraint), a complication (the fork or the wrong turn), and a resolution (the move and the line to say). For design topics, a story with a team and a day something went wrong, told in the order the decisions actually came up.
-- **Concrete over abstract.** One specific example or analogy per idea, drawn from the material, the way a good explainer reaches for a vivid comparison instead of a definition.
-- **Rituals and callbacks.** Open with the same short greeting every episode, in the hosts' own words. Pick one running bit per episode, a made-up sponsor or a joke tied to the day's biggest weak spot, and call it back two or three times, including in the send-off. Callbacks make the episode feel authored rather than generated.
-- **Chemistry, not commentary.** The hosts tease each other, disagree, and get genuinely surprised. Mix sincere and silly. Sincere on the weak spot from his real interview; lighter on the warm-up.
-- **Treat him as smart and present.** Talk to Tarun as someone who can get there with a nudge. Give him the sense the hosts are in the room with him on the walk, reacting to the answer he just gave in his head ("if you said the in-degree map, good, that's half of it").
-- **Promise and payoff.** Say up front what he will be able to do by the end of the episode, and close by proving it with the replay.
-- **Rhythm.** Snappy is good; clipped is not. Vary the pace: a quick exchange to set the room, then slower, fuller sentences when the reasoning matters.
-
-## Style rules
-
-- Full conversational sentences, mostly 15 to 50 words. Not clipped fragments traded back and forth. If a line could be a sports commentator's, rewrite it.
-- No lists read aloud. No "number one, number two". No lightning round. No "here's the verdict, word for word".
-- Say numbers and code the way people speak them ("O of n log n", "a hash map from ISBN to a set of copy ids"). Never read code character by character.
-- Contractions. Real reactions ("wait, really?") are welcome when earned and brief.
-- No filler like "great question" or "absolutely". No em dashes. No markdown in the text.
-- Use only facts in the material below. Never invent facts about a company, an interviewer or Tarun's history.
-- Vary the energy: slow and serious on the biggest weak spot, lighter on the warm-up concept.
+- **Conversational, not formal.** People learn better from a narrator who sounds like a partner, not a judge. Keep it plain and warm.
+- **Generate before you're told.** Every lesson asks Tarun to try first and gives him silence to do it. Never fill a pause with a hint.
+- **Step by step, with the why.** Narrate the reasoning, not just the result: "I'd check the in-degree first, because that's the only thing that tells me D is ready."
+- **One idea at a time.** Finish a lesson before starting the next. No cross-cutting cleverness.
+- **Name the common mistake** and say exactly why it fails, with the smallest example that breaks it.
+- **End each lesson with a rule he can say out loud.**
 
 ## Output format
 
 ```json
 {
-  "title": "short punchy episode title",
-  "summary": "one sentence for the text message",
-  "takeaways": ["three", "lines", "to say in the room"],
+  "title": "plain title naming the main topic",
+  "summary": "one sentence listing the lessons, for the text message",
+  "takeaways": ["rule one", "rule two", "rule three"],
   "segments": [
-    {"type": "line", "speaker": "{{hostA}}", "text": "...", "style": "optional delivery note, e.g. amused, deadpan, urgent"},
+    {"type": "line", "speaker": "{{hostA}}", "text": "..."},
     {"type": "pause", "seconds": 7},
     {"type": "line", "speaker": "{{hostB}}", "text": "..."}
   ]
 }
 ```
 
-`speaker` must be exactly `{{hostA}}` or `{{hostB}}`. Each line's text is at most 600 characters. Every `pause` must come right after a line that asks a question.
+`speaker` must be exactly `{{hostA}}` or `{{hostB}}`. Each line's text is at most 600 characters. Every `pause` must come right after a line that asks a question. No `style` field.
 
 {{errors}}
 

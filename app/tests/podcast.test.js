@@ -86,7 +86,8 @@ function goodScript(words = 1400, { pauses = 7 } = {}) {
   while (n < words) {
     segs.push({ type: 'line', speaker: HOSTS[i % 2].name, text: sentence.repeat(3).trim() });
     n += 39; i++;
-    if (i % linesPerPause === 0) {
+    // The first question comes right after the opener; later ones are spread evenly.
+    if (i === 1 || i % linesPerPause === 0) {
       segs.push({ type: 'line', speaker: HOSTS[0].name, text: 'So Tarun, in that room, what is the first thing you say before you touch the keyboard?' });
       segs.push({ type: 'pause', seconds: 6 });
       n += 17;
@@ -154,6 +155,29 @@ test('a script the agent finished writing is used even if the agent is cut off a
   assert.ok(r.ok, r.error);
   assert.strictEqual(calls, 1, 'no retry when the file is already valid');
   assert.ok(r.script.segments.length > 10);
+});
+
+test('script validation keeps episodes plain: no sponsors, no delivery notes, first question early', () => {
+  const base = () => goodScript(1400, { pauses: 7 });
+
+  const ad = base();
+  ad.segments[1].text = 'Brought to you by In-Degree Zero, the energy drink that waits for its dependencies.';
+  let v = validateScript(ad, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /sponsor|ad/i.test(e)), v.errors.join('; '));
+
+  // Delivery notes get read aloud or mangled by the voice model; they are dropped, never passed through.
+  const styled = base();
+  styled.segments[0].style = 'quiet, close to the mic';
+  v = validateScript(styled, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(v.ok, v.errors.join('; '));
+  assert.ok(v.script.segments.every((s) => !('style' in s)), 'style must not survive validation');
+
+  // A long preamble before the first question is an intro, and he asked for none.
+  const slow = base();
+  const filler = { type: 'line', speaker: HOSTS[1].name, text: 'Welcome back to the show, it is a beautiful morning and we have so much to get through today together. ' };
+  slow.segments = Array.from({ length: 12 }, () => filler).concat(slow.segments);
+  v = validateScript(slow, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /first question|200 words/i.test(e)), v.errors.join('; '));
 });
 
 test('chunking splits at pauses and keeps the pause length', () => {
