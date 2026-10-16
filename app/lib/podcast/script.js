@@ -111,9 +111,10 @@ async function writeScript({ dataDir, workDir, picked, config, upcoming, timeout
   const { minWords, maxWords } = wordTargets(config.targetMinutes);
   const concepts = picked.all.length;
   const minPauses = Math.max(3, concepts + 1);
-  // Company names from the cards and the tracker must not be spoken: the episode is about ideas, not employers.
-  const { activeRoles } = require('./master');
-  const forbidden = [...new Set([...picked.cards.flatMap((c) => c.companies || []), ...activeRoles(dataDir).map((r) => r.company)])].filter(Boolean);
+  // Companies with upcoming rounds must not be spoken: the episode is about ideas, not employers. Saved roles are not
+  // banned because many company names are ordinary words (Circle, Linear, Clear) that a lesson needs.
+  const { activeRoles, STAGE_WEIGHT } = require('./master');
+  const forbidden = [...new Set([...picked.cards.flatMap((c) => c.companies || []), ...activeRoles(dataDir).filter((r) => (STAGE_WEIGHT[r.stage] || 0) >= STAGE_WEIGHT['phone-screen']).map((r) => r.company)])].filter(Boolean);
   let errors = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const out = path.join(workDir, OUT_FILE);

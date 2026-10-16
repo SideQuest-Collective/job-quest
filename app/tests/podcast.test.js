@@ -221,6 +221,21 @@ test('script validation keeps episodes plain: no sponsors, no delivery notes, fi
   assert.ok(!v.ok && v.errors.some((e) => /first question|200 words/i.test(e)), v.errors.join('; '));
 });
 
+test('only companies with upcoming rounds are banned from the script; saved roles with ordinary-word names are not', async () => {
+  const d = fixture();
+  const actions = JSON.parse(fs.readFileSync(path.join(d, 'role-actions.json')));
+  actions.saved.push('Circle|Data', 'Linear|PE');
+  fs.writeFileSync(path.join(d, 'role-actions.json'), JSON.stringify(actions));
+  const { writeScript } = require('../lib/podcast/script');
+  const picked = { weak: [], topics: [], cards: [{ id: 'c1', kind: 'card', title: 'Scan', category: 'algorithms', bullets: ['One pass.'], companies: ['Citadel'] }], review: [] };
+  picked.all = picked.cards;
+  const withLine = (text) => async ({ cwd }) => { const g = goodScript(); g.segments[0].text = text; fs.writeFileSync(path.join(cwd, 'script.out.json'), JSON.stringify(g)); return { ok: true }; };
+  const ok = await writeScript({ dataDir: d, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'jq-s-')), picked, config: store.readConfig(d), upcoming: [], runAgentFn: withLine('Draw a circle around the linear scan and clear the stack, then sequence the writes via a queue.') });
+  assert.ok(ok.ok, ok.error);
+  const bad = await writeScript({ dataDir: d, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'jq-s-')), picked, config: store.readConfig(d), upcoming: [], runAgentFn: withLine('This is the kind of thing Citadel asks in the onsite.') });
+  assert.ok(!bad.ok && /Citadel/.test(bad.error), bad.error);
+});
+
 test('chunking splits at pauses and keeps the pause length', () => {
   const chunks = tts.chunkSegments([
     { type: 'line', speaker: 'Maya', text: 'Question?' }, { type: 'pause', seconds: 5 },
