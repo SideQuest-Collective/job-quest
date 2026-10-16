@@ -75,7 +75,8 @@ function registerPodcastRoutes(app, { dataDir, binDir, schedule = createPodcastS
     try {
       const ep = store.readJson(path.join(store.episodeDir(dataDir, req.params.date), 'episode.json'), null);
       if (!ep || !ep.audio) return res.status(404).json({ error: 'No audio for that day.' });
-      res.sendFile(path.join(store.episodeDir(dataDir, req.params.date), path.basename(ep.audio)));
+      // dotfiles: 'allow' because the data directory itself lives under ~/.job-quest, which Express would otherwise hide.
+      res.sendFile(path.join(store.episodeDir(dataDir, req.params.date), path.basename(ep.audio)), { dotfiles: 'allow' });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   });
 
