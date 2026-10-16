@@ -77,20 +77,26 @@ test('picker mixes weak spots and cards and holds back recently aired ones', () 
   assert.strictEqual(again.cards[0].id, p.cards[0].id);
 });
 
-function goodScript(words = 1400) {
+// A script shaped the way episodes must be: every pause follows a question to the listener, lines are full sentences.
+function goodScript(words = 1400, { pauses = 7 } = {}) {
   const segs = [];
   const sentence = 'You lock the rule first and then you write the code out loud. ';
+  const linesPerPause = Math.max(2, Math.floor(words / 39 / pauses));
   let n = 0, i = 0;
   while (n < words) {
     segs.push({ type: 'line', speaker: HOSTS[i % 2].name, text: sentence.repeat(3).trim() });
     n += 39; i++;
-    if (i % 8 === 0) segs.push({ type: 'pause', seconds: 5 });
+    if (i % linesPerPause === 0) {
+      segs.push({ type: 'line', speaker: HOSTS[0].name, text: 'So Tarun, in that room, what is the first thing you say before you touch the keyboard?' });
+      segs.push({ type: 'pause', seconds: 6 });
+      n += 17;
+    }
   }
   return { title: 'Lock the rule', summary: 'Why the rule comes before code.', takeaways: ['a', 'b', 'c'], segments: segs };
 }
 
 test('script validation enforces hosts, length and pause beats', () => {
-  const ok = validateScript(goodScript(), { hosts: HOSTS, targetMinutes: 11 });
+  const ok = validateScript(goodScript(), { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
   assert.ok(ok.ok, ok.errors.join('; '));
   const bad = goodScript(300);
   bad.segments = bad.segments.filter((s) => s.type === 'line');
@@ -99,6 +105,41 @@ test('script validation enforces hosts, length and pause beats', () => {
   assert.ok(!v.ok);
   assert.ok(v.errors.some((e) => /speaker/.test(e)) && v.errors.some((e) => /words/.test(e)) && v.errors.some((e) => /pause/.test(e)));
   assert.ok(wordTargets(11).minWords > 1000);
+});
+
+test('script validation rejects answers-first, clipped commentary and too few think beats', () => {
+  const base = () => goodScript(1400, { pauses: 6 });
+
+  // A pause that does not follow a question is the hosts pausing for effect, not the listener thinking.
+  const noQuestion = base();
+  const firstPause = noQuestion.segments.findIndex((s) => s.type === 'pause');
+  noQuestion.segments[firstPause - 1].text = 'Here is the verdict line, word for word. Kahn with a worker pool.';
+  let v = validateScript(noQuestion, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /question/.test(e)), v.errors.join('; '));
+
+  // One think beat per concept plus the replay at the end; five concepts need six pauses.
+  v = validateScript(goodScript(1400, { pauses: 4 }), { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /pause/.test(e) && /6/.test(e)), v.errors.join('; '));
+
+  // Think beats need real time: 4 seconds or more.
+  const short = base();
+  short.segments[short.segments.findIndex((s) => s.type === 'pause')].seconds = 2;
+  v = validateScript(short, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /4 to 10/.test(e)), v.errors.join('; '));
+
+  // Mostly clipped lines read like sports commentary.
+  const clipped = base();
+  clipped.segments = clipped.segments.flatMap((s) => (s.type === 'line' && !/\?$/.test(s.text)
+    ? Array.from({ length: 6 }, (_, k) => ({ type: 'line', speaker: HOSTS[k % 2].name, text: 'Before your mouth does.' })).concat([s])
+    : [s]));
+  v = validateScript(clipped, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /commentary|clipped/.test(e)), v.errors.join('; '));
+
+  // The old trivia round is gone.
+  const trivia = base();
+  trivia.segments[0].text = 'Lightning round. Five fast ones, one sentence each, no pauses.';
+  v = validateScript(trivia, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /lightning/i.test(e)), v.errors.join('; '));
 });
 
 test('chunking splits at pauses and keeps the pause length', () => {
