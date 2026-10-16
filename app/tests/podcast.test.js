@@ -142,6 +142,20 @@ test('script validation rejects answers-first, clipped commentary and too few th
   assert.ok(!v.ok && v.errors.some((e) => /lightning/i.test(e)), v.errors.join('; '));
 });
 
+test('a script the agent finished writing is used even if the agent is cut off afterwards', async () => {
+  const d = fixture();
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-script-'));
+  const picked = { weak: [], cards: [{ id: 'c1', kind: 'card', title: 'Half-open', category: 'algorithms', bullets: ['Start in, end out.'], companies: ['Harvey'] }], review: [], all: [] };
+  picked.all = picked.cards;
+  let calls = 0;
+  const runAgentFn = async ({ cwd }) => { calls++; fs.writeFileSync(path.join(cwd, 'script.out.json'), JSON.stringify(goodScript())); return { ok: false, timedOut: true, code: null }; };
+  const { writeScript } = require('../lib/podcast/script');
+  const r = await writeScript({ dataDir: d, workDir: work, picked, config: store.readConfig(d), upcoming: [], runAgentFn });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(calls, 1, 'no retry when the file is already valid');
+  assert.ok(r.script.segments.length > 10);
+});
+
 test('chunking splits at pauses and keeps the pause length', () => {
   const chunks = tts.chunkSegments([
     { type: 'line', speaker: 'Maya', text: 'Question?' }, { type: 'pause', seconds: 5 },

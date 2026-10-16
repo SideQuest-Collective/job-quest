@@ -87,7 +87,8 @@ function materialText(picked) {
   return parts.join('\n\n');
 }
 
-async function writeScript({ dataDir, workDir, picked, config, upcoming, timeoutMs = 300000, runAgentFn = runAgent }) {
+// The scenario-first script is long; give the writer fifteen minutes. A finished file counts even if the agent is cut off while summarising.
+async function writeScript({ dataDir, workDir, picked, config, upcoming, timeoutMs = 900000, runAgentFn = runAgent }) {
   const [a, b] = config.hosts;
   const { minWords, maxWords } = wordTargets(config.targetMinutes);
   const concepts = picked.all.length;
@@ -104,8 +105,8 @@ async function writeScript({ dataDir, workDir, picked, config, upcoming, timeout
       errors: errors.length ? `## Your previous file was rejected. Fix these problems:\n${errors.map((e) => `- ${e}`).join('\n')}` : '',
     });
     const run = await runAgentFn({ agent: SCRIPT_AGENT, prompt, cwd: workDir, profile: 'write', timeoutMs, logFile: path.join(workDir, 'agent.log'), env: { DATA_DIR: path.resolve(dataDir) } });
-    if (!run.ok) { errors = [run.timedOut ? 'the agent timed out' : `the agent exited with code ${run.code}`]; continue; }
     const data = readJson(out, null);
+    if (!run.ok && !data) { errors = [run.timedOut ? 'the agent timed out' : `the agent exited with code ${run.code}`]; continue; }
     if (!data) { errors = [`${OUT_FILE} is missing or not valid JSON`]; continue; }
     const v = validateScript(data, { hosts: config.hosts, targetMinutes: config.targetMinutes, concepts });
     if (v.ok) return { ok: true, script: v.script, words: v.words };
