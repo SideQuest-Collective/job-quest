@@ -84,6 +84,14 @@ function materialText(picked) {
       parts.push(`- ${w.label}${w.question ? `\n  The problem: ${w.question.title}\n  What a strong answer does: ${w.question.rubric}` : ''}`);
     }
   }
+  for (const t of picked.topics || []) {
+    parts.push(`### Topic: ${t.title} (${t.questionCount} anticipated question${t.questionCount === 1 ? '' : 's'} across ${t.roleCount} role${t.roleCount === 1 ? '' : 's'})`);
+    for (const c of t.cards || []) parts.push(`#### ${c.title} (${c.category})\n${c.bullets.map((b) => `- ${b}`).join('\n')}${c.code ? `\nCode, describe it in words:\n${c.code}` : ''}`);
+    if (t.questions && t.questions.length) {
+      parts.push('Anticipated questions on this topic (use at least one as the Try it; teach how to recognize it and how to set up for it):');
+      for (const q of t.questions) parts.push(`- ${q.prompt}\n  Strong answer: ${q.answer}`);
+    }
+  }
   if (picked.cards.length) {
     parts.push('### Concepts from his study sheets');
     for (const c of picked.cards) {

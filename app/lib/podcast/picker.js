@@ -73,7 +73,10 @@ function dueReviewQuestions(dataDir, now, readWorkbook, { closed = new Set() } =
   return out;
 }
 
-function pickConcepts({ dataDir, master, today, now = new Date(), readWorkbook, counts = { weak: 2, cards: 3, review: 1 } }) {
+// Episodes are built from the ranked topics (anticipated questions), not from past interviews: weak spots are off
+// unless asked for, and master cards only fill in when no topic sheet exists yet.
+function pickConcepts({ dataDir, master, topics = null, today, now = new Date(), readWorkbook, counts = {} }) {
+  counts = { weak: 0, topics: 3, cards: 0, review: 1, ...counts };
   const history = readHistory(dataDir);
   const aired = (id) => history[id] && history[id].lastAired;
   const freshness = (id) => {
@@ -91,6 +94,18 @@ function pickConcepts({ dataDir, master, today, now = new Date(), readWorkbook, 
     .sort((a, b) => b.score - a.score)
     .slice(0, counts.weak);
 
+  const topicsPicked = (topics || [])
+    .map((t) => ({ ...t, score: t.importance + freshness(t.id) * 4 }))
+    .filter((t) => t.score > -50)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, counts.topics)
+    .map((t) => ({
+      id: t.id, kind: 'topic', title: t.title, importance: t.importance, roleCount: t.roleCount, questionCount: t.questionCount,
+      cards: t.cards || [],
+      questions: [...(t.questions || [])].sort((a, b) => (a.type === 'choice') - (b.type === 'choice')).slice(0, 4),
+    }));
+  const cardSlots = (topics && topics.length) ? counts.cards : Math.max(counts.cards, 3);
+
   const cards = [];
   const seenCompanies = new Map();
   const ranked = (master.cards || [])
@@ -103,17 +118,17 @@ function pickConcepts({ dataDir, master, today, now = new Date(), readWorkbook, 
     if ((seenCompanies.get(lead) || 0) >= 2 && !c.shared) continue;
     seenCompanies.set(lead, (seenCompanies.get(lead) || 0) + 1);
     cards.push({ id: c.id, kind: 'card', title: c.title, category: c.category, bullets: c.bullets, code: c.code, companies: c.companies, shared: c.shared });
-    if (cards.length >= counts.cards) break;
+    if (cards.length >= cardSlots) break;
   }
   // Few companies with sheets yet: fill the remaining slots from the top of the ranking.
   for (const c of ranked) {
-    if (cards.length >= counts.cards) break;
+    if (cards.length >= cardSlots) break;
     if (cards.some((x) => x.id === c.id)) continue;
     cards.push({ id: c.id, kind: 'card', title: c.title, category: c.category, bullets: c.bullets, code: c.code, companies: c.companies, shared: c.shared });
   }
 
   const review = readWorkbook ? dueReviewQuestions(dataDir, now, readWorkbook, { closed }).filter((q) => !aired(q.id) || freshness(q.id) > -50).slice(0, counts.review) : [];
-  return { weak, cards, review, all: [...weak, ...cards, ...review] };
+  return { weak, topics: topicsPicked, cards, review, all: [...weak, ...topicsPicked, ...cards, ...review] };
 }
 
 module.exports = { recentWeakSpots, dueReviewQuestions, pickConcepts };

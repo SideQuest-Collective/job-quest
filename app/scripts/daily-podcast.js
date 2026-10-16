@@ -3,6 +3,7 @@
 //   node daily-podcast.js run [--data-dir D] [--force] [--no-deliver] [--no-sheets] [--date YYYY-MM-DD]
 //   node daily-podcast.js sheets [--data-dir D] [--limit N]     build missing per-role cheat sheets
 //   node daily-podcast.js master [--data-dir D]                 rebuild the master cheat sheet
+//   node daily-podcast.js topics [--data-dir D] [--limit N]     rank the workbook topics and build missing topic sheets
 //   node daily-podcast.js fuzzy  [--data-dir D] --text "fuzzy BFS"   (used by the iMessage reply poller)
 const path = require('path');
 const os = require('os');
@@ -38,6 +39,15 @@ const log = (m) => console.log(`[${new Date().toISOString().replace('T', ' ').sl
     }
     const m = episode.refreshMaster(dataDir);
     log(`${m.cards.length} cards from ${m.sources.length} roles; ${m.cards.filter((c) => c.shared).length} shared; ${m.missing.length} roles without a sheet`);
+  } else if (cmd === 'topics') {
+    const topics = require('../lib/podcast/topics');
+    let ranking = topics.rankTopics(dataDir);
+    const g = await topics.buildTopicGroups({ dataDir, ranking });
+    log(g.ok ? `topic groups ${g.cached ? 'cached' : `built (${g.groups})`}` : `grouping failed: ${g.error}`);
+    if (g.ok && !g.cached) ranking = topics.rankTopics(dataDir);
+    log(`${ranking.topics.length} topics ranked`);
+    ranking.topics.slice(0, 15).forEach((t, i) => log(`  ${i + 1}. ${t.title} (importance ${t.importance}, ${t.questionCount} questions, ${t.roleCount} roles)`));
+    await topics.topUpTopicSheets(dataDir, ranking, Number(opt('limit', 3)), log);
   } else if (cmd === 'fuzzy') {
     const r = require('../lib/podcast/fuzzy').fuzzyFromText(dataDir, opt('text', ''));
     console.log(r.message);

@@ -139,6 +139,56 @@
     );
   }
 
+  // Ranked topics the upcoming interviews are likely to ask, aggregated from the live roles' workbooks, with concept sheets.
+  function Topics() {
+    const [t, setT] = useState(null), [err, setErr] = useState(''), [open, setOpen] = useState(null), [busy, setBusy] = useState(false);
+    const load = () => req('/api/podcast/topics').then(setT).catch((e) => setErr(e.message));
+    useEffect(() => { load(); }, []);
+    const refresh = async () => { setBusy(true); try { await req('/api/podcast/topics/refresh', 'POST'); await load(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
+    if (err) return <div role="alert" className="card" style={{ color: 'var(--rose)' }}>{err}</div>;
+    if (!t) return <div className="card">Loading…</div>;
+    const withSheet = t.topics.filter((x) => x.sheet).length;
+    return (
+      <div>
+        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            {t.topics.length} topics ranked from the questions your live roles' workbooks expect · {withSheet} with a concept sheet (a few more are built each morning)
+          </div>
+          <button className="btn btn-secondary" disabled={busy} onClick={refresh}>{busy ? 'Ranking…' : 'Re-rank now'}</button>
+        </div>
+        {t.topics.map((x, i) => (
+          <div key={x.id} className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, cursor: 'pointer' }} onClick={() => setOpen(open === x.id ? null : x.id)}>
+              <div>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--amber)', marginRight: 10 }}>{i + 1}</span>
+                <span style={{ fontWeight: 600, fontSize: 16 }}>{x.title}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{x.questionCount} questions · {x.roleCount} role{x.roleCount === 1 ? '' : 's'} · {x.sheet ? `${x.sheet.cards.length} cards` : 'sheet pending'}</div>
+            </div>
+            {open === x.id && (
+              <div style={{ marginTop: 12 }}>
+                {x.sheet ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+                    {x.sheet.cards.map((c, k) => (
+                      <div key={k} style={{ background: 'var(--bg-surface)', borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontSize: 11, color: 'var(--amber)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1 }}>{c.category}</div>
+                        <div style={{ fontWeight: 600, margin: '4px 0 6px' }}>{c.title}</div>
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.5 }}>{c.bullets.map((b, j) => <li key={j} style={{ marginBottom: 4 }}>{b}</li>)}</ul>
+                        {c.code && <pre style={{ fontSize: 12, background: 'var(--bg-deep)', padding: 10, borderRadius: 8, overflow: 'auto', marginTop: 8 }}>{c.code}</pre>}
+                      </div>
+                    ))}
+                  </div>
+                ) : <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>The concept sheet for this topic hasn't been written yet. Episodes build the top few each morning.</p>}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '12px 0 6px' }}>Anticipated questions</div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.5 }}>{x.questions.map((q, j) => <li key={j} style={{ marginBottom: 4 }}>{q.prompt}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function Master({ state }) {
     const [m, setM] = useState(null), [err, setErr] = useState(''), [company, setCompany] = useState('all'), [cat, setCat] = useState('all'), [q, setQ] = useState(''), [sharedOnly, setSharedOnly] = useState(false);
     useEffect(() => { req('/api/podcast/master').then(setM).catch((e) => setErr(e.message)); }, []);
@@ -196,14 +246,16 @@
       <div style={{ maxWidth: 1050, margin: '0 auto' }}>
         <div className="page-header">
           <h2>Daily Drop</h2>
-          <div className="greeting-sub">A short two-host show each morning on what you need to remember, built from your cheat sheets and your real interviews.</div>
+          <div className="greeting-sub">A short lesson each morning on the concepts your upcoming interviews are most likely to ask, ranked across your roles' workbooks.</div>
         </div>
         <nav style={{ display: 'flex', gap: 8, marginBottom: 20 }} aria-label="Daily Drop view">
           <button className={`btn ${tab === 'today' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('today')}>Episode</button>
+          <button className={`btn ${tab === 'topics' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('topics')}>Topics</button>
           <button className={`btn ${tab === 'master' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('master')}>Master cheat sheet</button>
         </nav>
         {err && <div role="alert" className="card" style={{ color: 'var(--rose)' }}>{err}</div>}
         {state && tab === 'today' && <Today state={state} reload={reload} />}
+        {state && tab === 'topics' && <Topics />}
         {state && tab === 'master' && <Master state={state} />}
       </div>
     );

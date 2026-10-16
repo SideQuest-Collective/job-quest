@@ -66,14 +66,16 @@ test('agent concept groups merge differently worded cards; bad groups are reject
 test('picker mixes weak spots and cards and holds back recently aired ones', () => {
   const d = fixture();
   const master = buildMaster(d);
-  const p = pickConcepts({ dataDir: d, master, today: '2026-10-15' });
+  // Weak spots are opt-in now; this test asks for them to check the mixing and hold-back rules.
+  const counts = { weak: 2, cards: 3, review: 1 };
+  const p = pickConcepts({ dataDir: d, master, today: '2026-10-15', counts });
   assert.strictEqual(p.weak.length, 1);
   assert.strictEqual(p.cards.length, 3);
   store.recordAired(d, p.cards.map((c) => c.id), '2026-10-15');
-  const next = pickConcepts({ dataDir: d, master, today: '2026-10-16' });
+  const next = pickConcepts({ dataDir: d, master, today: '2026-10-16', counts });
   assert.ok(next.cards.every((c) => !p.cards.some((x) => x.id === c.id)));
   store.markFuzzy(d, p.cards[0].id);
-  const again = pickConcepts({ dataDir: d, master, today: '2026-10-16' });
+  const again = pickConcepts({ dataDir: d, master, today: '2026-10-16', counts });
   assert.strictEqual(again.cards[0].id, p.cards[0].id);
 });
 
@@ -245,7 +247,8 @@ test('end to end: episode is written, recorded and fuzzy feedback works', async 
   const d = fixture();
   process.env.GEMINI_API_KEY = 'test-key';
   const runAgentFn = async ({ cwd, prompt }) => {
-    assert.match(prompt, /Counting rule not locked/);
+    assert.ok(!/Counting rule not locked/.test(prompt), 'past interview weak spots no longer drive episodes');
+    assert.match(prompt, /coding loop|Order book|Kahan|Merge citation/, 'concepts from the study sheets still do');
     assert.ok(!/Citadel|Harvey|Linear/.test(prompt), 'the writer never sees company names in the episode brief');
     fs.writeFileSync(path.join(cwd, 'script.out.json'), JSON.stringify(goodScript()));
     return { ok: true };

@@ -11,6 +11,7 @@ const { pickConcepts } = require('./picker');
 const { writeScript } = require('./script');
 const { renderEpisodeAudio } = require('./tts');
 const { verifyApiKey } = require('./verify');
+const topics = require('./topics');
 
 // Prove the key can record audio before any cheat-sheet or script agent runs. A key that failed
 // earlier is checked again here, so a billing fix takes effect on the next scheduled run by itself.
@@ -98,11 +99,24 @@ async function generateEpisode({ dataDir, date = localDate(), force = false, del
     const master = refreshMaster(dataDir);
     log(`master cheat sheet: ${master.cards.length} cards from ${master.sources.length} roles (${master.missing.length} roles still without a sheet)`);
 
-    save({ step: 'picking concepts' });
     if (!readWorkbook) { try { readWorkbook = require('../interview/workbook-bridge').readWorkbook; } catch { readWorkbook = null; } }
-    const picked = pickConcepts({ dataDir, master, today: date, readWorkbook });
+    // What the upcoming interviews are likely to ask: rank the workbook topics, then make sure the top ones have a sheet.
+    save({ step: 'ranking topics' });
+    let ranking = readWorkbook ? topics.rankTopics(dataDir, { readWorkbook }) : { topics: [] };
+    if (group && ranking.topics.length) {
+      const g = await topics.buildTopicGroups({ dataDir, ranking, ...(runAgentFn ? { runAgentFn } : {}) });
+      log(g.ok ? `topic groups ${g.cached ? 'cached' : `built (${g.groups})`}` : `topic grouping failed, using wording heuristics: ${g.error}`);
+      if (g.ok && !g.cached) ranking = topics.rankTopics(dataDir, { readWorkbook });
+    }
+    log(`topics: ${ranking.topics.length} ranked`);
+    if (buildSheets && config.sheetsPerRun > 0 && readWorkbook) await topics.topUpTopicSheets(dataDir, ranking, config.sheetsPerRun, log, { readWorkbook, ...(runAgentFn ? { runAgentFn } : {}) });
+    const topicSheets = topics.readTopicSheets(dataDir, ranking);
+    log(`topic sheets ready: ${topicSheets.length} of ${ranking.topics.length}`);
+
+    save({ step: 'picking concepts' });
+    const picked = pickConcepts({ dataDir, master, topics: topicSheets, today: date, readWorkbook });
     if (!picked.all.length) throw new Error('Nothing to cover yet. Build at least one cheat sheet first.');
-    log(`picked ${picked.weak.length} weak spots, ${picked.cards.length} cards, ${picked.review.length} review questions`);
+    log(`picked ${picked.topics.length} topics, ${picked.cards.length} cards, ${picked.review.length} review questions`);
 
     save({ step: 'writing script', concepts: picked.all.map((c) => ({ id: c.id, kind: c.kind, title: c.title || c.label || c.topic, companies: c.companies || [] })) });
     const upcoming = activeRoles(dataDir).filter((r) => ['onsite', 'phone-screen', 'offer'].includes(r.stage)).map((r) => `${r.company} (${r.stage})`);

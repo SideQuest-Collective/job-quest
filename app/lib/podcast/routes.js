@@ -5,6 +5,7 @@ const episode = require('./episode');
 const { fuzzyFromText } = require('./fuzzy');
 const { activeRoles, missingSheets, rawCards } = require('./master');
 const { createPodcastSchedule } = require('./schedule');
+const topics = require('./topics');
 const { verifyApiKey } = require('./verify');
 
 function registerPodcastRoutes(app, { dataDir, binDir, schedule = createPodcastSchedule({ binDir }), fetchFn }) {
@@ -67,6 +68,17 @@ function registerPodcastRoutes(app, { dataDir, binDir, schedule = createPodcastS
   }));
 
   app.get('/api/podcast/master', wrap(() => episode.readMaster(dataDir)));
+
+  // Ranked topics the upcoming interviews are likely to ask, with their concept sheets where built.
+  app.get('/api/podcast/topics', wrap(() => {
+    const ranking = topics.readRanking(dataDir) || topics.rankTopics(dataDir);
+    const sheets = new Map(topics.readTopicSheets(dataDir, ranking).map((t) => [t.id, t]));
+    return {
+      builtAt: ranking.builtAt,
+      topics: ranking.topics.map(({ chapters, questions, ...t }) => ({ ...t, questions: questions.slice(0, 6).map((q) => ({ prompt: q.prompt, type: q.type })), sheet: sheets.has(t.id) ? { cards: sheets.get(t.id).cards, builtAt: sheets.get(t.id).sheetBuiltAt, stale: sheets.get(t.id).stale } : null })),
+    };
+  }));
+  app.post('/api/podcast/topics/refresh', wrap(() => { const r = topics.rankTopics(dataDir); return { topics: r.topics.length, missingSheets: topics.missingTopicSheets(dataDir, r).length }; }));
   app.post('/api/podcast/master/refresh', wrap(() => { const m = episode.refreshMaster(dataDir); return { cards: m.cards.length }; }));
 
   app.get('/api/podcast/episodes/:date/script', wrap((req) => store.readJson(path.join(store.episodeDir(dataDir, req.params.date), 'script.json'), null)));
