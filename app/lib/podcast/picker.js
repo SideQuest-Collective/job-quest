@@ -113,6 +113,7 @@ function pickConcepts({ dataDir, master, topics = null, today, now = new Date(),
     .filter((c) => c.score > -50)
     .sort((a, b) => b.score - a.score);
   for (const c of ranked) {
+    if (cards.length >= cardSlots) break;
     // Spread across companies: at most two cards whose lead company repeats.
     const lead = c.companies[0];
     if ((seenCompanies.get(lead) || 0) >= 2 && !c.shared) continue;

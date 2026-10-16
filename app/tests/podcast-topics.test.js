@@ -92,8 +92,10 @@ test('episodes are built from the top-ranked topics with their sheets, not from 
   fs.mkdirSync(path.join(d, 'interview-work', 'sessions', '2026-10-14_0900'), { recursive: true });
   fs.writeFileSync(path.join(d, 'interview-work', 'sessions', '2026-10-14_0900', 'analysis.json'), JSON.stringify({ asked: [], weakSpots: [{ label: 'The library question again' }] }));
   const sheets = topics.readTopicSheets(d, r);
-  const picked = pickConcepts({ dataDir: d, master: { cards: [] }, topics: sheets, today: '2026-10-15', now: new Date('2026-10-15T12:00:00Z'), readWorkbook, counts: { topics: 2, review: 0 } });
+  const master = { cards: [{ id: 'mc1', title: 'A master card', category: 'warmup', bullets: ['x'], companies: ['Rippling'], shared: false, priority: 50 }] };
+  const picked = pickConcepts({ dataDir: d, master, topics: sheets, today: '2026-10-15', now: new Date('2026-10-15T12:00:00Z'), readWorkbook, counts: { topics: 2, review: 0 } });
   assert.strictEqual(picked.weak.length, 0);
+  assert.strictEqual(picked.cards.length, 0, 'master cards stay out once topic sheets exist');
   assert.deepStrictEqual(picked.topics.map((t) => t.title), r.topics.slice(0, 2).map((t) => t.title));
   assert.ok(picked.topics[0].cards.length === 3 && picked.topics[0].questions.length >= 1);
   assert.strictEqual(picked.all.length, 2);
