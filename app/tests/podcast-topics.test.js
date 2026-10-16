@@ -190,3 +190,26 @@ test('the brief carries the previous episode\'s rules so the new one opens with 
   assert.deepStrictEqual(previousTakeaways(d, '2026-10-17'), ['rule a', 'rule b']);
   assert.deepStrictEqual(previousTakeaways(d, '2026-10-16'), ['old rule'], 'a regenerated day recalls the day before, not itself');
 });
+
+test('a new workbook does not throw away the topic grouping: known names keep their groups and only new names trigger a regroup', async () => {
+  const { d, readWorkbook: base } = fixture();
+  const books = {
+    'rippling-swe': { chapters: [], questions: [q('r1', 'Complexity analysis', 'Big O of this loop')] },
+    'mercor-fs': { chapters: [], questions: [q('m1', 'Tradeoffs and complexity under questioning', 'Why n log n?')] },
+    'old-gone': { chapters: [], questions: [] },
+  };
+  let readWorkbook = (dir, id) => books[id] || base(dir, id);
+  let r = topics.rankTopics(d, { readWorkbook });
+  let calls = 0;
+  const runAgentFn = async ({ cwd }) => { calls++; fs.writeFileSync(path.join(cwd, 'topic-groups.out.json'), JSON.stringify([{ title: 'Complexity and tradeoffs', members: ['Complexity analysis', 'Tradeoffs and complexity under questioning'] }])); return { ok: true }; };
+  await topics.buildTopicGroups({ dataDir: d, ranking: r, runAgentFn });
+
+  // A third role's workbook arrives with a brand-new topic name.
+  books['mercor-fs'].questions.push(q('m9', 'Bit manipulation', 'Count set bits'));
+  r = topics.rankTopics(d, { readWorkbook });
+  assert.ok(r.topics.some((t) => t.title === 'Complexity and tradeoffs'), 'existing groups still apply: ' + r.topics.map((t) => t.title).join(' | '));
+  const again = await topics.buildTopicGroups({ dataDir: d, ranking: r, runAgentFn });
+  assert.strictEqual(calls, 2, 'a new name triggers one regroup');
+  const third = await topics.buildTopicGroups({ dataDir: d, ranking: topics.rankTopics(d, { readWorkbook }), runAgentFn });
+  assert.ok(third.cached && calls === 2, 'and then it is cached again');
+});

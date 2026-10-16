@@ -126,7 +126,8 @@ async function generateEpisode({ dataDir, date = localDate(), force = false, del
     // What the upcoming interviews are likely to ask: rank the workbook topics, then make sure the top ones have a sheet.
     save({ step: 'ranking topics' });
     let ranking = readWorkbook ? topics.rankTopics(dataDir, { readWorkbook }) : { topics: [] };
-    if (group && ranking.topics.length) {
+    // Grouping is one cheap agent call that runs only when new topic names appear, so do it on every run.
+    if (ranking.topics.length) {
       const g = await topics.buildTopicGroups({ dataDir, ranking, ...(runAgentFn ? { runAgentFn } : {}) });
       log(g.ok ? `topic groups ${g.cached ? 'cached' : `built (${g.groups})`}` : `topic grouping failed, using wording heuristics: ${g.error}`);
       if (g.ok && !g.cached) ranking = topics.rankTopics(dataDir, { readWorkbook });

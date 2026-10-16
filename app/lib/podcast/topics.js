@@ -31,13 +31,20 @@ function topicsFile(dataDir) { return path.join(dataDir, 'podcast', 'topics.json
 function topicGroupsFile(dataDir) { return path.join(dataDir, 'podcast', 'topic-groups.json'); }
 function namesHash(names) { return crypto.createHash('sha256').update([...names].sort().join('\n')).digest('hex'); }
 
-// Map(raw topic name -> plain concept name) when a cached agent grouping exists for exactly these names.
-function readTopicGroups(dataDir, names) {
+// Map(raw topic name -> plain concept name) from the cached agent grouping. Groups keep applying to the names
+// they cover when new workbooks add names; only unseen names make the grouping stale.
+function readTopicGroups(dataDir) {
   const g = readJson(topicGroupsFile(dataDir), null);
-  if (!g || g.hash !== namesHash(names)) return null;
+  if (!g || !Array.isArray(g.groups)) return null;
   const map = new Map();
   for (const grp of g.groups) for (const m of grp.members) map.set(m, grp.title);
   return map;
+}
+function groupingCovers(dataDir, names) {
+  const g = readJson(topicGroupsFile(dataDir), null);
+  if (!g) return false;
+  const seen = new Set(Array.isArray(g.seen) ? g.seen : []);
+  return names.every((n) => seen.has(n));
 }
 
 function bigrams(t) {
@@ -91,7 +98,7 @@ function rankTopics(dataDir, { readWorkbook = defaultReadWorkbook, now = new Dat
   }
   // Second pass: the cached agent grouping names the concept; wording heuristics catch the rest.
   const rawNames = [...new Set(buckets.map((b) => b.rawName))];
-  const groups = readTopicGroups(dataDir, rawNames) || new Map();
+  const groups = readTopicGroups(dataDir) || new Map();
   const merged = [];
   for (const b of buckets) {
     const name = groups.get(b.rawName) || b.rawName;
@@ -198,8 +205,8 @@ function validateTopicGroups(data, names) {
 // One cheap agent pass names the concept behind differently worded topic names across workbooks. Cached by the set of names.
 async function buildTopicGroups({ dataDir, ranking, runAgentFn = runAgent, timeoutMs = 240000 }) {
   const names = ranking && ranking.rawNames ? ranking.rawNames : [];
-  if (readTopicGroups(dataDir, names)) return { ok: true, cached: true };
-  if (names.length < 2) { writeJson(topicGroupsFile(dataDir), { hash: namesHash(names), groups: [] }); return { ok: true, groups: 0 }; }
+  if (groupingCovers(dataDir, names)) return { ok: true, cached: true };
+  if (names.length < 2) { writeJson(topicGroupsFile(dataDir), { hash: namesHash(names), seen: names, groups: [] }); return { ok: true, groups: 0 }; }
   const workDir = path.join(dataDir, 'podcast', 'work', 'topic-groups');
   const sample = new Map();
   for (const t of ranking.topics) for (const q of t.questions) {
@@ -216,7 +223,7 @@ async function buildTopicGroups({ dataDir, ranking, runAgentFn = runAgent, timeo
     const data = readJson(path.join(workDir, GROUPS_OUT_FILE), null);
     if (!run.ok && !data) { errors = ['the agent failed']; continue; }
     const v = validateTopicGroups(data, names);
-    if (v.ok) { writeJson(topicGroupsFile(dataDir), { hash: namesHash(names), builtAt: new Date().toISOString(), groups: v.groups }); return { ok: true, groups: v.groups.length }; }
+    if (v.ok) { writeJson(topicGroupsFile(dataDir), { hash: namesHash(names), seen: names, builtAt: new Date().toISOString(), groups: v.groups }); return { ok: true, groups: v.groups.length }; }
     errors = v.errors;
   }
   return { ok: false, error: errors.slice(0, 3).join('; ') };
