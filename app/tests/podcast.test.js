@@ -288,3 +288,17 @@ test('missing key fails cleanly', async () => {
   assert.strictEqual(ep.status, 'failed');
   assert.strictEqual(ep.errorCode, 'no-key');
 });
+
+test('iMessage delivery sends the audio the way that reaches the phone: an alias of the file, to the existing chat', () => {
+  const { imessageScript } = require('../lib/podcast/episode');
+  const s = imessageScript();
+  assert.match(s, /as alias/, 'a raw POSIX file sent to a buddy is accepted by Messages but never arrives');
+  assert.match(s, /1st chat whose participants contains targetBuddy/);
+  assert.match(s, /send theFile to targetChat/);
+  assert.match(s, /send theFile to targetBuddy/, 'falls back to the buddy when no chat exists yet');
+  assert.ok(s.indexOf('send (item 2 of argv)') < s.indexOf('send theFile'), 'text first, then the audio');
+  // Each day gets its own file name so a regenerated episode is not mistaken for one already sent.
+  const { sharedAudioName } = require('../lib/podcast/episode');
+  assert.notStrictEqual(sharedAudioName({ date: '2026-10-16' }, 'x.mp3', new Date('2026-10-16T10:00:00Z')), sharedAudioName({ date: '2026-10-16' }, 'x.mp3', new Date('2026-10-16T11:00:00Z')));
+  assert.match(sharedAudioName({ date: '2026-10-16' }, 'x.mp3', new Date('2026-10-16T10:00:00Z')), /^Daily Drop 2026-10-16 .*\.mp3$/);
+});

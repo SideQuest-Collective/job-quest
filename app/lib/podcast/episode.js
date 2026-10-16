@@ -58,6 +58,34 @@ async function topUpSheets(dataDir, limit, log) {
   return todo.length;
 }
 
+// Messages accepts a raw POSIX file sent to a buddy and reports success, but the file never reaches the phone.
+// Coercing the file to an alias and sending it to the existing chat is what actually delivers it.
+function imessageScript() {
+  return `on run argv
+  set targetHandle to item 1 of argv
+  set theFile to (POSIX file (item 3 of argv)) as alias
+  tell application "Messages"
+    set targetService to 1st account whose service type = iMessage
+    set targetBuddy to participant targetHandle of targetService
+    send (item 2 of argv) to targetBuddy
+    delay 1
+    try
+      set targetChat to 1st chat whose participants contains targetBuddy
+      send theFile to targetChat
+    on error
+      send theFile to targetBuddy
+    end try
+  end tell
+  delay 3
+end run`;
+}
+
+// A fresh name per send, so a regenerated episode is a new attachment rather than a duplicate of one Messages already saw.
+function sharedAudioName(episode, filePath, now = new Date()) {
+  const stamp = now.toISOString().slice(11, 19).replace(/:/g, '');
+  return `Daily Drop ${episode.date} ${stamp}${path.extname(filePath)}`;
+}
+
 function deliverIMessage(dataDir, episode, filePath, log) {
   if (process.platform !== 'darwin') { log('iMessage skipped (not macOS)'); return false; }
   const trainer = store.readJson(path.join(dataDir, 'trainer', 'config.json'), {});
@@ -65,22 +93,11 @@ function deliverIMessage(dataDir, episode, filePath, log) {
   // Messages can only attach files from places it is allowed to read; ~/Pictures is the reliable one.
   const shareDir = path.join(os.homedir(), 'Pictures', 'Job Quest Daily Drop');
   fs.mkdirSync(shareDir, { recursive: true });
-  const shared = path.join(shareDir, `Daily Drop ${episode.date}${path.extname(filePath)}`);
+  const shared = path.join(shareDir, sharedAudioName(episode, filePath));
   fs.copyFileSync(filePath, shared);
   const text = `🎧 Daily Drop: ${episode.title}\n${episode.summary}\n${Math.round(episode.seconds / 60)} min. Text "fuzzy <topic>" to hear it again tomorrow.`;
-  const r = spawnSync('osascript', ['-', trainer.phone, text, shared], {
-    input: `on run argv
-  set targetHandle to item 1 of argv
-  tell application "Messages"
-    set targetService to 1st account whose service type = iMessage
-    set targetBuddy to participant targetHandle of targetService
-    send (item 2 of argv) to targetBuddy
-    send (POSIX file (item 3 of argv)) to targetBuddy
-  end tell
-end run`,
-    encoding: 'utf8',
-  });
-  if (r.status === 0) { log(`iMessage sent to ${trainer.phone}`); return true; }
+  const r = spawnSync('osascript', ['-', trainer.phone, text, shared], { input: imessageScript(), encoding: 'utf8' });
+  if (r.status === 0) { log(`iMessage sent to ${trainer.phone} with ${path.basename(shared)}`); return true; }
   log(`WARNING: iMessage failed: ${(r.stderr || '').slice(0, 300)}`);
   return false;
 }
@@ -147,4 +164,4 @@ async function generateEpisode({ dataDir, date = localDate(), force = false, del
   }
 }
 
-module.exports = { previousTakeaways, localDate, refreshMaster, readMaster, masterFile, generateEpisode, deliverIMessage };
+module.exports = { imessageScript, sharedAudioName, previousTakeaways, localDate, refreshMaster, readMaster, masterFile, generateEpisode, deliverIMessage };
