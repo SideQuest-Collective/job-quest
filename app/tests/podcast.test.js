@@ -116,6 +116,25 @@ test('closed roles leave the podcast: saved-but-rejected roles, their session we
   assert.ok(picked.review.some((x) => x.workbookId === 'citadel-swe'), 'review questions from live roles still come through');
 });
 
+test('episodes teach concepts, not interviews: material and script carry no company names or interview framing', () => {
+  const { materialText } = require('../lib/podcast/script');
+  const picked = {
+    weak: [{ id: 'w1', kind: 'weak-spot', date: '2026-10-08', session: 'rippling screen', label: 'Described a lazy search instead of a write-time index', question: { title: 'Keyword search over logged messages', rubric: 'Index at write time.' } }],
+    cards: [{ id: 'c1', kind: 'card', title: 'Half-open intervals', category: 'algorithms', bullets: ['Start in, end out.'], companies: ['Rippling', 'Mercor'], shared: true }],
+    review: [],
+  };
+  picked.all = [...picked.weak, ...picked.cards];
+  const m = materialText(picked);
+  assert.ok(!/Rippling|Mercor|2026-10-08|rippling screen/.test(m), m);
+  assert.ok(/Keyword search over logged messages/.test(m) && /Half-open intervals/.test(m), 'the teaching content itself stays');
+
+  const named = goodScript(1400, { pauses: 7 });
+  named.segments[0].text = 'Today we cover the loop you will use at Rippling and Mercor, and interviews coming up this week. Here is the first idea for you to think about.';
+  const v = validateScript(named, { hosts: HOSTS, targetMinutes: 11, concepts: 5, forbidden: ['Rippling', 'Mercor'] });
+  assert.ok(!v.ok && v.errors.some((e) => /Rippling/.test(e)) && v.errors.some((e) => /interviews coming up/i.test(e)), v.errors.join('; '));
+  assert.ok(validateScript(goodScript(1400, { pauses: 7 }), { hosts: HOSTS, targetMinutes: 11, concepts: 5, forbidden: ['Rippling'] }).ok);
+});
+
 test('script validation enforces hosts, length and pause beats', () => {
   const ok = validateScript(goodScript(), { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
   assert.ok(ok.ok, ok.errors.join('; '));
@@ -227,7 +246,7 @@ test('end to end: episode is written, recorded and fuzzy feedback works', async 
   process.env.GEMINI_API_KEY = 'test-key';
   const runAgentFn = async ({ cwd, prompt }) => {
     assert.match(prompt, /Counting rule not locked/);
-    assert.match(prompt, /Citadel \(onsite\)/);
+    assert.ok(!/Citadel|Harvey|Linear/.test(prompt), 'the writer never sees company names in the episode brief');
     fs.writeFileSync(path.join(cwd, 'script.out.json'), JSON.stringify(goodScript()));
     return { ok: true };
   };

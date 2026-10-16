@@ -21,7 +21,7 @@ function countWords(s) { return String(s).trim().split(/\s+/).filter(Boolean).le
 // The validator holds the writer to that shape so it cannot drift back into reading notes aloud.
 const CLIPPED_WORDS = 8;
 const MAX_INTRO_WORDS = 200;
-function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = Math.max(3, concepts + 1) }) {
+function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = Math.max(3, concepts + 1), forbidden = [] }) {
   const errors = [];
   if (!data || typeof data !== 'object') return { ok: false, errors: ['not a JSON object'] };
   const names = hosts.map((h) => h.name);
@@ -45,6 +45,11 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
       else if (/[—]/.test(s.text)) errors.push(`${at}: remove em dashes`);
       else if (/lightning round/i.test(s.text)) errors.push(`${at}: no lightning round; every concept is a lesson with a think beat`);
       else if (/brought to you by|our sponsor|sponsored by/i.test(s.text)) errors.push(`${at}: no sponsors or ads, real or made up`);
+      else if (/interviews? coming up|your (next |upcoming )?(onsite|phone screen|interview)s?\b/i.test(s.text)) errors.push(`${at}: no interview framing ("interviews coming up", "your onsite"); teach the concept`);
+      if (typeof s.text === 'string') {
+        const hit = forbidden.find((t) => t && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(s.text));
+        if (hit) errors.push(`${at}: don't name companies ("${hit}"); the lesson is about the concept`);
+      }
       const n = countWords(s.text || '');
       words += n; lines++;
       if (n < CLIPPED_WORDS) clipped++;
@@ -70,22 +75,23 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
   };
 }
 
+// The material is concept-only: no company names, dates or session names, so the lesson stays about the idea.
 function materialText(picked) {
   const parts = [];
   if (picked.weak.length) {
-    parts.push('### Weak spots from his real interviews (use one for the cold open)');
+    parts.push('### Mistakes he has made in practice (teach the concept behind each; never say where or when it happened)');
     for (const w of picked.weak) {
-      parts.push(`- [${w.date}${w.session ? `, ${w.session}` : ''}] ${w.label}${w.question ? `\n  The question was: ${w.question.title}\n  What a strong answer does: ${w.question.rubric}` : ''}`);
+      parts.push(`- ${w.label}${w.question ? `\n  The problem: ${w.question.title}\n  What a strong answer does: ${w.question.rubric}` : ''}`);
     }
   }
   if (picked.cards.length) {
-    parts.push('### Cheat-sheet concepts');
+    parts.push('### Concepts from his study sheets');
     for (const c of picked.cards) {
-      parts.push(`#### ${c.title} (${c.category}; for ${c.companies.join(', ')}${c.shared ? ', shared across companies' : ''})\n${c.bullets.map((b) => `- ${b}`).join('\n')}${c.code ? `\nCode, describe it in words:\n${c.code}` : ''}`);
+      parts.push(`#### ${c.title} (${c.category})\n${c.bullets.map((b) => `- ${b}`).join('\n')}${c.code ? `\nCode, describe it in words:\n${c.code}` : ''}`);
     }
   }
   if (picked.review.length) {
-    parts.push('### Due review question (must be a pause-and-answer beat)');
+    parts.push('### Due review question (must be one of the lessons)');
     for (const q of picked.review) parts.push(`Question: ${q.prompt}\nAnswer key: ${q.answer}`);
   }
   return parts.join('\n\n');
@@ -97,6 +103,9 @@ async function writeScript({ dataDir, workDir, picked, config, upcoming, timeout
   const { minWords, maxWords } = wordTargets(config.targetMinutes);
   const concepts = picked.all.length;
   const minPauses = Math.max(3, concepts + 1);
+  // Company names from the cards and the tracker must not be spoken: the episode is about ideas, not employers.
+  const { activeRoles } = require('./master');
+  const forbidden = [...new Set([...picked.cards.flatMap((c) => c.companies || []), ...activeRoles(dataDir).map((r) => r.company)])].filter(Boolean);
   let errors = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const out = path.join(workDir, OUT_FILE);
@@ -112,7 +121,7 @@ async function writeScript({ dataDir, workDir, picked, config, upcoming, timeout
     const data = readJson(out, null);
     if (!run.ok && !data) { errors = [run.timedOut ? 'the agent timed out' : `the agent exited with code ${run.code}`]; continue; }
     if (!data) { errors = [`${OUT_FILE} is missing or not valid JSON`]; continue; }
-    const v = validateScript(data, { hosts: config.hosts, targetMinutes: config.targetMinutes, concepts });
+    const v = validateScript(data, { hosts: config.hosts, targetMinutes: config.targetMinutes, concepts, forbidden });
     if (v.ok) return { ok: true, script: v.script, words: v.words };
     errors = v.errors;
   }
