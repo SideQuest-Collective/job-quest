@@ -70,9 +70,10 @@
   function Today({ state, reload }) {
     const [sel, setSel] = useState(null), [script, setScript] = useState(null), [showScript, setShowScript] = useState(false), [note, setNote] = useState('');
     const eps = state.episodes || [];
-    const ep = eps.find((e) => e.date === sel) || eps[0];
-    useEffect(() => { setScript(null); setShowScript(false); }, [ep && ep.date]);
-    const loadScript = async () => { if (!script) setScript(await req(`/api/podcast/episodes/${ep.date}/script`)); setShowScript((v) => !v); };
+    const epId = (e) => e.id || e.date;
+    const ep = eps.find((e) => epId(e) === sel) || eps[0];
+    useEffect(() => { setScript(null); setShowScript(false); }, [ep && epId(ep)]);
+    const loadScript = async () => { if (!script) setScript(await req(`/api/podcast/episodes/${epId(ep)}/script`)); setShowScript((v) => !v); };
     const generate = async () => { setNote(''); try { await req('/api/podcast/generate', 'POST', { force: true, deliver: false }); setNote('Making a fresh episode. This takes a few minutes.'); reload(); } catch (e) { setNote(e.message); } };
     const fuzzy = async (c) => { await req('/api/podcast/fuzzy', 'POST', { id: c.id }); setNote(`"${c.title}" will come back tomorrow.`); };
     const busy = state.running || (ep && ep.status === 'building');
@@ -86,7 +87,7 @@
               <div style={{ fontSize: 12, color: 'var(--amber)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1 }}>{pretty(ep.date)}{ep.seconds ? ` · ${mins(ep.seconds)}` : ''}</div>
               <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 24, margin: '6px 0 4px', color: 'var(--text)', textTransform: 'none', letterSpacing: 0 }}>{ep.title || 'Episode in progress'}</h3>
               {ep.summary && <p style={{ color: 'var(--text-secondary)', marginTop: 0 }}>{ep.summary}</p>}
-              {ep.status === 'ready' && <audio controls preload="metadata" src={`/api/podcast/episodes/${ep.date}/audio`} style={{ width: '100%', margin: '8px 0 12px' }} />}
+              {ep.status === 'ready' && <audio controls preload="metadata" src={`/api/podcast/episodes/${epId(ep)}/audio`} style={{ width: '100%', margin: '8px 0 12px' }} />}
               {ep.status === 'building' && <div role="status" style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Working: {ep.step}…</div>}
               {ep.status === 'failed' && <div role="alert" style={{ color: 'var(--rose)', fontSize: 14 }}>Last run failed: {ep.error}</div>}
               {ep.takeaways && ep.takeaways.length > 0 && (
@@ -129,7 +130,7 @@
           <div className="card">
             <div className="card-title" style={{ fontWeight: 600, marginBottom: 8 }}>Past episodes</div>
             {eps.map((e) => (
-              <button key={e.date} onClick={() => setSel(e.date)} className="btn btn-secondary" style={{ display: 'flex', width: '100%', justifyContent: 'space-between', marginBottom: 6, textAlign: 'left', borderColor: ep && e.date === ep.date ? 'var(--amber)' : undefined }}>
+              <button key={epId(e)} onClick={() => setSel(epId(e))} className="btn btn-secondary" style={{ display: 'flex', width: '100%', justifyContent: 'space-between', marginBottom: 6, textAlign: 'left', borderColor: ep && epId(e) === epId(ep) ? 'var(--amber)' : undefined }}>
                 <span>{pretty(e.date)} · {e.title || e.status}</span><span style={{ color: 'var(--text-muted)' }}>{e.seconds ? mins(e.seconds) : ''}</span>
               </button>
             ))}

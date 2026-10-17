@@ -2,6 +2,7 @@
 const path = require('path');
 const store = require('./store');
 const episode = require('./episode');
+const custom = require('./custom');
 const { fuzzyFromText } = require('./fuzzy');
 const { activeRoles, missingSheets, rawCards } = require('./master');
 const { createPodcastSchedule } = require('./schedule');
@@ -112,6 +113,32 @@ function registerPodcastRoutes(app, { dataDir, binDir, schedule = createPodcastS
     running = episode.generateEpisode({ dataDir, force: !!body.force, deliver: !!body.deliver, buildSheets: body.buildSheets !== false, log: (m) => console.log(`[Daily Drop] ${m}`) })
       .finally(() => { running = null; });
     return { started: true };
+  }));
+
+  // Record episodes from script files that are already written: { scriptPath } or { scriptPaths: [...] }, optional ids, deliver.
+  // Every script is checked before any audio is recorded, then they render one after another in the background.
+  app.post('/api/podcast/render', wrap(async (req) => {
+    if (running) return { started: false, running: true };
+    const body = req.body || {};
+    const paths = Array.isArray(body.scriptPaths) ? body.scriptPaths : (body.scriptPath ? [body.scriptPath] : []);
+    if (!paths.length) throw Object.assign(new Error('scriptPath or scriptPaths is required'), { status: 400 });
+    if (paths.length > 10) throw Object.assign(new Error('at most 10 scripts per request'), { status: 400 });
+    const ids = Array.isArray(body.ids) ? body.ids : (body.id ? [body.id] : []);
+    const prepared = [];
+    for (let i = 0; i < paths.length; i++) {
+      const p = custom.prepareCustomEpisode({ dataDir, scriptPath: paths[i], id: ids[i] });
+      if (prepared.some((q) => q.id === p.id)) throw Object.assign(new Error(`two scripts map to the same episode id ${p.id}`), { status: 400 });
+      prepared.push(p);
+    }
+    let key = store.readKeyStatus(dataDir);
+    if (!key.verified && key.code === 'unchecked') key = await checkKey();
+    if (!key.verified) throw Object.assign(new Error(`${key.message} ${key.remediation}`.trim()), { status: 409 });
+    const log = (m) => console.log(`[Daily Drop] ${m}`);
+    running = (async () => {
+      for (const p of prepared) await custom.renderCustomEpisode({ dataDir, prepared: p, deliver: !!body.deliver, ...(fetchFn ? { fetchFn } : {}), log });
+    })().finally(() => { running = null; });
+    const seconds = prepared.reduce((n, p) => n + Math.round(p.words / 155 * 60) + p.script.segments.filter((s) => s.type === 'pause').reduce((a, s) => a + s.seconds, 0), 0);
+    return { started: true, episodes: prepared.map((p) => ({ id: p.id, title: p.script.title, words: p.words })), estimatedAudioSeconds: seconds };
   }));
 
   app.put('/api/podcast/config', wrap(async (req) => {

@@ -5,6 +5,7 @@
 //   node daily-podcast.js master [--data-dir D]                 rebuild the master cheat sheet
 //   node daily-podcast.js topics [--data-dir D] [--limit N]     rank the workbook topics and build missing topic sheets
 //   node daily-podcast.js fuzzy  [--data-dir D] --text "fuzzy BFS"   (used by the iMessage reply poller)
+//   node daily-podcast.js render [--data-dir D] --script PATH [--id SLUG] [--deliver]   record a script that is already written
 const path = require('path');
 const os = require('os');
 
@@ -48,6 +49,12 @@ const log = (m) => console.log(`[${new Date().toISOString().replace('T', ' ').sl
     log(`${ranking.topics.length} topics ranked`);
     ranking.topics.slice(0, 15).forEach((t, i) => log(`  ${i + 1}. ${t.title} (importance ${t.importance}, ${t.questionCount} questions, ${t.roleCount} roles)`));
     await topics.topUpTopicSheets(dataDir, ranking, Number(opt('limit', 3)), log);
+  } else if (cmd === 'render') {
+    const custom = require('../lib/podcast/custom');
+    const prepared = custom.prepareCustomEpisode({ dataDir, scriptPath: opt('script', ''), id: opt('id', undefined) });
+    log(`recording ${prepared.id}: ${prepared.script.title} (${prepared.words} words)`);
+    const ep = await custom.renderCustomEpisode({ dataDir, prepared, deliver: flag('deliver'), log });
+    process.exit(ep.status === 'ready' ? 0 : 1);
   } else if (cmd === 'fuzzy') {
     const r = require('../lib/podcast/fuzzy').fuzzyFromText(dataDir, opt('text', ''));
     console.log(r.message);

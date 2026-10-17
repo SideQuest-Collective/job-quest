@@ -22,8 +22,10 @@ const DEFAULT_CONFIG = {
 
 function podcastDir(dataDir) { return path.join(dataDir, 'podcast'); }
 function episodesDir(dataDir) { return path.join(podcastDir(dataDir), 'episodes'); }
+// An episode id is its date, or its date plus a slug for extra episodes made from a supplied script (2026-10-17-mercor-1).
+const EPISODE_ID = /^\d{4}-\d{2}-\d{2}(-[a-z0-9][a-z0-9-]{0,39})?$/;
 function episodeDir(dataDir, date) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw Object.assign(new Error('invalid date'), { status: 400 });
+  if (!EPISODE_ID.test(String(date))) throw Object.assign(new Error('invalid episode id'), { status: 400 });
   return path.join(episodesDir(dataDir), date);
 }
 
@@ -114,8 +116,8 @@ function markFuzzy(dataDir, id) {
 function listEpisodes(dataDir) {
   const dir = episodesDir(dataDir);
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse()
-    .map((date) => readJson(path.join(dir, date, 'episode.json'), null))
+  return fs.readdirSync(dir).filter((d) => EPISODE_ID.test(d)).sort().reverse()
+    .map((id) => { const ep = readJson(path.join(dir, id, 'episode.json'), null); return ep && { ...ep, id: ep.id || id }; })
     .filter(Boolean);
 }
 
@@ -140,7 +142,7 @@ function shouldShowOnboarding(state, { configured, now = new Date() }) {
 
 const shortHash = (s) => crypto.createHash('sha1').update(String(s)).digest('hex').slice(0, 10);
 
-module.exports = {
+module.exports = { EPISODE_ID,
   DEFAULT_CONFIG, podcastDir, episodesDir, episodeDir, readJson, writeJson,
   readApiKey, writeApiKey, removeApiKey, keySource, readKeyStatus, writeKeyStatus, readConfig, writeConfig, readHistory, recordAired, markFuzzy, listEpisodes, shortHash,
   SNOOZE_DAYS, readOnboarding, writeOnboarding, shouldShowOnboarding,
