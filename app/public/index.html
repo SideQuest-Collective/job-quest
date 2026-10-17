@@ -586,8 +586,11 @@
 <div id="root"></div>
 <script type="text/babel" src="/opportunities.jsx"></script>
 <script type="text/babel" src="/learning.jsx"></script>
+<script type="text/babel" src="/intel-setup.jsx"></script>
+<script type="text/babel" src="/content-readiness.jsx"></script>
 <script type="text/babel" src="/dashboard-home.jsx"></script>
 <script type="text/babel" src="/resume-home.jsx"></script>
+<script type="text/babel" src="/daily-drop.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -612,6 +615,7 @@ const Icons = {
   mapPin: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>,
   externalLink: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
   check: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+  headphones: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>,
   zap: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
   code: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>,
   play: (p) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
@@ -640,7 +644,7 @@ const api = {
 /* ===== PAGE HASH ROUTING ===== */
 const PAGE_IDS = new Set([
   'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel',
-  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup',
+  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup', 'dailydrop',
 ]);
 
 function readPageHash() {
@@ -675,6 +679,8 @@ function App() {
   const [page, setPage] = usePageRouting();
   const visited = useRef(new Set()); visited.current.add(page);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [outreachConfigureRequest, setOutreachConfigureRequest] = useState(0);
+  const [intelConfigureRequest, setIntelConfigureRequest] = useState(0);
   const [connectionError, setConnectionError] = useState(null);
   const [progress, setProgress] = useState({});
   const [todayTasks, setTodayTasks] = useState(null);
@@ -745,7 +751,7 @@ function App() {
   const navItems = [
     { id: 'dashboard', icon: Icons.target, label: 'Dashboard' },
     { id: 'practice', icon: Icons.play, label: 'Practice' },
-    { id: 'learn', icon: Icons.lightbulb, label: 'Learn' },
+    { id: 'dailydrop', icon: Icons.headphones, label: 'Daily Drop' },
     { id: 'opportunities', icon: Icons.briefcase, label: 'Outreach' },
     { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
     { id: 'tasks', icon: Icons.checkSquare, label: 'Daily Tasks', badge: taskCount || null },
@@ -769,7 +775,7 @@ function App() {
         <div className="sidebar-brand"><h1><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}>Job Quest</a></h1><div className="subtitle">Your next step</div></div>
         <div className="nav-section">
           {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider" /> : (
-            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id ? 'page' : undefined} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
+            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
               <n.icon className="nav-icon" />{n.label}
               {n.badge ? <span className="badge">{n.badge}</span> : null}
             </a>
@@ -779,10 +785,10 @@ function App() {
       </nav>
       <header className="mobile-header"><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}><strong>Job Quest</strong></a><div style={{display:'flex',gap:8}}><button className="btn btn-secondary refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></div></header>
       <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''}`}>
-        <div className="route-bar"><span>{navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
+        <div className="route-bar"><span>{page === 'learn' ? 'Practice · On the go' : navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
         {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
         {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
-        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
+        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
         {visited.current.has('tasks') && <section className="page-surface" hidden={page !== 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
         {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} setPage={setPage} onOpenRole={openNativeRole} /></section>}
@@ -792,13 +798,21 @@ function App() {
         {visited.current.has('codelab') && <section className="page-surface" hidden={page !== 'codelab'}><CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('sysdesign') && <section className="page-surface" hidden={page !== 'sysdesign'}><SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} /></section>}
         {visited.current.has('behavioral') && <section className="page-surface" hidden={page !== 'behavioral'}><Behavioral /></section>}
+        {visited.current.has('dailydrop') && <section className="page-surface" hidden={page !== 'dailydrop'}><window.DailyDrop active={page === 'dailydrop'} /></section>}
         {visited.current.has('trainer') && <section className="page-surface" hidden={page !== 'trainer'}><Trainer /></section>}
-        {visited.current.has('practice') && <section className="page-surface" hidden={page !== 'practice'}><window.Learning mode="practice" /></section>}
-        {visited.current.has('learn') && <section className="page-surface" hidden={page !== 'learn'}><window.Learning mode="learn" /></section>}
-        {visited.current.has('setup') && <section className="page-surface" hidden={page !== 'setup'}><LocalSetup setPage={setPage}/></section>}
-        {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
+        {(visited.current.has('practice') || visited.current.has('learn')) && <section className="page-surface" hidden={!['practice','learn'].includes(page)}>
+          <nav className="practice-modes" aria-label="Practice mode" style={{display:'flex',gap:8,marginBottom:24,maxWidth:1050,marginLeft:'auto',marginRight:'auto'}}>
+            <a className={`btn ${page==='practice'?'btn-primary':'btn-secondary'}`} href="#practice" aria-current={page==='practice'?'page':undefined} onClick={e=>{e.preventDefault();setPage('practice');}}>Focused</a>
+            <a className={`btn ${page==='learn'?'btn-primary':'btn-secondary'}`} href="#learn" aria-current={page==='learn'?'page':undefined} onClick={e=>{e.preventDefault();setPage('learn');}}>On the go</a>
+          </nav>
+          {visited.current.has('practice') && <div hidden={page !== 'practice'}><window.Learning mode="practice" /></div>}
+          {visited.current.has('learn') && <div hidden={page !== 'learn'}><window.Learning mode="learn" /></div>}
+        </section>}
+        {visited.current.has('setup') && <section className="page-surface" hidden={page !== 'setup'}><LocalSetup active={page==='setup'} intelConfigureRequest={intelConfigureRequest} setPage={setPage} onConfigureOutreach={()=>{setOutreachConfigureRequest(n=>n+1);setPage('opportunities');}}/></section>}
+        {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities onConfigureIntel={()=>{setIntelConfigureRequest(n=>n+1);setPage('setup');}} active={page==='opportunities'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
 
       </div>
+      {window.DailyDropOnboarding && <window.DailyDropOnboarding setPage={setPage} />}
     </div>
   );
 }
@@ -1136,14 +1150,16 @@ function UnlinkedSessions() {
 }
 
 /* ===== DASHBOARD ===== */
-function LocalSetup({setPage}) {
+function LocalSetup({setPage,onConfigureOutreach,active,intelConfigureRequest}) {
  const [setup,setSetup]=useState(null),[error,setError]=useState('');
  useEffect(()=>{api.get('/api/local-setup').then(setSetup).catch(e=>setError(e.message));},[]);
  return <><div className="page-header"><h2>Set up your Job Quest</h2><p className="greeting-sub">Start locally. Add only the connections you want.</p></div>{error&&<p role="alert">{error}</p>}
  <section className="card"><h3>Use on this Mac</h3><p>Available at localhost:3847. Tailscale and phone access are optional. Local practice uses your selected AI provider when you request coaching.</p></section>
- <section className="card"><h3>Email and opportunities</h3><p>{setup?.careerBriefConfigured?'Your local career-review brief is connected.':'No career-review brief is connected yet.'} Account access and scan coverage are shown separately.</p><button className="btn btn-secondary" onClick={()=>setPage('opportunities')}>Configure accounts and sources</button></section>
+ <section className="card"><h3>Outreach accounts</h3><p>{setup?.outreachStorage==='native'?'Job Quest stores your outreach and reply drafts locally.':setup?.careerBriefConfigured?'An external career-review source is connected.':'Outreach is not available yet.'} Account access and scan coverage are shown separately.</p><button className="btn btn-secondary" onClick={onConfigureOutreach}>Configure accounts and sources</button></section>
  <section className="card"><h3>Optional private phone access</h3><p>{setup?.privateAuthenticated?'You are connected through your private Tailscale link.':setup?.privateConfigured?'Your private link is configured. Open it from your phone with Tailscale connected.':'Local-only mode. Nothing needs installing to use Job Quest on this Mac.'}</p><p>For phone access away from home, use Tailscale on both devices with the same personal account. This Mac must stay awake and online.</p>{setup?.privateConfigured && setup?.privateOrigin && <p><a className="btn btn-primary" href={setup.privateOrigin+'/#dashboard'}>Open private Job Quest</a></p>}<div className="action-row"><a href="https://tailscale.com/download/mac" target="_blank" rel="noopener noreferrer">Tailscale for Mac</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noopener noreferrer">Tailscale for iPhone</a></div></section>
- <section className="card"><h3>Review schedule</h3><p>{setup?.schedule==='external'?'Your existing career-review automation manages updates. No additional schedule is needed.':'No schedule was added by this setup. Use your existing review workflow or choose a schedule separately.'}</p></section>
+ <window.IntelSetup active={active} configureRequest={intelConfigureRequest}/>
+ <window.ContentReadiness/>
+ <window.DailyDropSetupCard/>
  <details className="card"><summary>Local connection configuration</summary><p>Use Job Quest’s configure-local command to connect local review files or a private Tailscale origin. These optional settings stay in your private data folder and do not turn on network access by themselves.</p><code>~/.job-quest/bin/configure-local.cjs --help</code></details></>;
 }
 
@@ -1157,7 +1173,15 @@ function nativeRoleStatus(key, actions, tracker) {
   return { applied, stage, pipelineStarted: ['applied','phone-screen','onsite','offer','rejected'].includes(stage) };
 }
 
-function Discover({ allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole }) {
+function DiscoverySourceCoverage({ reports = [] }) {
+  const report = reports.find(item => Array.isArray(item.sourceCoverage) && item.sourceCoverage.length);
+  if (!report) return null;
+  return <details className="card" style={{marginBottom:16,overflowWrap:'anywhere'}}><summary>Job search sources · {report.date}</summary>
+    <div style={{paddingTop:12}}>{report.sourceCoverage.map((source,index) => <p key={index} style={{marginBottom:10}}><strong>{source.name}</strong> · {source.status}<br /><span style={{color:'var(--text-secondary)'}}>{source.detail}</span>{source.checkedAt && <small style={{display:'block'}}>Checked {new Date(source.checkedAt).toLocaleString()}</small>}</p>)}</div>
+  </details>;
+}
+
+function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole }) {
   const [viewMode, setViewMode] = useState('discover');
   const [currentIdx, setCurrentIdx] = useState(0);
   const [swipeDir, setSwipeDir] = useState(null);
@@ -1207,6 +1231,7 @@ function Discover({ allRoles, roleActions, roleTracker, setRoleActions, resume, 
   return (
     <>
       <div className="page-header anim-enter"><h2>Discover Roles</h2><div className="greeting-sub">Find listings, assess fit, and save roles. Manage applications and preparation in Intel.</div></div>
+      <DiscoverySourceCoverage reports={allIntel} />
       {actionError && !applyRole && <p role="alert" style={{color:'var(--rose)'}}>{actionError}</p>}
       <div className="discover-container">
         <div className="discover-tabs anim-enter anim-delay-1">
@@ -1232,7 +1257,7 @@ function Discover({ allRoles, roleActions, roleTracker, setRoleActions, resume, 
                       <span className="discover-meta-item"><Icons.briefcase style={{width:14,height:14}} /> {role.level}</span>
                       <span className="discover-meta-item"><Icons.mapPin style={{width:14,height:14}} /> {role.location}</span>
                     </div>
-                    {role.fit && <div className="discover-fit"><div className="discover-fit-label">Why this fits you</div><div className="discover-fit-text">{role.fit}</div></div>}
+                    {(role.fit || role.employerVerification) && <div className="discover-fit">{role.fit && <><div className="discover-fit-label">Why this fits you</div><div className="discover-fit-text">{role.fit}</div></>}{typeof role.employerVerification === 'string' && role.employerVerification && <p className="discover-fit-text" style={{marginTop:12,color:'var(--text-muted)'}}>Source check: {role.employerVerification}</p>}</div>}
                     {role.url && <a href={role.url} target="_blank" rel="noopener" style={{fontSize:12,color:'var(--amber)',fontFamily:'var(--font-mono)',display:'flex',alignItems:'center',gap:6,textDecoration:'none'}}><Icons.externalLink style={{width:14,height:14}} /> View posting</a>}
                   </div>
                 );
@@ -3088,6 +3113,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 <div className="mc-section">
                   <div className="mc-section-title"><Icons.zap style={{width:14,height:14,color:'var(--emerald)'}} /> Why This Fits You</div>
                   <div className="mc-fit">{selected.fit}</div>
+                  {typeof selected.employerVerification === 'string' && selected.employerVerification && <p style={{marginTop:10,color:'var(--text-muted)'}}>Source check: {selected.employerVerification}</p>}
                 </div>
               )}
 

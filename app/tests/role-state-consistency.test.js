@@ -132,7 +132,7 @@ test('Intel retains failed edits, retries explicitly and serializes overlapping 
 test('Discover saved and applied cards launch their exact native role context', () => {
   const discover = html.slice(html.indexOf('function Discover('), html.indexOf('/* ===== APPLY MODAL ===== */', html.indexOf('function Discover(')));
   assert.equal((discover.match(/onOpenRole\(r\)/g) || []).length, 2);
-  assert.match(html, /<Discover onOpenRole=\{openNativeRole\}/);
+  assert.match(html, /<Discover\b[^>]*onOpenRole=\{openNativeRole\}/);
 });
 
 test('interview ingestion preserves explicit legacy applied history without inferring submission from phone-screen alone', () => {

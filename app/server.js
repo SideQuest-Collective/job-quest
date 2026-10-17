@@ -76,9 +76,16 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+const {getPaths: outreachPaths, ensureNativeStore} = require('./lib/outreach/store');
+const outreachStorage = outreachPaths(DATA_DIR, {briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE});
+if (outreachStorage.native) ensureNativeStore(DATA_DIR);
+process.env.JOB_QUEST_CAREER_BRIEF = outreachStorage.briefPath;
+process.env.JOB_QUEST_REPLY_QUEUE = outreachStorage.queuePath;
+
 // --- Shared job queue (workbooks, resume tailoring) ---
 const jobHandlers = {};
-const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers });
+// Resume tailoring takes minutes; workbook builds take about an hour. Run resumes first.
+const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers, priority: ['resume'] });
 const roleEvents = createRoleEventBus();
 const feedbackService = createFeedbackService({ dataDir: DATA_DIR, queue: jobQueue, handlers: jobHandlers });
 const feedbackRoute = fn => (req, res) => { try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save or load feedback. Your existing data has been preserved.' }); } };
@@ -90,7 +97,7 @@ app.get('/api/feedback/:id', feedbackRoute((req, res) => {
 }));
 app.post('/api/feedback/:id/retry', feedbackRoute((req, res) => res.status(202).json(feedbackService.retry(req.params.id))));
 
-app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,schedule:localSetup.schedule || 'not_selected'}));
+app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,outreachStorage:outreachStorage.native?'native':'external',schedule:localSetup.schedule || 'not_selected'}));
 
 app.get('/api/jobs', (req, res) => res.json(jobQueue.list()));
 app.get('/api/settings', (req, res) => res.json(readSettings(DATA_DIR)));
@@ -744,6 +751,9 @@ const problemStore = createProblemStore(DATA_DIR);
 require('./lib/codelab/drafts').registerDraftRoutes(app, {dataDir:DATA_DIR,getProblems:()=>problemStore.read()});
 require('./lib/opportunities/routes').registerOpportunityRoutes(app, { dataDir: DATA_DIR, briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE });
 require('./lib/learning/routes').registerLearningRoutes(app, {dataDir: DATA_DIR, getProblems: () => problemStore.read()});
+require('./lib/podcast/routes').registerPodcastRoutes(app, { dataDir: DATA_DIR, binDir: expandHome(runtimeState.binDir) });
+require('./lib/intel-control/routes').registerIntelControls(app,{dataDir:DATA_DIR,binDir:expandHome(runtimeState.binDir),getRuntime:()=>ensureRuntime({write:false,requireRunner:true,requireRegistration:true})});
+try { const readiness=require('./lib/learning/readiness').assessContentReadiness(DATA_DIR); console.log(`[Job Quest] Content readiness: ${readiness.status}. See Setup for details.`); } catch { console.warn('[Job Quest] Content readiness could not be checked. Saved data was preserved.'); }
 app.get('/api/problems', (req, res) => {
   try { res.json(problemStore.read()); } catch (err) { res.status(500).json({ error: `could not read problems: ${err.message}` }); }
 });

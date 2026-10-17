@@ -116,3 +116,75 @@ test('outreach links to a supported native role by listing or exact company and 
   assert.equal(context.window.matchJobQuestOutreachRole({ company: 'Example', title: 'Senior Backend Engineer' }, [backend, { ...backend, url: 'https://jobs.example.com/44' }]), null, 'ambiguous exact matches stay unresolved');
   assert.equal(context.window.matchJobQuestOutreachRole({ relatedRoleUrl: 'javascript:alert(1)' }, roles), null);
 });
+
+
+test('setup request waits for the visible loaded Outreach form, then opens and focuses it once per request', () => {
+  const effect = source.match(/  useEffect\(\(\) => \{\n    if \(!active \|\| !data \|\| !configureRequest[\s\S]*?\n  \}, \[active, data, configureRequest\]\);/)[0];
+  const run = new Function('window', 'active', 'data', 'configureRequest', 'configuredRequest', 'setAccountsOpen', 'accountPanel', 'accountInput', 'useEffect', effect);
+  const calls = [], panel = { open: false }, input = {
+    scrollIntoView(options) { calls.push(['scroll', options.block]); },
+    focus(options) { calls.push(['focus', options.preventScroll]); },
+  };
+  const applied = { current: 0 }, panelRef = { current: panel }, inputRef = { current: input };
+  const invoke = (active, data, request) => run(context.window, active, data, request, applied,
+    open => calls.push(['open', open]), panelRef, inputRef, callback => callback());
+  invoke(true, null, 1);
+  invoke(false, {}, 1);
+  assert.equal(applied.current, 0);
+  assert.deepEqual(calls, []);
+  invoke(true, {}, 1);
+  assert.equal(panel.open, true);
+  assert.deepEqual(calls, [['open', true], ['scroll', 'center'], ['focus', true]]);
+  invoke(true, { refreshed: true }, 1);
+  assert.equal(calls.length, 3, 'refresh must not steal focus from account editing');
+  invoke(true, {}, 2);
+  assert.equal(calls.length, 6, 'returning through Setup should reopen the form');
+});
+
+test('access-check action copies an actionable request without account writes, scans or sending', async () => {
+  const handler = source.match(/  const copyAccessRequest = async \(accounts = data.accounts\) => \{[\s\S]*?\n  \};/)[0];
+  const writes = [], statuses = [], errors = [];
+  const copy = new Function('window', 'navigator', 'data', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
+    context.window, { clipboard: { async writeText(text) { writes.push(text); } } }, { accounts: [{ id: 'gmail', kind: 'gmail', label: 'you@example.test' }] },
+    value => statuses.push(value), value => errors.push(value));
+  await copy();
+  assert.equal(writes.length, 1);
+  assert.match(writes[0], /already authorized inbox tools or browser access/);
+  assert.match(writes[0], /Do not send messages/);
+  assert.deepEqual(statuses, [writes[0]]);
+  assert.deepEqual(errors, []);
+  const denied = new Function('window', 'navigator', 'data', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
+    context.window, { clipboard: { async writeText() { throw Error('denied'); } } }, { accounts: [] },
+    value => statuses.push(value), value => errors.push(value));
+  await denied();
+  assert.match(errors[0], /copy it manually/);
+  assert.equal(statuses.length, 1);
+});
+
+
+test('account access requests target the selected identity and preserve evidence and revision safeguards', () => {
+  const account = { id: 'li', kind: 'linkedin', label: 'Profile name', accessStatus: 'unverified' };
+  const request = context.window.jobQuestOutreachAccessRequest([account]);
+  assert.match(request, /\"id\":\"li\"/);
+  assert.match(request, /\"label\":\"Profile name\"/);
+  assert.match(request, /signed-in profile/);
+  assert.match(request, /direct messages and LinkedIn Jobs separately/);
+  assert.match(request, /accountsRevision as revision/);
+  assert.match(request, /preserving all other saved accounts and fields/);
+  assert.match(request, /actual successful read/);
+  assert.match(request, /Do not send messages, apply for jobs, or change schedules/);
+  assert.equal(account.accessStatus, 'unverified');
+  const other = { id: 'other', kind: 'gmail', label: 'other@example.test' };
+  assert.doesNotMatch(request, /other@example/);
+  assert.match(context.window.jobQuestOutreachAccessRequest([account, other]), /other@example/);
+});
+
+test('setup offers distinct LinkedIn browser surfaces and a Gmail account chooser', () => {
+  const linkedin = plain(context.window.jobQuestAccountSetupLinks('linkedin'));
+  assert.deepEqual(linkedin.map(link => new URL(link.url).pathname), ['/login', '/messaging/', '/jobs/']);
+  for (const link of linkedin) assert.equal(new URL(link.url).origin, 'https://www.linkedin.com');
+  const gmail = context.window.jobQuestAccountSetupLinks('gmail');
+  assert.equal(new URL(gmail[0].url).hostname, 'accounts.google.com');
+  assert.equal(new URL(gmail[0].url).searchParams.get('continue'), 'https://mail.google.com/mail/');
+  assert.deepEqual(plain(context.window.jobQuestAccountSetupLinks('linkedin_email')), plain(gmail));
+});

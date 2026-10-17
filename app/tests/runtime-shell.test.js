@@ -65,6 +65,8 @@ test('existing dated native output stops the actual helper before generation', (
   const data = path.join(product, 'data');
   const mkdir = p => fs.mkdirSync(p, { recursive: true });
   mkdir(path.join(product, 'app/lib'));
+  mkdir(path.join(product, 'app/app/lib/intel-control'));
+  fs.copyFileSync(path.join(repoRoot, 'app/lib/intel-control/lock.js'), path.join(product, 'app/app/lib/intel-control/lock.js'));
   mkdir(path.join(product, 'bin'));
   mkdir(path.join(product, 'references'));
   mkdir(path.join(fixtureHome, '.codex/skills/job-quest'));

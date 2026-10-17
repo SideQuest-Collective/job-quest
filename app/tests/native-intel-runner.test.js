@@ -10,6 +10,8 @@ for (const runtime of ['codex', 'claude']) test(`native intel ${runtime} invocat
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   for (const dir of ['skill/bin', 'lib', 'data', 'references']) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.copyFileSync(source, path.join(root, 'skill/bin/run-daily-intel.sh'));
+  fs.mkdirSync(path.join(root,'app/lib/intel-control'),{recursive:true});
+  fs.copyFileSync(path.resolve(__dirname,'../lib/intel-control/lock.js'),path.join(root,'app/lib/intel-control/lock.js'));
   fs.writeFileSync(path.join(root, 'data/profile.json'), JSON.stringify({ name: 'Fixture', targetCompanies: {} }));
   fs.writeFileSync(path.join(root, 'references/intel-agent-template.md'), 'Fixture template');
   fs.writeFileSync(path.join(root, 'lib/runtime-shell.sh'), `job_quest_load_runtime() {\n export JOB_QUEST_ACTIVE_RUNTIME=${runtime}\n export JOB_QUEST_DATA_DIR="$JOB_QUEST_REPO_ROOT/data"\n export JOB_QUEST_REFERENCES_DIR="$JOB_QUEST_REPO_ROOT/references"\n export JOB_QUEST_APP_ROOT="$JOB_QUEST_REPO_ROOT"\n export JOB_QUEST_RUNTIME_COMMAND=${runtime}\n JOB_QUEST_RUNTIME_COMMAND_ARGS=()\n}\njob_quest_runtime_hint() { echo fixture; }\njob_quest_run_prompt_file() {\n cp "$1" "$JOB_QUEST_REPO_ROOT/captured-prompt"\n shift\n printf '%s\\n' "$@" > "$JOB_QUEST_REPO_ROOT/captured-args"\n echo 'Fixture invocation only; no generated output'\n}\n`);
@@ -20,6 +22,11 @@ for (const runtime of ['codex', 'claude']) test(`native intel ${runtime} invocat
   assert.doesNotMatch(args.join(' '), /dangerously|full-auto/);
   const prompt = fs.readFileSync(path.join(root, 'captured-prompt'), 'utf8');
   assert.ok(prompt.includes(`${root}/data/intel/`));
+  assert.match(prompt, /official ATS listings and LinkedIn Jobs/);
+  assert.match(prompt, /specific LinkedIn \/jobs\/view\/<numeric-id> posting/);
+  assert.match(prompt, /sourceCoverage/);
+  assert.match(prompt, /unavailable has checkedAt null/);
+  assert.match(prompt, /interactive app browser is not proof of scheduled CLI access/);
   assert.ok(prompt.includes(`${root}/data/quizzes/`));
   assert.ok(prompt.includes(`${root}/data/tasks/`));
   assert.equal(fs.existsSync(path.join(root, 'data/intel')), false, 'mocked agent never generates data');

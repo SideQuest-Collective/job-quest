@@ -35,7 +35,9 @@ After the update check, make sure a daily intel schedule exists:
 
 Rules:
 - If a schedule exists, continue normally.
-- If no schedule exists, install the default schedule immediately:
+- Read `~/.job-quest/data/intel-schedule-preference.json` when present. If its explicit frequency is `off`, preserve manual-only Intel and do not restore a default schedule. If the preference is unreadable, continue with the existing setup and report the configuration problem rather than overriding it. Setup → Intel runs can change this preference.
+- If local-setup.json explicitly selects `schedule: external`, preserve the configured review that feeds native Outreach; do not install a competing default schedule during this return flow. The runner skips its own inbox collection in this mode.
+- Otherwise, if no schedule exists, install the default schedule:
 
 ```bash
 ~/.job-quest/bin/install-schedule.sh "3 7 * * 1-5"
@@ -43,8 +45,23 @@ Rules:
 
 - Tell the user briefly that Job Quest restored the default weekday 7:03 AM schedule because none was installed.
 - If schedule installation fails, tell the user briefly and continue; do not block the rest of the skill flow on schedule setup.
-- An external career-review job that feeds the Opportunities brief (`schedule: "external"` in `local-setup.json`) is a separate source; it does not replace the native intel schedule, and the native schedule does not duplicate its scan.
+- An explicitly selected career-review job feeds native Outreach through `collect-outreach.cjs`. Native public-role/preparation generation remains available on demand without duplicating that inbox scan.
 </startup_schedule>
+
+<startup_content_readiness>
+On ordinary startup, after ensuring the dashboard is running, check the available preparation content without changing saved work:
+
+```bash
+~/.job-quest/bin/check-content-readiness.cjs
+```
+
+This nonblocking check reads actual Behavioral task prompts and saved answers, recent valid quizzes, and the public audio/video catalog. Defaults require five unanswered behavioral prompts; five quiz questions across three topics from the last seven days; and two audio plus two video resources, two publishers and three distinct learning goals checked within thirty days. These are configurable via Setup's content readiness controls (`GET /api/content-readiness`, `PUT /api/content-readiness/settings`) and saved locally in `data/learning/readiness.json`.
+
+- Continue startup when content is low, old, unreadable or the helper is unavailable. Briefly surface the concrete gaps; do not claim content or source access is ready from a file's existence alone.
+- Use the existing Intel runner for new daily quizzes and behavioral tasks. Preserve all existing dated files, answers and progress; if today's files already exist, do not delete or rewrite them to force generation. To add missing behavioral prompts now, use the existing prep-plan API with a separate plan identity; it preserves other tasks and all saved answers.
+- Media catalog checks are based on recorded publisher verification dates; they do not verify current playback or availability. Intel currently does not curate media. When asked to expand on-the-go learning, verify new public publisher links and add diverse audio/video references to the existing catalog rather than inventing URLs or duplicating a generator.
+- Never launch paid AI generation, inbox collection, or media network checks merely because a readiness check ran. Follow the user's requested run and existing schedule ownership.
+</startup_content_readiness>
 
 <first_run_detection>
 First, check the user's raw input for an **installation management keyword**. If their message contains (case-insensitive) any of: `uninstall`, `reinstall`, `reset`, `nuke my install`, `start over`, `wipe everything`, route immediately to the "Installation Management" section below — do not run onboarding, do not show the menu. This lets users type `/job-quest reinstall` and skip straight to the action.
@@ -115,7 +132,7 @@ Once confirmed, save to `~/.job-quest/data/profile.json`:
 Create the full directory structure at `~/.job-quest/data/`:
 
 ```bash
-mkdir -p ~/.job-quest/data/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs}
+mkdir -p ~/.job-quest/data/{intel,quizzes,tasks,problems,behavioral,conversations,sd-conversations,resume-files,logs,outreach}
 ```
 
 Seed empty JSON files so nothing crashes on first read. The shipped `install.sh` copies `app/skill/seed/problems.json` (30 base problems across 4 categories) into `~/.job-quest/data/problems/problems.json` for new installs; if you're seeding manually outside the installer, mirror that:
@@ -129,6 +146,8 @@ echo '{}' > ~/.job-quest/data/activity.json
 echo '{}' > ~/.job-quest/data/progress.json
 echo '{}' > ~/.job-quest/data/resume.json
 ```
+
+For a fresh native Outreach store, run `~/.job-quest/bin/collect-outreach.cjs --init` after installing the helpers. Do not replace an existing brief or recruiter queue with empty seed data.
 
 ### Phase 3: Set Up the Dashboard App
 
@@ -182,11 +201,11 @@ Install a **local schedule** that runs the intel agent on the user's machine. Th
 
 The installed entry invokes `~/.job-quest/bin/run-daily-intel.sh`, which reads the user's `profile.json`, builds the personalized intel prompt, runs the active runtime CLI locally, and writes JSON files into `~/.job-quest/data/{intel,quizzes,tasks}/` and `~/.job-quest/data/problems/problems.json`. Logs land in `~/.job-quest/data/logs/daily-intel.log`.
 
-**Why local launchd/cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state. An optional career-review brief for the Opportunities page is a separate source and does not replace this schedule.
+**Why local launchd/cron (not `/schedule`/`RemoteTrigger`):** the daily agent must write files to the user's local filesystem so the dashboard at `localhost:3847` can render them. Remote triggers run in Anthropic's cloud and cannot mutate local state. Native Outreach evidence can come from an existing authorized review submitted through `collect-outreach.cjs`; that review remains separate from this native intel schedule.
 
 ### Phase 5: Generate Today's Content
 
-If Job Quest is the user's chosen discovery source, generate initial intel now. If an existing career-review process supplies the local Opportunities brief, connect and verify that brief first; do not duplicate its scan or reset its queue.
+If Job Quest is the user's chosen discovery source, generate initial intel now. If an existing career-review process supplies outreach evidence, migrate its brief and queue into native Outreach first and verify the source rows; preserve drafts and holds, and do not duplicate its scan.
 
 1. **Search the web** for roles matching their profile — aim for 15-20 roles across their target categories
 2. **Generate a quiz** — 5-7 questions mixing system design, coding concepts, and behavioral/leadership topics
@@ -208,6 +227,7 @@ Tell the user it's running at `http://localhost:3847` and give them a quick tour
 
 - **Dashboard** — daily overview with your streak, task progress, and quiz accuracy
 - **Intel** — the roles I just found for you, with 'why this fits' analysis for each
+- **Outreach** — source coverage, recruiter drafts and collected leads; account access and message sending remain explicit
 - **Tasks** — your daily prep tasks, each with a detailed walkthrough
 - **Quiz** — knowledge checks to keep you sharp
 - **Code Lab** — coding problems that adapt to your level, with AI code review
@@ -266,9 +286,15 @@ Use AskUserQuestion to let them pick. Because AskUserQuestion is capped at 4 opt
 
 **Review Intel:** Read `~/.job-quest/data/intel/` for today's file. Present the top roles with fit analysis. Help them add roles to the tracker.
 
-**Opportunities and recruiter review:** When `JOB_QUEST_CAREER_BRIEF` and `JOB_QUEST_REPLY_QUEUE` are configured, the local dashboard reads the existing career-review brief and reply queue. Show source coverage and blocked accounts honestly. A selected email or LinkedIn account is only a preference until access and review are verified. Preserve edited drafts, sent/booked reports, holds, snoozes and source links. Copying a draft, opening a posting or opening a booking link does not mean a reply was sent, an application submitted or a meeting booked. The user sends replies and chooses booking times. Do not publish to a hosted Site or add another daily schedule for this bridge.
+**Outreach and recruiter review:** Use native `~/.job-quest/data/outreach/brief.json` and `outreach/queue.json`; account preferences remain in `opportunity-accounts.json`. Fresh installs can initialize the store with `~/.job-quest/bin/collect-outreach.cjs --init`. Collect only authorized, reachable sources, keep stable opportunity IDs, and report account/source coverage and blockers honestly. A selected Gmail or LinkedIn account is only a preference until access and review are verified. LinkedIn email notifications provide partial coverage; they do not establish coverage of the direct inbox, InMail or invitations.
 
-For optional local connections, follow `LOCAL-SETUP.md`. The installed `~/.job-quest/bin/configure-local.cjs` records explicit brief, queue and optional interview-home paths in private data; it does not scan accounts, install schedules or enable Tailscale. In the webpage, users can select Gmail accounts and LinkedIn email notifications to review. Mark connector/browser access verified only after an actual access check, and map an account to a source row only when the row covers that account. LinkedIn email notifications are partial coverage of LinkedIn activity.
+Submit collected evidence with `~/.job-quest/bin/collect-outreach.cjs --input /absolute/path/to/collection.json`. The JSON candidate has `schema: "job-quest-collection/1"`, optional `generatedAt` and `summary`, and `sources` and `opportunities` arrays. Give sources actual account identity, status, check time and coverage detail; use `kind: "job"` or `kind: "recruiter"`, stable IDs and precise source links for opportunities. If account tools or access are unavailable, record that limitation and do not claim messages were reviewed. Never supply replacement `queue`, `items` or `holds` arrays. The collector merges evidence, retains old leads, seeds only new recruiter queue IDs and projects supported source-checked job listings into native Intel. Existing draft text, holds, snoozes, sent/booked reports and other user state remain owned by the dashboard. The CLI itself does not scan accounts or send messages.
+
+For an existing external brief/queue, follow `LOCAL-SETUP.md` and run `collect-outreach.cjs --import-legacy --brief /absolute/brief.json --queue /absolute/queue.json`, then restart and verify Outreach. Import backs up private source bytes and setup, copies native files byte for byte, removes legacy path overrides and leaves old files in place; a different existing native store is a conflict, not permission to replace it. Explicit external path overrides remain compatible, but are unnecessary for native operation. Keep an existing review schedule and change its output step to the shared collector; do not add another daily schedule for this migration.
+
+Preserve edited drafts, holds, snoozes and source links. Copying a draft, opening a posting or opening a booking link does not mean a reply was sent, an application submitted or a meeting booked. The user sends replies and chooses booking times; workflow reports are user reported. Do not publish these private files to a hosted Site. `configure-local.cjs` records optional interview/private-access settings; it does not scan accounts, install schedules or enable Tailscale. Mark connector/browser access verified only after an actual access check, and map accounts to source rows only when their coverage matches.
+
+**Connect mail and LinkedIn:** Setup → Configure accounts and sources opens the native Outreach form. Gmail uses the selected agent's mail connector; verify its returned account identity. Direct LinkedIn uses an available authorized connector or an agent-controlled signed-in browser: open `https://www.linkedin.com/messaging/`, verify the profile identity from the account menu, and check messages and `https://www.linkedin.com/jobs/` separately. If sign-in is needed, keep the browser page available for the user's login; never save credentials or copy browser cookies into Job Quest. Record only actual access evidence through `GET /api/opportunities` then revision-safe `PUT /api/opportunities/accounts`, preserving existing accounts. A verified browser session now does not prove browser tools will be available to a future scheduled CLI invocation. Record source coverage on every collection run and leave inaccessible direct sources visibly unavailable. Notification-only email never substitutes for direct LinkedIn coverage. Discover searches LinkedIn role listings as well as employer sources through the existing Intel runner; shared Outreach collection merges source evidence and preserves drafts/decisions. Keep any existing external review's ownership and paused/active state; update its collection instructions without enabling another inbox schedule.
 
 **Interview Prep:** Ask which company/role. Point them to the role's workbook in the dashboard (Intel → the role → Workbook, or the Workbooks tab). If the role has none, create one from the role page ("Create workbook") or with `curl -s -X POST localhost:3847/api/workbooks -H 'content-type: application/json' -d '{"roleKey":"Company|Role"}'`. For deeper onsite prep, use "Expand to onsite". To study together, open `http://localhost:3847/workbooks/<id>` and drill its Review misses list with them. When they want a schedule across days or several interviews ("plan my prep", "I have X Thursday and Y Friday"), follow **Plan Prep** below.
 
@@ -298,7 +324,21 @@ Everything you make for the user's prep must be usable at `http://localhost:3847
 | Interview dates, round, stage, notes | The role tracker | `GET /api/role-tracker`, change that role, `POST` the whole object back |
 | System design practice | System Design topics | Workbook system design questions appear there automatically; link to them |
 
-Never write prep plans, research notes, drills, question lists or cheat sheets as `.md`/`.txt` files, whether in `~/.job-quest/data/practice/`, the home folder or your own memory. Files in `data/practice/` are older imports: read them as input, never add to them. Research subagents return their findings to you as text; tell them not to write files, then pass the findings to the workbook as `research`. Put summaries in chat, with links to the dashboard pages.
+Never write prep plans, research notes, drills, question lists or company cheat sheets as loose `.md`/`.txt` files, whether in `~/.job-quest/data/practice/`, the home folder or your own memory. Reusable conceptual references are the narrow exception: maintain the existing shared library through the workflow below, never create a competing prep folder. Files in `data/practice/` are older imports: read them as input, never add to them. Research subagents return their findings to you as text; tell them not to write files, then pass the findings to the workbook as `research`. Put summaries in chat, with links to the dashboard pages.
+
+## Reusable Conceptual Sheets
+
+Building and improving reusable conceptual sheets is part of requested interview prep, study planning, practice review and post-interview debriefs. Role workbooks teach and drill a particular role; conceptual sheets capture reusable ideas across roles. Do not mistake workbook concept chapters or company interview exports for an updated shared conceptual library.
+
+1. **Choose a useful gap.** Use target-role requirements, missed answers, repeated confusion or a newly studied topic. Reuse an existing sheet before adding another; do not generate a new sheet for every listing or merely because the startup readiness check ran. Examples include caching, consistency, database tradeoffs, graph traversal and a system-design solving framework.
+2. **Find the canonical source.** Read `GET /api/learning` for saved and linked references. When interview preparation is installed, run `python3 ~/.interview/app/context.py inventory` and `python3 ~/.interview/app/preparation.py catalog --round system`. Follow the returned physical/resolved source and stable document identity. Read `~/.interview/app/SETUP.md` for supported topic-folder/catalog formats. Do not hardcode a user's source folder or copy shared sheets into a second library.
+3. **Build a compact reference.** Explain the mental model, when to use it, key tradeoffs, common mistakes and a worked example. Include a few recall/application prompts and source links for technical claims; verify unfamiliar or changing details against primary documentation. Keep resume facts, personal stories and company-specific notes in their existing separate flows. Keep important HUD bullets short; a delivery framework uses numbered `##` phases with bullet steps.
+4. **Save through the existing owner.** For linked sheets, update the exact existing document in its catalog or linked topic folder, preserving IDs, unrelated documents and user edits. Back up the source and check it has not changed before replacing it. For a new topic, use the already configured topic folder or supported catalog. If no shared library is configured, use the native `POST /api/learning/sources` with `{revision, source: {kind: "concept", path, title, content}}` after reading the current revision; this creates a Job Quest reference only, not an interview-library export. Never present that fallback as shared with the HUD. Existing-source replacements require reviewed content plus `confirmRefresh: true` and the current `previousHash`; a conflict means reread and reconcile, not force overwrite.
+5. **Verify and use it.** Read back the source and `GET /api/learning`; check the intended sheet appears once under its stable identity. For shared interview sheets, also verify the preparation catalog and rendered concept cards. Link the sheet from Practice and use it for recall/application practice; writing or reading a sheet is not evidence of mastery. Saved attempts retain their original source snapshots. Editing a shared source does not change an active interview's accepted preparation; use the existing HUD selection/apply flow when the user wants the new version.
+
+6. **Iterate after interviews.** As part of the agent's post-interview debrief/review, inspect the completed session, actual questions, the user's reflections, explicit interviewer feedback and any reported outcome. Identify what held up, what broke down and what would help next time. Improve the relevant existing concept sheet with a clearer explanation, missing tradeoff, counterexample, decision rule or solving step, and add a targeted recall/application prompt. Record a short dated change reason and private session reference so the lesson is traceable without copying an entire transcript. Keep observed evidence, user-reported feedback and inference distinct; an offer or rejection alone does not prove a technical explanation was correct or wrong. Verify technical corrections against primary sources. Company-specific observations belong in the role's workbook/timeline; reusable lessons belong in the shared conceptual sheet. Preserve useful prior guidance and revise it when evidence warrants, rather than replacing the sheet wholesale or adding a duplicate per interview. Follow the same ownership, conflict and readback checks above. Automatic session ingestion alone does not perform this sheet revision; do not claim it did.
+
+This is an agent-assisted authoring workflow during requested prep/review, not a new autonomous generator or schedule. Concept sheets supplement quizzes, drills and role workbooks; they do not replace them.
 
 ## Plan Prep
 
@@ -444,7 +484,9 @@ Examples:
 ~/.job-quest/bin/install-schedule.sh --uninstall
 ```
 
-6. After any change, confirm the new schedule and remind them they can change it again later by asking Job Quest.
+6. After an explicit removal, persist the manual-only choice in `~/.job-quest/data/intel-schedule-preference.json` with `schema: "job-quest-intel-schedule/1"`, `frequency: "off"`, `time: null`, `cron: null`, the actual update time and local timezone. Dashboard Setup does this automatically. Preserve an unreadable preference rather than replacing it without review.
+
+7. After any change, confirm the new schedule and remind them they can change it again later in Setup → Intel runs or by asking Job Quest.
 
 ## Installation Management
 
@@ -595,6 +637,8 @@ When the `/interview` live copilot is installed (`~/.interview/app/capture.py` e
 - `~/.job-quest/bin/jq` is Job Quest's CLI for `/interview`. It is not the `jq` JSON tool: it lives in `~/.job-quest/bin`, which is never put on `PATH`, and `/interview` runs it by absolute path. It works without the dashboard running. Every command prints one JSON value; failures exit non-zero with `{"error":"<one line>"}`. `version` reports the contract; `roles --company <name>` lists matching roles.
 - Before a call: `~/.job-quest/bin/jq interview-context "<Company|Role>" --round <coding|system|behavioral|recruiter|screen>` writes `~/.interview/context/{resume.md,<company>-jd.md,target.md}`, `~/.interview/cheatsheets/<company>.json` (from the role's workbook), and `~/.interview/practice/<roleId>.json` (company plus role slug). Missing inputs are reported under `skipped`; it never waits for workbook generation. `--no-agent` uses only cached cheat sheets. The dashboard's role page has the same action as **Prep /interview**.
 - Files without Job Quest's ownership marker (the `generated by job-quest` first line in Markdown or `"_generatedBy":"job-quest"` in JSON) are never overwritten; a `.jq` copy is written beside them, unless that sibling is also user-owned. The returned `cheatsheet` is the target path whenever a file exists there (the user's sheet wins), or `null`; `practice` is the file Job Quest wrote (target or `.jq` sibling), or `null`.
+- **Close out dead roles at every debrief.** When the user reports a rejection, a withdrawal, or says a role is dead, set that role's tracker stage to `rejected` right away: `GET /api/role-tracker`, change only that role (stage, a timeline entry such as "Closed out: not moving forward", clear `nextStep`), and `POST` the whole object back. Close the company's other saved listings the same way unless the user wants them kept. A rejected role leaves Daily Drop, the master cheat sheet, due-review questions, the trainer and prep focus automatically; never revive it from the saved or applied lists. Ask about the outcome of every reported interview if the user has not said, and keep prep pointed at the roles with upcoming rounds.
+- After the agent completes a call debrief, also follow **Reusable Conceptual Sheets → Iterate after interviews** to improve relevant shared references from the actual evidence. This agent review complements the ingestion below; it is not an automatic side effect of importing a session.
 - After a call: `/interview stop` runs `~/.job-quest/bin/jq ingest-session <folder>`. The session lands on the role's timeline, raises the tracker stage (never lowers it), adds the asked questions to the role's workbook chapter "Asked in your interviews" with grades from the debrief (misses enter the trainer queue), and turns follow-ups into tasks. Re-running an unchanged, fully applied session changes nothing. Successful debrief analysis is reused until the session or debrief changes; failed analysis is retried once per edit (at most two attempts for unchanged inputs).
 - The dashboard also scans `~/.interview/sessions/` at startup and every 10 minutes. This backstop requires `session.json` and `debrief.md`; a debrief with the scorecard placeholder waits until it has been unmodified for 30 minutes. Records live in `~/.job-quest/data/interview-sessions/` with statuses `unlinked|linking|ingesting|failed|ingested`; the backstop retries failed or interrupted imports.
 - Sessions recorded before the integration, or without a role, show under **Unlinked /interview sessions** on the Workbooks tab (collapsed by default; click the header to open it). Hide solo practice or test runs with the ✕ on a row; nothing is deleted, and "Show hidden sessions" lists them with Restore. Pick a role to import the rest (`~/.job-quest/bin/jq link-session <folder> "<Company|Role>"` does the same). `<folder>` is a session folder name or its absolute path. `JOB_QUEST_HOME` and `INTERVIEW_HOME` override the default homes.

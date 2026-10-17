@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const {getPaths, ensureNativeStore, withStoreLock} = require('../outreach/store');
 
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 const revision = value => sha(JSON.stringify(value));
@@ -364,6 +365,9 @@ function editQueueItem(item, input, now) {
 }
 
 function registerOpportunityRoutes(app, { dataDir, briefPath, queuePath }) {
+  const paths = getPaths(dataDir, {briefPath,queuePath});
+  if (paths.native) ensureNativeStore(dataDir);
+  briefPath = paths.briefPath; queuePath = paths.queuePath;
   const accountsPath = path.join(dataDir, 'opportunity-accounts.json');
 
   app.get('/api/opportunities', (_req, res) => {
@@ -372,11 +376,14 @@ function registerOpportunityRoutes(app, { dataDir, briefPath, queuePath }) {
 
   app.patch('/api/opportunities/:id', (req, res) => {
     if (!queuePath) return res.status(503).json({ error: 'Reply queue is not configured.' });
+    try {return withStoreLock(dataDir, () => {
     const input = req.body;
     if (!isObject(input) || typeof input.revision !== 'string') return res.status(400).json({ error: 'A record revision is required.' });
     const read = readJson(queuePath);
-    if (read.state !== 'ready' || !isObject(read.value)) return res.status(503).json({ error: 'Reply queue is unavailable.' });
+    if (read.state !== 'ready' || !isObject(read.value) || !Array.isArray(read.value.items) || !Array.isArray(read.value.holds)) return res.status(503).json({ error: 'Reply queue is unavailable.' });
     const queue = read.value;
+    const records = [...queue.items, ...queue.holds];
+    if (records.some(item => !isObject(item) || typeof item.id !== 'string' || !item.id) || new Set(records.map(item => item.id)).size !== records.length) return res.status(503).json({ error: 'Reply queue has ambiguous records. Existing data was preserved.' });
     const found = findQueueRecord(queue, req.params.id);
     if (!found) return res.status(404).json({ error: 'Queue item was not found.' });
     if (revision(found.item) !== input.revision) return res.status(409).json({ error: 'This item changed. Refresh before editing.' });
@@ -398,6 +405,7 @@ function registerOpportunityRoutes(app, { dataDir, briefPath, queuePath }) {
     } catch (error) {
       res.status(500).json({ error: 'Could not save the reply queue.' });
     }
+    });} catch (error) {return res.status(error.status || 500).json({error:error.status ? error.message : 'Could not save the reply queue.'});}
   });
 
   app.put('/api/opportunities/accounts', (req, res) => {
