@@ -51,6 +51,15 @@ async function writer({ prompt, cwd, fs, path }) {
   for (const h of headers) {
     if (h.startsWith('@@chapter')) {
       out.push(h, '## In plain English', '', 'Plain words.', '');
+      if (/topic="System design"/.test(h)) {
+        // Design chapters follow the plain-English standard's fixed sections (lint rule sd-structure).
+        const sections = ['The problem in plain words', 'Functional requirements', 'Non-functional requirements', 'Out of scope', 'Size estimate',
+          'Core entities', 'API', 'High-level design', 'Step by step', 'Deep dives', 'Questions they will ask'];
+        for (const section of sections) {
+          out.push(`## ${section}`, '', 'Explained plainly.', '');
+          if (section === 'High-level design') out.push('```diagram', 'box a "Service" kind=service at=0,0', 'box b "Database" kind=store at=1,0', 'arrow a -> b "reads and writes"', '```', '');
+        }
+      }
       if (!broken) out.push('## Key takeaways', '', '- One idea.', '');
       continue;
     }

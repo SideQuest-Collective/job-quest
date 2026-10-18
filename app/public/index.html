@@ -3301,7 +3301,7 @@ function WorkbookCard({ wb, onChanged }) {
         {wb.source === 'interview' && !pending && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest('/api/workbooks', 'POST', { roleKey: (wb.roleKeys || [])[0] }))}>Create workbook</button>}
         {canExpand && wb.source !== 'interview' && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest(`/api/workbooks/${wb.id}/expand`, 'POST'))}>Expand to onsite</button>}
         {canRetry && <button className="btn btn-secondary" style={btn} disabled={busy} onClick={() => run(() => wbRequest(`/api/workbooks/${wb.id}/retry`, 'POST'))}>Retry failed</button>}
-        <a className="btn btn-secondary" style={btn} href={`/api/workbooks/${wb.id}/export`}>Download offline</a>
+        <a className="btn btn-secondary" style={btn} href={`/api/workbooks/${wb.id}/pdf`} title="The whole workbook as a PDF: chapters, practice questions, then answers">Download offline</a>
         <button className="btn btn-secondary" style={{ ...btn, color: 'var(--rose)' }} disabled={busy || pending}
           onClick={() => { if (window.confirm(`Delete the workbook "${wb.title}"? This removes its chapters and your progress.`)) run(() => wbRequest(`/api/workbooks/${wb.id}`, 'DELETE')); }}>Delete</button>
       </div>

@@ -87,6 +87,11 @@ h4,h5{font-size:14px;margin:16px 0 4px;color:var(--ink2)}
 .prose code{overflow-wrap:anywhere;font:13px var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:5px}
 .prose pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;font:13px/1.5 var(--mono)}
 .prose pre.code code{background:none;padding:0;font:inherit}
+.prose figure.diagram{margin:14px 0 18px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-x:auto}
+.prose figure.diagram svg{width:100%;min-width:520px;height:auto;display:block}
+.prose figure.diagram figcaption{text-align:center;font-size:13px;color:#555;font-style:italic;margin-top:6px}
+.prose .diagram-legend{margin:0 0 6px;color:#222}
+.prose pre.diagram-error{border:1px solid #c33;color:#900;padding:8px;border-radius:8px;white-space:pre-wrap}
 .prose blockquote{margin:12px 0;padding:10px 14px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0}
 .prose blockquote p{margin:4px 0}
 .prose .tbl{overflow-x:auto;margin:10px 0}
@@ -190,6 +195,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   <main id="main"><div class="card" style="max-width:60ch"><h2 style="margin-top:0">Loading workbook…</h2><p>If this stays, open the page in a web browser with JavaScript turned on. Offline copies work with no internet.</p></div></main>
 </div>
 
+<!--WB-DIAGRAM-->
 <!--WB-DATA-->
 
 <script>
@@ -229,7 +235,8 @@ function md(src){
   const L=src.replace(/\r/g,'').split('\n');const out=[];let i=0;
   while(i<L.length){
     const l=L[i];
-    if(/^\s*```/.test(l)){const b=[];i++;while(i<L.length&&!/^\s*```/.test(L[i])){b.push(L[i]);i++;}i++;
+    if(/^\s*```/.test(l)){const isDiagram=/^\s*```diagram\s*$/.test(l);const b=[];i++;while(i<L.length&&!/^\s*```/.test(L[i])){b.push(L[i]);i++;}i++;
+      if(isDiagram&&window.WBDiagram){out.push(window.WBDiagram.renderDiagram(b.join('\n')));continue;}
       out.push('<pre class="code"><code>'+esc(b.join('\n'))+'</code></pre>');continue;}
     if(/^\s*$/.test(l)){i++;continue;}
     const h=l.match(/^(#{2,5})\s+(.*)$/);if(h){out.push('<h'+h[1].length+'>'+inline(h[2])+'</h'+h[1].length+'>');i++;continue;}
@@ -745,7 +752,7 @@ function viewProgress(){
     const pc=function(x){return (100*x/t.n).toFixed(1)+'%';};
     return '<tr><td>'+chip(t.co)+'</td><td><a href="#practice/'+esc(t.co==='both'?'all':t.co)+'" data-topic="'+esc(t.topic)+'">'+esc(t.topic)+'</a></td><td><div class="bar"><i class="g" style="width:'+pc(t.g)+'"></i><i class="w" style="width:'+pc(t.p)+'"></i><i class="b" style="width:'+pc(t.b)+'"></i></div></td><td class="n">'+(t.g+t.p+t.b)+'/'+t.n+'</td></tr>';}).join('')+'</tbody></table></div>';
   h+='<h2>Your progress</h2><p class="muted small">'+(OFFLINE?'This is an offline copy: progress saves in this browser only.':'Progress is saved to your Job Quest dashboard, so it survives clearing this browser.')+'</p>';
-  if(!OFFLINE)h+='<div class="row"><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/export">Download offline copy</a><label class="btn">Import a progress file<input type="file" id="imp" accept="application/json" class="hidden"></label></div>';
+  if(!OFFLINE)h+='<div class="row"><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/pdf">Download offline (PDF)</a><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/export">Interactive copy (HTML)</a><label class="btn">Import a progress file<input type="file" id="imp" accept="application/json" class="hidden"></label></div>';
   $main.innerHTML=h;
   $main.querySelectorAll('[data-topic]').forEach(function(a){a.onclick=function(){P.topic=a.dataset.topic;P.st='';};});
   if(lsGet(CONFLICT_BACKUP_KEY)){const restore=document.createElement('button');restore.className='btn';restore.textContent='Restore previous browser draft';restore.onclick=restoreBrowserDraft;if($main.appendChild)$main.appendChild(restore);}

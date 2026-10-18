@@ -47,7 +47,7 @@ function checkDraft(env, rec, plan) {
   const published = parseContentDir(path.join(env.dir, 'content'));
   // The draft goes last so a clash with a published id is reported against the draft.
   const files = [...published.files.filter((f) => f.name !== rec.file), { name: rec.file, text }];
-  const problems = lintWorkbook({ files, glossaryFiles: gloss === null ? [] : [{ name: rec.glossaryFile, text: gloss }] })
+  const problems = lintWorkbook({ files, glossaryFiles: gloss === null ? [] : [{ name: rec.glossaryFile, text: gloss }] }, { standard: true })
     .filter((f) => f.severity === 'error' && (f.file === rec.file || f.file === rec.glossaryFile))
     .map((f) => `${f.file}:${f.line} [${f.rule}] ${f.message}`);
   if (gloss === null) problems.push(`${rec.glossaryFile} was not written`);

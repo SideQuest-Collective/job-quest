@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 const { researchAccepted } = require('./steps-prepare');
-const { buildExportHtml } = require('./export');
+const { buildExportHtml, withDiagramScript } = require('./export');
+const { buildPrintHtml } = require('./print');
+const { htmlToPdf, PdfUnavailableError } = require('./pdf');
 
 function jobSummary(queue, id) {
   const jobs = queue.list().filter((j) => j.payload && j.payload.workbookId === id);
@@ -25,7 +27,7 @@ function listItem(dataDir, queue, meta) {
   };
 }
 
-function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir }) {
+function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir, pdfRenderer }) {
   const viewerFile = path.join(publicDir, 'workbook.html');
   const load = (req, res) => {
     const id = String(req.params.id || '');
@@ -153,13 +155,30 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir }) {
     res.send(html);
   });
 
+  // "Download offline": the whole workbook as a reading PDF (chapters, then practice, then answers).
+  app.get('/api/workbooks/:id/pdf', async (req, res) => {
+    const meta = load(req, res);
+    if (!meta) return;
+    try {
+      const pdf = await (pdfRenderer || htmlToPdf)(buildPrintHtml(meta, store.viewerContent(dataDir, meta.id)));
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', `attachment; filename="${meta.id}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      const unavailable = err instanceof PdfUnavailableError;
+      res.status(unavailable ? 503 : 500).json({ error: unavailable ? err.message : `could not make the PDF: ${err.message}` });
+    }
+  });
+
   app.get('/workbooks/:id', (req, res) => {
     const id = String(req.params.id || '');
     if (!store.isValidId(id) || !store.readMeta(dataDir, id)) { res.status(404).send('Workbook not found'); return; }
-    // Relative path + root: `send` 404s absolute paths that pass through a dot directory (~/.job-quest).
-    res.sendFile(path.basename(viewerFile), { root: path.dirname(viewerFile) }, (err) => {
-      if (err && !res.headersSent) res.status(err.status || 500).send('Could not load the workbook viewer');
-    });
+    let html;
+    try { html = withDiagramScript(fs.readFileSync(viewerFile, 'utf-8')); } catch (err) {
+      res.status(500).send('Could not load the workbook viewer'); return;
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   });
 }
 
