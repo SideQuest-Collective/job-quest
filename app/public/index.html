@@ -501,6 +501,17 @@
   .sd-layout { display: grid; grid-template-columns: 300px 1fr; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .sd-sidebar { overflow-y: auto; padding: 20px; background: var(--bg-card); border-right: 1px solid var(--border); }
   .sd-sidebar h3 { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-family: var(--font-mono); margin-bottom: 12px; }
+  .sd-group { margin-bottom: 6px; }
+  .sd-group-header { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 12px; background: transparent; border: 1px solid transparent; border-radius: 10px; color: var(--text); font: inherit; cursor: pointer; transition: background 0.2s var(--ease), border-color 0.2s var(--ease); }
+  .sd-group-header:hover { background: rgba(148,163,184,0.06); border-color: var(--border); }
+  .sd-group.open > .sd-group-header { background: rgba(148,163,184,0.04); }
+  .sd-group-chevron { flex-shrink: 0; width: 12px; color: var(--text-muted); font-size: 12px; transition: transform 0.2s var(--ease); }
+  .sd-group.open > .sd-group-header .sd-group-chevron { transform: rotate(90deg); color: var(--amber); }
+  .sd-group-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .sd-group-label { font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+  .sd-group-sub { font-size: 12px; color: var(--text-muted); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sd-group-count { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); background: rgba(148,163,184,0.1); padding: 2px 7px; border-radius: 999px; min-width: 22px; text-align: center; }
+  .sd-group-body { padding: 4px 0 6px 14px; margin-left: 17px; border-left: 1px solid var(--border); }
   .sd-topic { padding: 12px 14px; border-radius: 10px; cursor: pointer; margin-bottom: 4px; border: 1px solid transparent; transition: all 0.2s var(--ease); }
   .sd-topic:hover { background: rgba(148,163,184,0.06); border-color: var(--border); }
   .sd-topic.active { background: var(--amber-dim); border-color: rgba(251,191,36,0.2); }
@@ -3609,6 +3620,33 @@ function Calendar({ progress }) {
 }
 
 /* ===== CODE LAB ===== */
+/* ===== SD TOPIC GROUPS ===== */
+const SD_GENERAL_GROUP = 'general';
+const SD_OPEN_GROUPS_KEY = 'jq.sd.openGroups';
+function sdGroupKey(topic) {
+  if (!topic || topic.source !== 'workbook' || !topic.sourceCompany) return SD_GENERAL_GROUP;
+  return topic.sourceRoleKey || `${topic.sourceCompany}|${topic.sourceRole || ''}`;
+}
+function groupSdTopics(topics) {
+  const groups = [];
+  const byKey = new Map();
+  for (const topic of Array.isArray(topics) ? topics : []) {
+    const key = sdGroupKey(topic);
+    let group = byKey.get(key);
+    if (!group) {
+      group = key === SD_GENERAL_GROUP
+        ? { key, label: 'General practice', sublabel: 'Classic system design problems', topics: [], inProgress: 0 }
+        : { key, label: topic.sourceCompany, sublabel: topic.sourceRole || '', topics: [], inProgress: 0 };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.topics.push(topic);
+    if (topic.hasConversation) group.inProgress += 1;
+  }
+  return groups;
+}
+/* ===== END SD TOPIC GROUPS ===== */
+
 function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
   const [topics, setTopics] = useState([]);
   const [selectedTopic, setSelectedTopic] = useState(null);
@@ -3618,10 +3656,35 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
   const [starting, setStarting] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const [openGroups, setOpenGroups] = useState(() => {
+    try { const saved = JSON.parse(localStorage.getItem(SD_OPEN_GROUPS_KEY) || '[]'); return Array.isArray(saved) ? saved : []; } catch { return []; }
+  });
+  const groups = React.useMemo(() => groupSdTopics(topics), [topics]);
+
+  const setGroupOpen = (key, open) => {
+    setOpenGroups(prev => {
+      if (open === prev.includes(key)) return prev;
+      const next = open ? [...prev, key] : prev.filter(k => k !== key);
+      try { localStorage.setItem(SD_OPEN_GROUPS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
 
   useEffect(() => {
     api.get('/api/sd-topics').then(setTopics);
   }, []);
+
+  // The section holding the selected topic is never left closed, and the topic is scrolled into view.
+  useEffect(() => {
+    if (!selectedTopic) return;
+    setGroupOpen(sdGroupKey(selectedTopic), true);
+    const frame = requestAnimationFrame(() => {
+      const active = sidebarRef.current?.querySelector('.sd-topic.active');
+      if (active) active.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selectedTopic?.id, openGroups.length]);
 
   useEffect(() => {
     if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -3702,19 +3765,37 @@ function SystemDesign({ launchTopic, onLaunchTopicHandled }) {
 
       <div className="sd-layout anim-enter anim-delay-1">
         {/* Topic Sidebar */}
-        <div className="sd-sidebar">
+        <div className="sd-sidebar" ref={sidebarRef}>
           <h3>Topics</h3>
-          {topics.map(t => (
-            <div key={t.id} className={`sd-topic ${selectedTopic?.id === t.id ? 'active' : ''}`} onClick={() => selectTopic(t)}>
-              <div className="sd-topic-title">
-                {t.title}
-                {t.hasConversation && <span className="sd-resume-badge">in progress</span>}
-                {t.source === 'workbook' && <span className="sd-resume-badge">workbook</span>}
+          {groups.map(g => {
+            const open = openGroups.includes(g.key);
+            const panelId = `sd-group-${g.key.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            return (
+              <div key={g.key} className={`sd-group ${open ? 'open' : ''}`}>
+                <button type="button" className="sd-group-header" aria-expanded={open} aria-controls={panelId} onClick={() => setGroupOpen(g.key, !open)}>
+                  <span className="sd-group-chevron" aria-hidden="true">▸</span>
+                  <span className="sd-group-text">
+                    <span className="sd-group-label">{g.label}{g.inProgress > 0 && <span className="sd-resume-badge">{g.inProgress} in progress</span>}</span>
+                    {g.sublabel && <span className="sd-group-sub" title={g.sublabel}>{g.sublabel}</span>}
+                  </span>
+                  <span className="sd-group-count">{g.topics.length}</span>
+                </button>
+                {open && (
+                  <div id={panelId} className="sd-group-body">
+                    {g.topics.map(t => (
+                      <div key={t.id} className={`sd-topic ${selectedTopic?.id === t.id ? 'active' : ''}`} onClick={() => selectTopic(t)}>
+                        <div className="sd-topic-title">
+                          {t.title}
+                          {t.hasConversation && <span className="sd-resume-badge">in progress</span>}
+                        </div>
+                        <div className="sd-topic-desc">{t.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="sd-topic-desc">{t.description}</div>
-              {t.source === 'workbook' && <div style={{fontSize:11,color:'var(--cyan)',fontFamily:'var(--font-mono)',marginTop:6}}>{t.sourceCompany}{t.sourceRole ? ` · ${t.sourceRole}` : ''}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Chat Area */}
