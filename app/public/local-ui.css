@@ -8,6 +8,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 a {color:#93c5fd;} .nav-item {text-decoration:none;min-height:44px;font-size:15px;}
 .sidebar-brand .subtitle {text-transform:none;letter-spacing:0;font-family:inherit;font-size:14px;}
 .main {min-width:0;max-width:1380px;} .main-fullheight {height:auto;min-height:100vh;overflow:visible;}
+/* System Design keeps the viewport-bound chat layout on desktop: the topic list scrolls inside its own column instead of stretching the page. */
+@media(min-width:769px){.main-fullheight.main-sysdesign {height:100vh;overflow:hidden;}}
 .page-surface {min-width:0;} .page-surface[hidden] {display:none!important;}
 .page-surface:not([hidden]) {display:flex;flex-direction:column;flex:1;min-height:0;}
 .route-bar {display:flex;align-items:center;gap:18px;margin-bottom:24px;color:var(--text-muted);font-size:14px;flex-shrink:0;}
