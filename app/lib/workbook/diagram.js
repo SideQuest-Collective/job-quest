@@ -137,9 +137,15 @@
     }
     const cols = Math.max(...parsed.boxes.map((b) => b.col)) + 1;
     const rows = Math.max(...parsed.boxes.map((b) => b.row)) + 1;
-    const width = cols * CELL_W;
+    // Widen the gap between columns so the longest label on a sideways arrow fits between the boxes.
+    const byId = new Map(parsed.boxes.map((b) => [b.id, b]));
+    const sideLabel = Math.max(0, ...parsed.arrows
+      .filter((a) => a.label && byId.get(a.from) && byId.get(a.to) && byId.get(a.from).row === byId.get(a.to).row)
+      .map((a) => Math.max(...wrapLabel(a.label).map((l) => l.length)) * 6.2 + 26));
+    const cellW = Math.max(CELL_W, BOX_W + sideLabel);
+    const width = cols * cellW;
     const height = rows * CELL_H;
-    const B = new Map(parsed.boxes.map((b) => [b.id, { ...b, x: b.col * CELL_W + (CELL_W - BOX_W) / 2, y: b.row * CELL_H + (CELL_H - BOX_H) / 2 }]));
+    const B = new Map(parsed.boxes.map((b) => [b.id, { ...b, x: b.col * cellW + (cellW - BOX_W) / 2, y: b.row * CELL_H + (CELL_H - BOX_H) / 2 }]));
     const parts = [`<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" role="img" aria-label="${esc(parsed.title || 'diagram')}">`,
       '<defs><marker id="wbarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>'];
     const labels = [];
@@ -155,8 +161,7 @@
         const h = lines.length * 13 + 5;
         let mx = (sx + ex) / 2;
         let my = (sy + ey) / 2;
-        if (Math.abs(ey - sy) < 1) my -= h / 2 + 3;          // flat arrow: label sits above the line
-        else if (Math.abs(ex - sx) < 1) mx += w / 2 + 5;     // upright arrow: label sits beside it
+        if (Math.abs(ex - sx) < 1) mx += w / 2 + 5;          // upright arrow: label sits beside it
         labels.push(`<rect x="${(mx - w / 2).toFixed(1)}" y="${(my - h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h}" rx="3" fill="#fff" opacity="0.94"/>`);
         lines.forEach((l, i) => labels.push(`<text x="${mx.toFixed(1)}" y="${(my - h / 2 + 13 + i * 13).toFixed(1)}" font-size="11" text-anchor="middle" fill="#333">${esc(l)}</text>`));
       }

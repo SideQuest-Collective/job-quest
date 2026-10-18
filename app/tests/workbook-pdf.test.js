@@ -31,7 +31,7 @@ test('diagram: parses boxes and arrows and draws an SVG with a caption and legen
   assert.equal(d.boxes.length, 3);
   assert.equal(d.arrows[1].both, true);
   const html = renderDiagram(GOOD);
-  assert.match(html, /<svg [^>]*viewBox="0 0 540 280"/);
+  assert.match(html, /<svg [^>]*viewBox="0 0 556 280"/);
   assert.match(html, /Jobs database/);
   assert.match(html, /marker-start=/);
   assert.match(html, /<figcaption>Jobs flow from the API to workers<\/figcaption>/);
@@ -144,7 +144,7 @@ test('pdf: htmlToPdf runs the browser headless and returns the PDF bytes', async
   }
 });
 
-test('route: GET /api/workbooks/:id/pdf sends the workbook PDF, or a plain 503 when no browser exists', async () => {
+test('route: GET /api/workbooks/:id/pdf?full=1 sends every chapter as a PDF, or a plain 503 when no browser exists', async () => {
   const { registerWorkbookRoutes } = require('../lib/workbook/routes');
   const dir = tmp();
   try {
@@ -155,13 +155,13 @@ test('route: GET /api/workbooks/:id/pdf sends the workbook PDF, or a plain 503 w
       const app = Object.fromEntries(['get', 'post', 'put', 'delete'].map((m) => [m, (url, fn) => routes.set(`${m} ${url}`, fn)]));
       registerWorkbookRoutes(app, { dataDir: dir, queue: { list: () => [] }, autoBuild: {}, publicDir: path.join(__dirname, '..', 'public'), pdfRenderer });
       const res = { headers: {}, statusCode: 200, set(k, v) { this.headers[k] = v; return this; }, status(c) { this.statusCode = c; return this; }, send(b) { this.body = b; }, json(b) { this.body = b; } };
-      await routes.get('get /api/workbooks/:id/pdf')({ params: { id: meta.id } }, res);
+      await routes.get('get /api/workbooks/:id/pdf')({ params: { id: meta.id }, query: { full: '1' } }, res);
       return res;
     };
     let seen = '';
     const ok = await run(async (html) => { seen = html; return Buffer.from('%PDF-1.4 x'); });
     assert.equal(ok.headers['Content-Type'], 'application/pdf');
-    assert.match(ok.headers['Content-Disposition'], new RegExp(`${meta.id}\\.pdf`));
+    assert.match(ok.headers['Content-Disposition'], new RegExp(`${meta.id}-full\\.pdf`));
     assert.equal(ok.body.toString(), '%PDF-1.4 x');
     assert.match(seen, /class="chapter"/);
     const none = await run(async () => { throw new PdfUnavailableError('No Chrome found'); });
@@ -174,7 +174,7 @@ test('route: GET /api/workbooks/:id/pdf sends the workbook PDF, or a plain 503 w
 
 test('viewer and dashboard: Download offline points at the PDF; the viewer draws diagrams', () => {
   const viewer = fs.readFileSync(path.join(__dirname, '..', 'public', 'workbook.html'), 'utf-8');
-  assert.match(viewer, /\/pdf">Download offline \(PDF\)/);
+  assert.match(viewer, /\/pdf">Download study guide \(PDF\)/);
   assert.match(viewer, /<!--WB-DIAGRAM-->/);
   assert.match(viewer, /WBDiagram\.renderDiagram/);
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');

@@ -85,7 +85,7 @@ process.env.JOB_QUEST_REPLY_QUEUE = outreachStorage.queuePath;
 // --- Shared job queue (workbooks, resume tailoring) ---
 const jobHandlers = {};
 // Resume tailoring takes minutes; workbook builds take about an hour. Run resumes first.
-const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers, priority: ['resume'] });
+const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers, priority: ['resume', 'workbook-guide', 'workbook-restructure'] });
 const roleEvents = createRoleEventBus();
 const feedbackService = createFeedbackService({ dataDir: DATA_DIR, queue: jobQueue, handlers: jobHandlers });
 const feedbackRoute = fn => (req, res) => { try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save or load feedback. Your existing data has been preserved.' }); } };
@@ -113,6 +113,8 @@ registerInterviewRoutes(app, { dataDir: DATA_DIR, interviewHome: INTERVIEW_HOME 
 
 // --- Workbooks (handler registered before jobQueue.start() at the bottom of this file) ---
 jobHandlers.workbook = createWorkbookHandler({ dataDir: DATA_DIR });
+jobHandlers['workbook-guide'] = require('./lib/workbook/guide').createGuideHandler({ dataDir: DATA_DIR });
+jobHandlers['workbook-restructure'] = require('./lib/workbook/restructure').createRestructureHandler({ dataDir: DATA_DIR });
 const workbookAutoBuild = createAutoBuild({ dataDir: DATA_DIR, queue: jobQueue });
 roleEvents.on('saved', (roleKey) => workbookAutoBuild.onRoleEvent('saved', roleKey));
 roleEvents.on('applied', (roleKey) => workbookAutoBuild.onRoleEvent('applied', roleKey));

@@ -6,6 +6,8 @@ const { researchAccepted } = require('./steps-prepare');
 const { buildExportHtml, withDiagramScript } = require('./export');
 const { buildPrintHtml } = require('./print');
 const { htmlToPdf, PdfUnavailableError } = require('./pdf');
+const guide = require('./guide');
+const restructure = require('./restructure');
 
 function jobSummary(queue, id) {
   const jobs = queue.list().filter((j) => j.payload && j.payload.workbookId === id);
@@ -13,6 +15,8 @@ function jobSummary(queue, id) {
   const j = jobs.reduce((a, b) => (b.createdAt >= a.createdAt ? b : a));
   return { id: j.id, status: j.status, mode: (j.payload && j.payload.mode) || 'create', progress: j.progress || null, error: j.error || null };
 }
+
+function safeCount(fn) { try { return fn(); } catch { return 0; } }
 
 function listItem(dataDir, queue, meta) {
   const state = store.readJob(dataDir, meta.id);
@@ -22,6 +26,8 @@ function listItem(dataDir, queue, meta) {
     ...store.summary(dataDir, meta.id),
     failedChapters,
     unreviewedChapters: meta.unreviewedChapters || 0,
+    designToRewrite: safeCount(() => restructure.candidates(dataDir, meta.id).length),
+    restructureActive: !!(queue.findActiveByKey && queue.findActiveByKey(restructure.jobKey(meta.id))),
     step: state && state.status === 'running' ? state.current : null,
     job: jobSummary(queue, meta.id),
   };
@@ -155,19 +161,81 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir, pdf
     res.send(html);
   });
 
-  // "Download offline": the whole workbook as a reading PDF (chapters, then practice, then answers).
+  // "Download offline": a short study guide PDF (the predicted questions in plain English, at most
+  // guide.MAX_PAGES pages), written by an agent on first download and cached until the workbook changes.
+  // ?full=1 prints every chapter instead.
+  const sendPdf = (res, bytes, name) => {
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="${name}"`);
+    res.send(bytes);
+  };
+  const statusPage = (res, code, meta, { title, lines, refresh, links = [] }) => {
+    const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    res.status(code).set('Content-Type', 'text/html; charset=utf-8').send(`<!doctype html><html><head><meta charset="utf-8">${refresh ? `<meta http-equiv="refresh" content="${refresh}">` : ''}<title>${esc(title)}</title>`
+      + '<style>body{font:16px/1.5 -apple-system,Helvetica,Arial,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}h1{color:#1F4E79;font-size:1.5rem}a.btn{display:inline-block;margin:.5rem .5rem 0 0;padding:.45rem .9rem;border:1px solid #1F4E79;border-radius:8px;color:#1F4E79;text-decoration:none}</style></head><body>'
+      + `<h1>${esc(title)}</h1><p><strong>${esc(meta.title || meta.id)}</strong></p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}`
+      + `${links.map(([href, text]) => `<a class="btn" href="${esc(href)}">${esc(text)}</a>`).join('')}</body></html>`);
+  };
+
   app.get('/api/workbooks/:id/pdf', async (req, res) => {
     const meta = load(req, res);
     if (!meta) return;
+    const base = `/api/workbooks/${encodeURIComponent(meta.id)}/pdf`;
     try {
-      const pdf = await (pdfRenderer || htmlToPdf)(buildPrintHtml(meta, store.viewerContent(dataDir, meta.id)));
-      res.set('Content-Type', 'application/pdf');
-      res.set('Content-Disposition', `attachment; filename="${meta.id}.pdf"`);
-      res.send(pdf);
+      if (req.query.full) {
+        sendPdf(res, await (pdfRenderer || htmlToPdf)(buildPrintHtml(meta, store.viewerContent(dataDir, meta.id))), `${meta.id}-full.pdf`);
+        return;
+      }
+      const dir = store.wbDir(dataDir, meta.id);
+      const cached = path.join(dir, guide.GUIDE_PDF);
+      const state = guide.readGuideState(dataDir, meta.id) || {};
+      const hasPdf = fs.existsSync(cached);
+      if (req.query.previous && hasPdf) { sendPdf(res, fs.readFileSync(cached), `${meta.id}-study-guide.pdf`); return; }
+      const current = guide.guideInputs(dataDir, meta.id).hash;
+      if (state.status === 'ready' && state.hash === current && hasPdf) { sendPdf(res, fs.readFileSync(cached), `${meta.id}-study-guide.pdf`); return; }
+
+      const key = guide.guideJobKey(meta.id);
+      const active = typeof queue.findActiveByKey === 'function' ? queue.findActiveByKey(key) : null;
+      const failedSame = state.status === 'failed' && state.hash === current;
+      if (!active && failedSame && !req.query.retry) {
+        statusPage(res, 500, meta, {
+          title: 'The study guide could not be written',
+          lines: [state.error || 'The guide writer stopped without a usable guide.'],
+          links: [[`${base}?retry=1`, 'Try again'], ...(hasPdf ? [[`${base}?previous=1`, 'Download the previous guide']] : []), [`${base}?full=1`, 'Download every chapter instead']],
+        });
+        return;
+      }
+      if (!active) queue.enqueue({ kind: 'workbook-guide', key, payload: { workbookId: meta.id } });
+      if (failedSame) guide.markQueued(dataDir, meta.id, current);
+      statusPage(res, 202, meta, {
+        title: 'Writing your study guide',
+        refresh: 20,
+        lines: [
+          `An agent is writing a guide of at most ${guide.MAX_PAGES} pages: the questions most likely to come up, explained in plain English, each with one or two related questions.`,
+          'This usually takes 5 to 10 minutes. Keep this page open; it checks every 20 seconds and the PDF downloads when it is ready.',
+        ],
+        links: hasPdf ? [[`${base}?previous=1`, 'Download the previous guide now']] : [],
+      });
     } catch (err) {
       const unavailable = err instanceof PdfUnavailableError;
       res.status(unavailable ? 503 : 500).json({ error: unavailable ? err.message : `could not make the PDF: ${err.message}` });
     }
+  });
+
+  // Rewrite existing system design chapters into the delivery framework (see restructure.js).
+  app.get('/api/workbooks/:id/restructure', (req, res) => {
+    const meta = load(req, res);
+    if (!meta) return;
+    res.json({ candidates: restructure.candidates(dataDir, meta.id), state: restructure.readState(dataDir, meta.id) });
+  });
+  app.post('/api/workbooks/:id/restructure', (req, res) => {
+    const meta = load(req, res);
+    if (!meta) return;
+    const todo = restructure.candidates(dataDir, meta.id);
+    if (!todo.length) { res.json({ status: 'nothing-to-do', candidates: [] }); return; }
+    const chapters = req.body && Array.isArray(req.body.chapters) ? req.body.chapters : undefined;
+    const result = queue.enqueue({ kind: 'workbook-restructure', key: restructure.jobKey(meta.id), payload: { workbookId: meta.id, ...(chapters ? { chapters } : {}) } });
+    res.status(202).json({ ...result, candidates: todo });
   });
 
   app.get('/workbooks/:id', (req, res) => {
