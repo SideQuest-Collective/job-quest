@@ -164,7 +164,7 @@ test('every episode reserves slots for algorithm topics and covers four topics b
   assert.ok(next.topics.some((t) => t.title === 'Intervals'), next.topics.map((t) => t.title).join(' | '));
 });
 
-test('algorithm topics are recognized by name before a sheet exists and their sheets are built first', () => {
+test('algorithm topics are recognized by name before a sheet exists and sheet builds alternate algorithm first', () => {
   assert.ok(topics.isAlgorithmTopic({ title: 'Sorting and heaps' }));
   assert.ok(topics.isAlgorithmTopic({ title: 'Stacks and tree traversal' }));
   assert.ok(!topics.isAlgorithmTopic({ title: 'Backend and system design' }));
@@ -173,8 +173,13 @@ test('algorithm topics are recognized by name before a sheet exists and their sh
   const { d, readWorkbook } = fixture();
   const r = topics.rankTopics(d, { readWorkbook });
   const order = topics.missingTopicSheets(d, r).map((t) => t.title);
-  const firstNonAlgo = order.findIndex((t) => !topics.isAlgorithmTopic({ title: t }));
-  assert.ok(order.slice(firstNonAlgo).every((t) => !topics.isAlgorithmTopic({ title: t })), order.join(' | '));
+  const kinds = order.map((t) => topics.isAlgorithmTopic({ title: t }));
+  const algoCount = kinds.filter(Boolean).length, mixed = 2 * Math.min(algoCount, kinds.length - algoCount);
+  assert.ok(kinds[0] || !algoCount, order.join(' | '));
+  assert.ok(kinds.slice(0, mixed).every((k, i) => k === (i % 2 === 0)), order.join(' | '));
+  const isAlgo = ['A sort', 'B design', 'C heap', 'D graph'].map((title, i) => ({ id: `abcdef012${i}`, title, sourceHash: 'x' }));
+  const fake = topics.missingTopicSheets(fs.mkdtempSync(path.join(os.tmpdir(), 'jq-order-')), { topics: isAlgo });
+  assert.deepStrictEqual(fake.map((t) => t.title), ['A sort', 'B design', 'C heap', 'D graph']);
 });
 
 test('the brief carries the previous episode\'s rules so the new one opens with a spaced retrieval check', () => {
