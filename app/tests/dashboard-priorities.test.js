@@ -9,12 +9,13 @@ const window = {};
 vm.runInNewContext(outreach.split('window.Opportunities =')[0] + home.split('window.DashboardHome =')[0], { window, Date, URL });
 const now = Date.parse('2026-10-19T12:00:00Z');
 const role = (company = 'Example', title = 'Backend Engineer') => ({ company, role: title, url: `https://jobs.example.test/${company}/${encodeURIComponent(title)}`, intelDate: '2026-10-19' });
-const recruiter = (id, extra = {}) => ({ id, kind: 'recruiter', company: 'Other', title: 'Platform Engineer', status: 'ready_for_review', checkedAt: '2026-10-19T09:00:00Z', ...extra });
+const review = (extra = {}) => ({ checkedAt: '2026-10-19T11:00:00Z', outcome: 'needs_reply', summary: 'Conversation and sent history checked; a reply is needed.', evidence: [{channel:'email',kind:'conversation',result:'read',checkedAt:'2026-10-19T11:00:00Z'}, {channel:'email',kind:'sent_search',result:'none',checkedAt:'2026-10-19T11:00:00Z'}], ...extra });
+const recruiter = (id, extra = {}) => ({ id, kind: 'recruiter', company: 'Other', title: 'Platform Engineer', status: 'ready_for_review', checkedAt: '2026-10-19T09:00:00Z', conversationReview: review(), conversationReviewFresh: true, ...extra });
 const priorities = input => Array.from(window.dashboardPriorities({ now, ...input }));
 
 test('actual near interview, due follow-up, later interview, reply and undecided job are grounded and ordered', () => {
   const soon = role('Soon'), later = role('Later'), undecided = role('Undecided');
-  const due = recruiter('due', { status: 'snoozed', nextReminderAt: '2026-10-18T12:00:00Z' });
+  const due = recruiter('due', { status: 'snoozed', sentAt: '2026-09-01T12:00:00Z', nextReminderAt: '2026-10-18T12:00:00Z' });
   const reply = recruiter('reply', { lastInboundAt: '2026-10-19T08:00:00Z' });
   const actions = priorities({ nativeRoles: [undecided, later, soon], items: [reply, due], roleTracker: {
     'Soon|Backend Engineer': { stage: 'onsite', timeline: [{ date: '2026-10-20T10:00:00Z', event: 'Confirmed coding interview' }] },
@@ -22,8 +23,8 @@ test('actual near interview, due follow-up, later interview, reply and undecided
   }});
   assert.deepEqual(actions.map(action => action.kind), ['interview', 'interview', 'followup', 'reply', 'job']);
   assert.match(actions[0].reason, /Confirmed coding interview.*Oct 20, 2026/);
-  assert.match(actions[2].reason, /due Oct 18, 2026/);
-  assert.match(actions[3].reason, /not been marked sent.*Received Oct 19, 2026/);
+  assert.match(actions[2].reason, /Conversation verified Oct 19, 2026/);
+  assert.match(actions[3].reason, /Conversation and sent history checked.*Conversation verified Oct 19, 2026/);
   assert.match(actions[4].reason, /not saved, dismissed or applied.*Discovered Oct 19, 2026/);
   assert.equal(actions[4].role, undecided);
 });
@@ -44,16 +45,16 @@ test('held, stale, already sent and future or invalid snoozes stay out; genuinel
   const items = [
     recruiter('hold', { status: 'hold_user', nextReminderAt: '2026-10-01' }), recruiter('dismissed', { status: 'dismissed' }),
     recruiter('stale', { stale: true }), recruiter('closed', { availability: 'Closed by employer' }),
-    recruiter('awaiting', { status: 'awaiting_recruiter' }), recruiter('sent', { sentAt: '2026-10-18T12:00:00Z' }),
-    recruiter('future', { status: 'snoozed', nextReminderAt: '2026-10-20' }), recruiter('missing', { status: 'reconnect_scheduled' }),
-    recruiter('invalid', { status: 'snoozed', nextReminderAt: '2026-02-30' }), recruiter('booked', { status: 'meeting_booked' }),
-    recruiter('due', { status: 'reconnect_scheduled', nextReminderAt: '2026-10-19T12:00:00Z' }),
+    recruiter('awaiting', { status: 'awaiting_recruiter' }), recruiter('sent', { sentAt: '2026-10-18T12:00:00Z', conversationReview: review({outcome:'awaiting_reply'}) }),
+    recruiter('future', { status: 'snoozed', sentAt: '2026-09-01T12:00:00Z', nextReminderAt: '2026-10-20' }), recruiter('missing', { status: 'reconnect_scheduled' }),
+    recruiter('invalid', { status: 'snoozed', sentAt: '2026-09-01T12:00:00Z', nextReminderAt: '2026-02-30' }), recruiter('booked', { status: 'meeting_booked' }),
+    recruiter('due', { status: 'reconnect_scheduled', sentAt: '2026-09-01T12:00:00Z', nextReminderAt: '2026-10-19T12:00:00Z' }),
     recruiter('new-inbound', { sentAt: '2026-10-18T12:00:00Z', lastInboundAt: '2026-10-19T10:00:00Z' }),
   ];
   const before = JSON.stringify(items);
   const actions = priorities({ items });
   assert.deepEqual(actions.map(action => action.item.id), ['due', 'new-inbound']);
-  assert.match(actions[0].reason, /saved reconnect/);
+  assert.match(actions[0].reason, /Conversation verified Oct 19, 2026/);
   assert.equal(JSON.stringify(items), before, 'displaying priorities does not change stored decisions');
 });
 
@@ -107,7 +108,7 @@ test('routine reply backlogs share the five slots with fresh discoveries and fil
 test('upcoming interviews lead while due reminders share space with fresh discoveries', () => {
   const soon = role('Soon');
   const items = [
-    ...Array.from({length: 5}, (_, index) => recruiter(`due-${index}`, { status: 'snoozed', nextReminderAt: `2026-10-${String(13 + index).padStart(2, '0')}T12:00:00Z` })),
+    ...Array.from({length: 5}, (_, index) => recruiter(`due-${index}`, { status: 'snoozed', sentAt: '2026-09-01T12:00:00Z', nextReminderAt: `2026-10-${String(13 + index).padStart(2, '0')}T12:00:00Z` })),
     ...Array.from({length: 5}, (_, index) => recruiter(`routine-${index}`)),
   ];
   const actions = priorities({ items, nativeRoles: [soon, role('Fresh')], roleTracker: {
@@ -119,15 +120,15 @@ test('upcoming interviews lead while due reminders share space with fresh discov
 
 test('four old due follow-ups and a reply cannot hide all fresh job discoveries', () => {
   const items = [
-    ...Array.from({length: 4}, (_, index) => recruiter(`due-${index}`, { status: 'reconnect_scheduled', nextReminderAt: `2026-09-${String(10 + index).padStart(2, '0')}T12:00:00Z` })),
+    ...Array.from({length: 4}, (_, index) => recruiter(`due-${index}`, { status: 'reconnect_scheduled', sentAt: '2026-09-01T12:00:00Z', nextReminderAt: `2026-09-${String(10 + index).padStart(2, '0')}T12:00:00Z` })),
     recruiter('routine'),
   ];
   const nativeRoles = [role('First'), role('Second'), role('Third')];
   const actions = priorities({ items, nativeRoles });
   assert.deepEqual(actions.map(action => action.kind), ['followup', 'followup', 'job', 'job', 'job']);
   assert.deepEqual(actions.slice(0, 2).map(action => action.item.id), ['due-0', 'due-1']);
-  assert.match(actions[0].reason, /due Sep 10, 2026/);
-  assert.doesNotMatch(actions.map(action => action.reason).join(' '), /urgent|deadline/i);
+  assert.match(actions[0].reason, /Conversation verified Oct 19, 2026/);
+  assert.doesNotMatch(actions.map(action => action.reason).join(' '), /urgent|deadline|Saved reminder|Sep 10/i);
   const oneJob = priorities({ items, nativeRoles: [nativeRoles[0]] });
   assert.deepEqual(oneJob.map(action => action.kind), ['followup', 'followup', 'job', 'followup', 'followup']);
 });
@@ -149,4 +150,36 @@ test('dashboard primary actions pass the exact object to its workflow, with prac
   assert.ok(home.indexOf('id="dashboard-today"') < home.indexOf('id="dashboard-progress"'));
   assert.match(home, /onClick=\{\(\)=>openAction\(item\)\}/);
   assert.doesNotMatch(home, /Jobs &amp; recruiter contacts|dashboardHighlights|id="dashboard-opportunities"/);
+});
+
+
+test('saved reminder dates cannot produce actions without current verified conversation evidence', () => {
+  const due = {status:'reconnect_scheduled',sentAt:'2026-10-01T12:00:00Z',nextReminderAt:'2026-10-06'};
+  const cases = [
+    {conversationReview:undefined,conversationReviewFresh:false},
+    {conversationReview:review({checkedAt:'2026-10-18T11:59:59Z'})},
+    {conversationReview:review({evidence:[]})},
+    {conversationReviewFresh:false},
+    {conversationReview:review({outcome:'unverified',summary:'LinkedIn could not be read.'})},
+    {lastInboundAt:'2026-10-19T11:01:00Z'},
+    {sentAt:'2026-10-19T11:01:00Z'},
+    {conversationReview:review({checkedAt:'2026-10-20T11:00:00Z'})},
+  ];
+  for (const extra of cases) assert.equal(priorities({items:[recruiter('due',{...due,...extra})]}).length,0,JSON.stringify(extra));
+  for (const outcome of ['awaiting_reply','booked','closed']) {
+    const item = recruiter('due',{...due,conversationReview:review({outcome})});
+    const original=JSON.stringify(item);
+    assert.equal(priorities({items:[item]}).length,0,outcome);
+    assert.equal(JSON.stringify(item),original,'suppression preserves reminder and draft history');
+  }
+});
+
+test('fresh evidence labels a new inbound reply accurately even when a saved reminder is old', () => {
+  const item=recruiter('new-inbound',{status:'awaiting_recruiter',sentAt:'2026-10-01T12:00:00Z',lastInboundAt:'2026-10-19T10:00:00Z',nextReminderAt:'2026-10-06'});
+  const [action]=priorities({items:[item]});
+  assert.equal(action.kind,'reply');
+  assert.equal(action.action,'Review reply');
+  assert.doesNotMatch(action.reason,/due|urgent|Check the conversation before replying/);
+  const [firstReply]=priorities({items:[recruiter('unsent',{status:'snoozed',nextReminderAt:'2026-10-06'})]});
+  assert.equal(firstReply.kind,'reply','an elapsed snooze does not imply a previous reply was sent');
 });

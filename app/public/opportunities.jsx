@@ -81,6 +81,32 @@ window.matchJobQuestOutreachRole = function matchJobQuestOutreachRole(item, role
   return exact.length === 1 ? exact[0] : null;
 };
 
+// The API verifies coverage; recheck time and new activity while the page stays open.
+window.jobQuestConversationReview = function jobQuestConversationReview(item, now = Date.now()) {
+  const review = item.conversationReview;
+  const at = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+  const checked = at(review?.checkedAt);
+  const newerInbound = checked !== null && at(item.lastInboundAt) !== null && at(item.lastInboundAt) > checked;
+  const newerActivity = newerInbound || (checked !== null && at(item.sentAt) !== null && at(item.sentAt) > checked);
+  const evidence = Array.isArray(review?.evidence) && review.evidence.some(entry => ['read', 'none', 'found'].includes(entry.result)
+    && at(entry.checkedAt) !== null && at(entry.checkedAt) <= now && now - at(entry.checkedAt) <= 86400000);
+  const fresh = item.conversationReviewFresh === true && checked !== null && checked <= now && now - checked <= 86400000 && !newerActivity && evidence;
+  // Positive evidence remains useful history after a day; a new inbound invalidates it.
+  const positiveKind = { awaiting_reply: 'reply', booked: 'booking', closed: 'closure' }[review?.outcome];
+  const positive = checked !== null && checked <= now && !newerInbound && positiveKind && Array.isArray(review?.evidence)
+    && review.evidence.some(entry => entry.kind === positiveKind && entry.result === 'found' && at(entry.checkedAt) !== null && at(entry.checkedAt) <= now);
+  const outcome = fresh && review?.outcome === 'needs_reply' ? 'needs_reply' : positive ? review.outcome : 'unverified';
+  const labels = { needs_reply: 'Reply needed', awaiting_reply: 'Awaiting recruiter reply', booked: 'Meeting booked', closed: 'Conversation closed', unverified: 'Verification needed' };
+  let reason = review?.summary || 'Not yet checked in the priority review.';
+  if (outcome === 'unverified') {
+    if (newerActivity) reason = 'New activity arrived after the last conversation check.';
+    else if (checked !== null && (checked > now || now - checked > 86400000)) reason = 'The last conversation check is no longer current.';
+    else if (!evidence && review?.outcome !== 'unverified') reason = 'Not yet checked in the priority review.';
+    else if (review?.outcome !== 'unverified') reason = 'The saved check does not verify the latest conversation state.';
+  }
+  return { outcome, label: labels[outcome], reason, checkedAt: checked === null ? null : review.checkedAt, fresh };
+};
+
 window.filterJobQuestCards = function filterJobQuestCards(items, view, catchUp, now = Date.now()) {
   const deferred = item => item.status?.startsWith('hold') || item.status === 'declined'
     || (['snoozed', 'reconnect_scheduled'].includes(item.status)
@@ -407,7 +433,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       @media(max-width:390px) { .jq-opps { padding:0 2px; } .jq-opps .panel { padding:13px; } .jq-opps .op-card { padding:12px 13px; } .jq-opps .actions button { flex:1 1 auto; } }
     `}</style>
     {!configureOnly && <>{embedded?<h3>Recruiter outreach</h3>:<h2>Recruiter outreach</h2>}
-    <p className="intro">Review conversations, choose a reply and follow up when it’s due.</p>
+    <p className="intro">Intel verifies conversations before recommending a reply or follow-up.</p>
     <div className="tabs" role="group" aria-label="Opportunity views">
       <button className={view === 'outreach' ? 'active' : ''} onClick={() => setView('outreach')}>Outreach</button>
       <button className={view === 'held' ? 'active' : ''} onClick={() => setView('held')}>Paused</button>
@@ -417,7 +443,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
     </>}
     {error && <div role="alert" className="panel error">{error}</div>}
     {!data ? <div className="panel">Loading local opportunities…</div> : <>
-      {!configureOnly && catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before replying. Due snoozes and reconnects return for review; explicit holds remain paused.</p>}
+      {!configureOnly && catchUp && view === 'outreach' && <p className="muted">Older outreach stays here while Intel verifies the latest conversation. Saved reminders keep your place; explicit holds remain paused.</p>}
       {!configureOnly && data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
       {!configureOnly && data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
       {configureOnly && <section id="outreach-account-setup" ref={accountPanel} className="panel account-setup" aria-labelledby="accounts-heading">
@@ -461,27 +487,33 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
         {data.sources.length>0&&<details className="op-details account-all-coverage"><summary>All saved source reports</summary>{data.generatedAt&&<p>Latest report saved {new Date(data.generatedAt).toLocaleString()}.</p>}{data.sources.map((source,index)=><p key={`${source.name}-${index}`}><strong>{source.name}</strong> · {source.status}<br/><span>{source.detail}</span></p>)}{data.coverage.backfill?.detail&&<p>Pending backfill: {data.coverage.backfill.detail}</p>}{data.coverage.invitations?.detail&&<p>Invitations: {data.coverage.invitations.detail}</p>}</details>}
       </section>}
       {!configureOnly && <>
+      {view === 'outreach' && visible.some(item => item.kind === 'recruiter' && window.jobQuestConversationReview(item).outcome === 'unverified') && <p className="reply-help">Intel verifies up to three conversations per run. Pending items stay here for an upcoming review.</p>}
       {visible.length === 0 && <div className="panel" role="status">{data.briefState === 'ready' ? 'No results in this view from the latest local brief.' : 'Results unavailable until the local brief is connected.'}</div>}
-      {visible.map(item => <article className="panel op-card" key={item.id} id={'outreach-card-'+item.id} tabIndex={-1}>
+      {visible.map(item => {
+        const review = item.kind === 'recruiter' ? window.jobQuestConversationReview(item) : null;
+        const replyReady = review?.outcome === 'needs_reply';
+        return <article className="panel op-card" key={item.id} id={'outreach-card-'+item.id} tabIndex={-1}>
         <div className="card-head"><div><h3>{item.title} · {item.company}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
           {(item.kind === 'job' ? item.availability : item.status && !['ready_for_review'].includes(item.status)) && <span className="status">{item.kind === 'job' ? item.availability : item.status.replaceAll('_', ' ')}</span>}
         </div>
         {item.kind === 'recruiter' && (item.sourceAccounts?.length > 0 || item.sourceAccount) && <p className="reply-help">Source: {(item.sourceAccounts?.length ? item.sourceAccounts : [item.sourceAccount]).join(' · ')}</p>}
-        {item.nextAction && <p className="next-action"><strong>From last check:</strong> {item.nextAction}</p>}
-        {['snoozed', 'reconnect_scheduled'].includes(item.status) && Number.isFinite(Date.parse(item.nextReminderAt)) && Date.parse(item.nextReminderAt) <= Date.now() && <p className="reply-help">{item.status === 'snoozed' ? 'Snooze ended' : 'Reconnect review due'} · check the latest conversation before acting.</p>}
+        {review && <div className="conversation-review">
+          <p className="reply-help"><strong>{review.label}</strong> · {review.reason}{review.checkedAt && ` Checked ${new Date(review.checkedAt).toLocaleString()}.`}</p>
+        </div>}
+        {item.kind !== 'recruiter' && item.nextAction && <p className="next-action"><strong>From last check:</strong> {item.nextAction}</p>}
         <div className="links primary-links">
-          {item.kind === 'recruiter' && item.replySources?.length > 0 ? window.jobQuestPrimaryReplySources(item).map(source => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.channel === 'linkedin' ? 'Open LinkedIn to reply' : source.canReply ? 'Open email to reply' : 'Open Gmail source'}{source.url === item.recommendedReplyUrl ? ' · recommended' : ''}</a>) : item.sourceLinks[0] && <a href={item.sourceLinks[0]} target="_blank" rel="noopener noreferrer">{item.kind === 'job' ? 'Open listing' : 'Open conversation'}</a>}
+          {item.kind === 'recruiter' && item.replySources?.length > 0 ? window.jobQuestPrimaryReplySources(item).map(source => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.channel === 'linkedin' ? (replyReady ? 'Open LinkedIn to reply' : 'Open LinkedIn conversation') : source.canReply ? (replyReady ? 'Open email to reply' : 'Open email conversation') : 'Open Gmail source'}{replyReady && source.url === item.recommendedReplyUrl ? ' · recommended' : ''}</a>) : item.sourceLinks[0] && <a href={item.sourceLinks[0]} target="_blank" rel="noopener noreferrer">{item.kind === 'job' ? 'Open listing' : 'Open conversation'}</a>}
           {item.schedulingUrl && <a href={item.schedulingUrl} target="_blank" rel="noopener noreferrer">Recruiter calendar</a>}
           {item.kind === 'recruiter' && item.relatedRoleUrl && <a href={item.relatedRoleUrl} target="_blank" rel="noopener noreferrer">Related job listing</a>}
           {item.kind === 'recruiter' && onOpenRole && window.matchJobQuestOutreachRole(item, nativeRoles) && <button onClick={() => onOpenRole(window.matchJobQuestOutreachRole(item, nativeRoles))}>Open role & prep</button>}
         </div>
         {item.kind === 'recruiter' && <div className="reply-workflow">
-          {item.replyChannelReason && <p className="reply-help">{item.replyChannelReason}{item.recommendedReplyChannel && !item.recommendedReplyUrl ? ' No direct link for that reply channel is saved.' : ''}</p>}
+          {replyReady && item.replyChannelReason && <p className="reply-help">{item.replyChannelReason}{item.recommendedReplyChannel && !item.recommendedReplyUrl ? ' No direct link for that reply channel is saved.' : ''}</p>}
           {!item.sourceLinks.length && <p className="reply-help">No conversation link saved. Open the original message in your inbox before replying.</p>}
           <label htmlFor={`reply-${item.id}`}>Reply draft</label>
           {!(drafts[item.id] ?? item.draftReply ?? '').trim() && <p className="reply-help">No prepared reply saved{item.editable ? '. Write a reply below.' : '.'}</p>}
           <textarea id={`reply-${item.id}`} value={drafts[item.id] ?? item.draftReply} onChange={event => setDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} readOnly={!item.editable} maxLength={4000} aria-label={`Draft reply for ${item.company}`} placeholder={item.editable ? 'Write your reply…' : 'No prepared reply available'} />
-          <p className="reply-help">Copy your reply, open the conversation, then paste and send there.{!item.schedulingUrl && ' No recruiter calendar link saved.'}</p>
+          <p className="reply-help">{replyReady ? 'Copy your reply, open the conversation, then paste and send there.' : review.outcome === 'unverified' ? 'Draft preserved while conversation verification is pending.' : 'Your saved draft stays available. No reply is currently recommended.'}{!item.schedulingUrl && ' No recruiter calendar link saved.'}</p>
           {!item.editable && <p className="reply-help">This draft is read-only until the conversation is connected to the reply queue.</p>}
           <div className="actions">
             <button disabled={!item.editable || busy === item.id || (drafts[item.id] ?? item.draftReply) === item.draftReply} onClick={() => mutate(item, 'draft', { draftReply: drafts[item.id] ?? item.draftReply })}>{busy === item.id ? 'Saving…' : 'Save draft'}</button>
@@ -519,7 +551,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
           </div>
         </>}
         </details>
-      </article>)}
+      </article>; })}
       </>}
     </>}
   </div>;

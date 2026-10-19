@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const {getPaths, ensureNativeStore, withStoreLock} = require('../outreach/store');
+const {conversationReviewState} = require('../outreach/conversation-review');
 
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 const revision = value => sha(JSON.stringify(value));
@@ -193,6 +194,7 @@ function briefCard(item, q) {
     summary: text(item.summary), fit: text(item.fit), concern: text(item.concern),
     nextAction: text(item.nextAction), availability: text(item.availability),
     checkedAt: text(item.checkedAt) || null,
+    ...conversationReviewState(item, q),
     sourceLinks: sourceLinks(item, q),
     schedulingUrl: validUrl(q?.schedulingUrl) || validUrl(item.schedulingUrl),
     relatedRoleUrl: validUrl(q?.relatedRoleUrl) || validUrl(item.relatedRoleUrl),
@@ -205,7 +207,7 @@ function briefCard(item, q) {
     verifiedAt: text(q?.verifiedAt) || null,
     userReportedReplyStatus: text(q?.userReportedReplyStatus) || null,
     userReportedReplyStatusAt: text(q?.userReportedReplyStatusAt) || null,
-    lastInboundAt: text(q?.lastInboundAt || q?.lastInboundDate) || null,
+    lastInboundAt: [item.lastInboundAt,item.lastInboundDate,q?.lastInboundAt,q?.lastInboundDate].filter(value=>typeof value==='string' && Number.isFinite(Date.parse(value))).sort((a,b)=>Date.parse(b)-Date.parse(a))[0] || null,
     revision: q ? revision(q) : null,
     editable: Boolean(q),
     ...outreachMetadata(item, q),
@@ -220,6 +222,7 @@ function queueOnlyCard(q) {
     company: text(q.company), location: '', summary: text(q.reason), fit: '', concern: '',
     nextAction: 'Review the original conversation before acting.', availability: '',
     checkedAt: text(q.lastReviewedAt || q.verifiedAt || q.sourceCheckAttemptedAt) || null,
+    ...conversationReviewState({}, q),
     sourceLinks: sourceLinks(null, q), schedulingUrl: validUrl(q.schedulingUrl),
     relatedRoleUrl: validUrl(q.relatedRoleUrl),
     draftReply: text(q.draftReply), status: text(q.status) || null,

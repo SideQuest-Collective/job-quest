@@ -102,6 +102,28 @@ test('without new recruiter records collection preserves exact queue bytes, clea
   assert.equal(read(f.briefPath).sources.find(source=>source.accountId==='mail-2').checkedAt,undefined);
 });
 
+test('structured conversation evidence reaches snapshots without changing user queue bytes or reminder history',t=>{
+  const f=fixture(t);ensureNativeStore(f.dataDir);
+  const r={...recruiter(),schedulingUrl:undefined};
+  const saved={items:[{id:r.id,status:'ready_for_review',draftReply:'Keep my draft',nextReminderAt:'2026-10-06T09:00:00-04:00',reminderCount:1,verifiedAt:'2026-10-05T12:00:00Z'}],holds:[]};
+  const raw=JSON.stringify(saved);fs.writeFileSync(f.queuePath,raw);
+  const checkedAt=new Date(Date.now()-60000).toISOString();
+  const evidence=kind=>({channel:'email',kind,result:kind==='conversation'?'read':'none',latestDirection:'inbound',checkedAt,sourceUrl:r.sourceUrl,detail:'Full saved conversation and targeted Sent checked'});
+  const incoming={...r,checkedAt,lastInboundAt:'2026-10-18T12:00:00Z',conversationReview:{checkedAt,outcome:'needs_reply',summary:'Latest inbound remains unanswered in checked sources',neededCoverage:['email'],evidence:[evidence('conversation'),evidence('sent_search')]}};
+  ingestCollection({dataDir:f.dataDir,collection:collection([incoming],checkedAt)});
+  assert.equal(fs.readFileSync(f.queuePath,'utf8'),raw);
+  const snapshot=routes(f)('get','/api/opportunities').body.opportunities[0];
+  assert.equal(snapshot.conversationReview.outcome,'needs_reply');assert.equal(snapshot.conversationReviewFresh,true);
+  assert.equal(snapshot.lastInboundAt,incoming.lastInboundAt);assert.equal(snapshot.draftReply,'Keep my draft');
+  assert.equal(snapshot.nextReminderAt,saved.items[0].nextReminderAt);
+  const later=new Date(Date.now()).toISOString();
+  ingestCollection({dataDir:f.dataDir,collection:collection([{...incoming,checkedAt:later,lastInboundAt:later}],later)});
+  const invalidated=routes(f)('get','/api/opportunities').body.opportunities[0];
+  assert.equal(invalidated.conversationReview.outcome,'unverified');assert.equal(invalidated.conversationReviewFresh,false);
+  assert.match(invalidated.conversationReview.summary,/Verification needed/);
+  assert.equal(fs.readFileSync(f.queuePath,'utf8'),raw);
+});
+
 test('stale whole collections reject and older per-record/source checks do not replace newer evidence',t=>{
   const f=fixture(t);ingestCollection({dataDir:f.dataDir,collection:collection([recruiter()])});const before=bytes(f);
   assert.throws(()=>ingestCollection({dataDir:f.dataDir,collection:collection([recruiter()], '2026-10-09T12:00:00Z')}),error=>error.status===409);

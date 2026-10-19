@@ -14,6 +14,8 @@ function fixture(t, {existing=false, candidate=true, reject=false, runtime='code
   fs.mkdirSync(path.join(root,'app/lib/intel-control'),{recursive:true});
   fs.copyFileSync(path.resolve(__dirname,'../lib/intel-control/lock.js'),path.join(root,'app/lib/intel-control/lock.js'));
   fs.copyFileSync(path.resolve(__dirname,'../lib/intel-control/preferences.js'),path.join(root,'app/lib/intel-control/preferences.js'));
+  fs.mkdirSync(path.join(root,'app/lib/outreach'),{recursive:true});
+  fs.copyFileSync(path.resolve(__dirname,'../lib/outreach/conversation-review.js'),path.join(root,'app/lib/outreach/conversation-review.js'));
   fs.writeFileSync(path.join(root,'data/intel-preferences.json'),JSON.stringify({schema:'job-quest-intel-preferences/1',scopes:{jobs:true,outreach:true,practice:false}}));
   fs.writeFileSync(path.join(root,'data/profile.json'),JSON.stringify({name:'Fixture'}));
   if(external) fs.writeFileSync(path.join(root,'data/local-setup.json'),JSON.stringify({schedule:'external'}));
@@ -61,6 +63,10 @@ test('existing daily work permits bounded outreach-only collection and preserves
   assert.ok(prompt.includes(`${root}/data/outreach/queue.json`));
   assert.match(prompt,/Reuse the exact existing record id, including legacy ids/);
   assert.match(prompt,/company alone never matches/);
+  assert.match(prompt,/At most THREE saved outreach candidates/);
+  assert.match(prompt,/Saved overdue\/ready conversations can be older than 14 days/);
+  assert.match(prompt,/targeted Sent check/);
+  assert.match(prompt,/never launch another agent\/runtime\/model call/);
   assert.match(prompt,/Do not merge independently saved records, drafts or decisions/);
   assert.match(prompt,/multiple existing ids match ambiguously, omit that candidate/); assert.doesNotMatch(prompt,/### 1\. Discover/);
   assert.equal(fs.readFileSync(path.join(root,'data/intel',`${new Date().toLocaleDateString('en-CA')}.json`),'utf8'),before);

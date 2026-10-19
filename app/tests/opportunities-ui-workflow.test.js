@@ -308,3 +308,44 @@ test('stale schedule preferences do not override the installed cron', () => {
   assert.doesNotMatch(summary,/07:00/);
   assert.match(summary,/see its timing/);
 });
+
+
+test('conversation review labels require fresh supported evidence and explain verification blockers', () => {
+  const now=Date.parse('2026-10-19T12:00:00Z');
+  const checkedAt='2026-10-19T11:00:00Z';
+  const review={checkedAt,outcome:'needs_reply',summary:'Conversation checked; reply needed.',evidence:[{channel:'email',kind:'conversation',result:'read',checkedAt}]};
+  const base={id:'reply',conversationReview:review,conversationReviewFresh:true,draftReply:'My saved reply',nextReminderAt:'2026-10-06'};
+  const current=context.window.jobQuestConversationReview;
+  assert.equal(current(base,now).outcome,'needs_reply');
+  assert.equal(current(base,now).reason,review.summary);
+  for (const [outcome,kind] of [['awaiting_reply','reply'],['booked','booking'],['closed','closure']]) {
+    const conversationReview={...review,outcome,evidence:[{channel:'email',kind,result:'found',checkedAt}]};
+    assert.equal(current({...base,conversationReview},now).outcome,outcome);
+    const later=now+2*86400000;
+    assert.equal(current({...base,conversationReview,conversationReviewFresh:false},later).outcome,outcome,'positive historical state does not expire into outreach');
+    assert.equal(current({...base,conversationReview,lastInboundAt:'2026-10-19T11:30:00Z'},later).outcome,'unverified','new inbound invalidates the old positive state');
+  }
+  const cases=[
+    [{...base,conversationReview:null},/Not yet checked/],
+    [{...base,conversationReview:null,lastInboundAt:'2026-10-19T11:30:00Z',sentAt:'2026-10-19T11:00:00Z'},/Not yet checked/],
+    [{...base,conversationReview:{...review,checkedAt:'2026-10-18T11:00:00Z'}},/no longer current/],
+    [{...base,lastInboundAt:'2026-10-19T11:30:00Z'},/New activity/],
+    [{...base,sentAt:'2026-10-19T11:30:00Z'},/New activity/],
+    [{...base,conversationReview:{...review,evidence:[]}},/Not yet checked/],
+    [{...base,conversationReviewFresh:false},/does not verify/],
+    [{...base,conversationReview:{...review,outcome:'unverified',summary:'LinkedIn sign-in needed.'},conversationReviewFresh:false},/LinkedIn sign-in needed/],
+  ];
+  const before=JSON.stringify(base);
+  for (const [item,reason] of cases) {
+    const result=current(item,now);
+    assert.equal(result.label,'Verification needed');
+    assert.equal(result.outcome,'unverified');
+    assert.match(result.reason,reason);
+  }
+  assert.equal(JSON.stringify(base),before,'verification display preserves drafts and reminder state');
+  assert.match(source,/Draft preserved while conversation verification is pending/);
+  assert.match(source,/Pending items stay here for an upcoming review/);
+  assert.equal(source.split('Intel verifies up to three conversations per run.').length-1,1,'one compact shared verification note');
+  assert.doesNotMatch(source,/Open Intel setup|Await verification in an upcoming Intel run/);
+  assert.doesNotMatch(source,/check the latest conversation before acting|follow up when it’s due/);
+});

@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {syncNativeIntel, projectBrief} = require('./intel');
+const {normalizeConversationReview} = require('./conversation-review');
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const fail = (message, status = 400) => Object.assign(Error(message), {status});
 const json = value => JSON.stringify(value, null, 2) + '\n';
@@ -153,7 +154,13 @@ function ingestCollection({dataDir,collection}) {
   const input=validateCollection(collection);
   return withStoreLock(dataDir,()=>{
     const paths=ensureUnlocked(dataDir), previous=read(paths.briefPath,'brief'), queue=read(paths.queuePath,'queue');
-    const brief=mergeBrief(previous,input), nextQueue=seedQueue(queue,brief);
+    const brief=mergeBrief(previous,input);
+    const queueRecords=new Map([...queue.items,...queue.holds].map(item=>[item.id,item]));
+    // Review evidence belongs to the brief. Never rewrite dashboard-owned drafts,
+    // sent reports, status or reminder history during account collection.
+    brief.opportunities=brief.opportunities.map(item=>Object.hasOwn(item,'conversationReview')
+      ? {...item,conversationReview:normalizeConversationReview(item.conversationReview,item,queueRecords.get(item.id))} : item);
+    const nextQueue=seedQueue(queue,brief);
     syncNativeIntel(dataDir,brief,{dryRun:true});
     const intelFiles=projectBrief(brief).reports.map(report=>path.join(dataDir,'intel',`${report.date}-career-review-migration.json`));
     const files=[paths.briefPath,paths.queuePath,...intelFiles];

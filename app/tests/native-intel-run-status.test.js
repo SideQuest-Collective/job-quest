@@ -15,6 +15,8 @@ function fixture(t, agentBody) {
   fs.copyFileSync(source, path.join(root, 'skill/bin/run-daily-intel.sh'));
   fs.copyFileSync(path.resolve(__dirname, '../lib/intel-control/lock.js'), path.join(root, 'app/lib/intel-control/lock.js'));
   fs.copyFileSync(path.resolve(__dirname, '../lib/intel-control/preferences.js'), path.join(root, 'app/lib/intel-control/preferences.js'));
+  fs.mkdirSync(path.join(root,'app/lib/outreach'),{recursive:true});
+  fs.copyFileSync(path.resolve(__dirname,'../lib/outreach/conversation-review.js'),path.join(root,'app/lib/outreach/conversation-review.js'));
   fs.writeFileSync(path.join(root, 'data/profile.json'), JSON.stringify({ name: 'Fixture', targetCompanies: {} }));
   fs.writeFileSync(path.join(root, 'references/intel-agent-template.md'), 'Fixture template');
   fs.writeFileSync(path.join(root, 'lib/runtime-shell.sh'), `job_quest_load_runtime() {\n export JOB_QUEST_ACTIVE_RUNTIME=claude\n export JOB_QUEST_DATA_DIR="$JOB_QUEST_REPO_ROOT/data"\n export JOB_QUEST_REFERENCES_DIR="$JOB_QUEST_REPO_ROOT/references"\n export JOB_QUEST_APP_ROOT="$JOB_QUEST_REPO_ROOT"\n export JOB_QUEST_RUNTIME_COMMAND=claude\n JOB_QUEST_RUNTIME_COMMAND_ARGS=()\n}\njob_quest_runtime_hint() { echo fixture; }\njob_quest_run_prompt_file() {\n cp "$1" "$JOB_QUEST_REPO_ROOT/captured-prompt"\n ${agentBody}\n}\n`);

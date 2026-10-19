@@ -1,4 +1,4 @@
-/* Dashboard priorities use saved decisions and dates; displaying one never changes state. */
+/* Dashboard outreach requires current conversation evidence; displaying priorities never changes state. */
 window.dashboardPriorities = function({ items = [], nativeRoles = [], roleActions = {}, roleTracker = {}, now = Date.now() } = {}) {
   const timestamp = value => {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value)) return null;
@@ -49,18 +49,20 @@ window.dashboardPriorities = function({ items = [], nativeRoles = [], roleAction
     if (!item?.id || item.kind !== 'recruiter' || inactive(item)) continue;
     const due = timestamp(item.nextReminderAt), isDue = due !== null && due <= now;
     if (['declined', 'meeting_booked', 'applied'].includes(item.status)) continue;
-    if (['snoozed', 'reconnect_scheduled', 'awaiting_recruiter', 'sent'].includes(item.status) && !isDue) continue;
+    const inbound = timestamp(item.lastInboundAt), sent = timestamp(item.sentAt);
+    const newerInbound = inbound !== null && sent !== null && inbound > sent;
+    if (['snoozed', 'reconnect_scheduled'].includes(item.status) && !isDue) continue;
+    if (['awaiting_recruiter', 'sent'].includes(item.status) && !isDue && !newerInbound) continue;
     if (due !== null && due > now) continue;
     if (item.queueOnly && !isDue) continue;
-    const inbound = timestamp(item.lastInboundAt), sent = timestamp(item.sentAt);
-    if (sent !== null && !isDue && !(inbound !== null && inbound > sent)) continue;
+    const review = window.jobQuestConversationReview?.(item, now);
+    if (review?.outcome !== 'needs_reply') continue;
+    const isFollowup = sent !== null && !(inbound !== null && inbound > sent);
     const role = window.matchJobQuestOutreachRole?.(item, roles) || null;
-    const recipient = item.recruiter || item.sender || item.outreachIdentity?.sender;
-    candidates.push({ id: `outreach:${item.id}`, kind: isDue ? 'followup' : 'reply', item, role,
-      title: `${item.company || 'Recruiter'} · ${item.title || 'Recruiter outreach'}`, label: isDue ? 'Follow up' : 'Respond to recruiter', action: isDue ? 'Review follow-up' : 'Review reply',
-      reason: isDue ? `Your saved ${item.status === 'reconnect_scheduled' ? 'reconnect' : 'follow-up'} was due ${displayDate(item.nextReminderAt)}. Check the conversation before replying.`
-        : `${recipient ? `Message from ${recipient}. ` : ''}Reply has not been marked sent.${inbound !== null ? dateReason('Received', item.lastInboundAt) : dateReason('Source checked', item.checkedAt)}`,
-      rank: isDue ? 1 : 3, at: isDue ? due : (inbound ?? timestamp(item.checkedAt) ?? now), identity: `outreach:${item.id}` });
+    candidates.push({ id: `outreach:${item.id}`, kind: isFollowup ? 'followup' : 'reply', item, role,
+      title: `${item.company || 'Recruiter'} · ${item.title || 'Recruiter outreach'}`, label: isFollowup ? 'Follow up' : 'Respond to recruiter', action: isFollowup ? 'Review follow-up' : 'Review reply',
+      reason: `${review.reason} Conversation verified ${displayDate(review.checkedAt)}.`,
+      rank: isFollowup ? 1 : 3, at: isFollowup ? (due ?? timestamp(review.checkedAt)) : (inbound ?? timestamp(review.checkedAt)), identity: `outreach:${item.id}` });
   }
 
   for (const role of roles) {
@@ -80,7 +82,7 @@ window.dashboardPriorities = function({ items = [], nativeRoles = [], roleAction
     seen.add(action.identity); ids.forEach(id => outreachIds.add(id)); return true;
   });
   // Interviews stay first. Share the remaining space between outreach and
-  // discoveries so even a backlog of overdue reminders leaves new jobs visible.
+  // discoveries so even a backlog of verified follow-ups leaves new jobs visible.
   const interviews = unique.filter(action => action.kind === 'interview');
   const outreach = unique.filter(action => ['followup', 'reply'].includes(action.kind));
   const jobs = unique.filter(action => action.kind === 'job');
