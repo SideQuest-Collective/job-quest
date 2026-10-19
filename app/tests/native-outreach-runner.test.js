@@ -30,6 +30,7 @@ JOB_QUEST_RUNTIME_COMMAND_ARGS=()
 job_quest_runtime_hint() { echo fixture; }
 job_quest_run_prompt_file() {
 cp "$1" "$JOB_QUEST_REPO_ROOT/prompt"
+if grep -q '### 1. Discover' "$1"; then echo '{"roles":[]}' > "$JOB_QUEST_DATA_DIR/intel/$(date +%Y-%m-%d).json"; fi
 ${candidate ? `python3 - "$1" <<'PY'
 import json,sys
 prompt=open(sys.argv[1]).read()

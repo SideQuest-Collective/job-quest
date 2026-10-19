@@ -21,6 +21,9 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
   let child=null, changingSchedule=false;
   function readPreference(){try{const value=JSON.parse(fs.readFileSync(preferenceFile,'utf8'));if(!value||value.schema!=='job-quest-intel-schedule/1'||!['off','daily','weekdays'].includes(value.frequency))throw Error('invalid preference');return value;}catch(e){if(e.code==='ENOENT')return null;throw failure('The saved Intel schedule preference could not be read. Repair it before changing the schedule.',503);}}
   function writePreference(value,cron){const preference={schema:'job-quest-intel-schedule/1',frequency:value.frequency,time:cron?value.time:null,cron,updatedAt:now().toISOString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone};const temp=`${preferenceFile}.${crypto.randomUUID()}.tmp`;try{fs.writeFileSync(temp,JSON.stringify(preference,null,2),{mode:0o600,flag:'wx'});fs.renameSync(temp,preferenceFile);}finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}}
+  // Written by run-daily-intel.sh for every run, including scheduled ones the dashboard did not start.
+  function readLastRun() {try {const value=JSON.parse(fs.readFileSync(path.join(dataDir,'logs','daily-intel-last-run.json'),'utf8'));return value&&typeof value.status==='string'?value:null;} catch(e) {if(e.code==='ENOENT') return null; return {status:'unknown',reason:'The last run record could not be read.'};}}
+  function latestIntelDate() {try {return fs.readdirSync(path.join(dataDir,'intel')).map(name=>/^(\d{4}-\d{2}-\d{2})\.json$/.exec(name)?.[1]).filter(Boolean).sort().pop()||null;} catch {return null;}}
   function readRun() {try {return JSON.parse(fs.readFileSync(stateFile,'utf8'));} catch(e) {if(e.code==='ENOENT') return null; return {status:'unknown',error:'Run history could not be read. Existing data was preserved.'};}}
   function writeRun(run) {fs.mkdirSync(path.dirname(stateFile),{recursive:true}); const temp=`${stateFile}.${process.pid}.tmp`;fs.writeFileSync(temp,JSON.stringify(run,null,2),{mode:0o600});fs.renameSync(temp,stateFile);}
   function setup() {try{const value=JSON.parse(fs.readFileSync(path.join(dataDir,'local-setup.json'),'utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw Error('invalid setup');return value;}catch(e){if(e.code==='ENOENT')return {};throw failure('Local setup could not be read. Repair it before running Intel.',503);}}
@@ -32,7 +35,7 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
     const date=getLocalDateStamp(now());
     const outputs=Object.fromEntries(['intel','quizzes','tasks'].map(kind=>[kind,fs.existsSync(path.join(dataDir,kind,`${date}.json`))]));
     const lockDir=path.join(dataDir,'logs','.daily-intel.lock');
-    const lock=lockState(lockDir);let run=readRun();if(run?.status==='running'&&!child&&lock==='absent')run={...run,status:'interrupted',error:'The dashboard restarted before this requested run could be confirmed. Check the run log.'};return {runtime:runtime(),schedule,schedulePreference:readPreference(),outreachOwner:setup().schedule==='external'?'external':'native',run,running:!!child||['running','unknown'].includes(lock),lock,outputs,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone};
+    const lock=lockState(lockDir);let run=readRun();if(run?.status==='running'&&!child&&lock==='absent')run={...run,status:'interrupted',error:'The dashboard restarted before this requested run could be confirmed. Check the run log.'};return {runtime:runtime(),schedule,schedulePreference:readPreference(),outreachOwner:setup().schedule==='external'?'external':'native',run,running:!!child||['running','unknown'].includes(lock),lock,outputs,lastRun:readLastRun(),latestIntelDate:latestIntelDate(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone};
   }
   async function configure(value) {
     const cron=scheduleCron(value);
@@ -50,7 +53,7 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
     const run={status:'running',startedAt:now().toISOString(),finishedAt:null,error:null};writeRun(run);
     const log=fs.openSync(path.join(dataDir,'logs','intel-control.log'),'a',0o600);
     let active;
-    try {active=launch('/bin/bash',[runner],{stdio:['ignore',log,log],env:process.env});child=active;}
+    try {active=launch('/bin/bash',[runner],{stdio:['ignore',log,log],env:{...process.env,JOB_QUEST_INTEL_TRIGGER:'dashboard'}});child=active;}
     catch(e){fs.closeSync(log);writeRun({...run,status:'failed',finishedAt:now().toISOString(),error:'Intel could not start. Check the run log.'});throw failure('Intel could not start. Check the run log.',503);}
     fs.closeSync(log);
     let finished=false;

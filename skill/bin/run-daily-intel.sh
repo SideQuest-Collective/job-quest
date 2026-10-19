@@ -31,7 +31,31 @@ RUN_LOCK_TOKEN="$(node "$RUN_LOCK_HELPER" acquire "$RUN_LOCK" "$$")" || exit 73
 release_run_lock() {
   node "$RUN_LOCK_HELPER" release "$RUN_LOCK" "$$" "$RUN_LOCK_TOKEN" 2>/dev/null || true
 }
-trap release_run_lock EXIT
+LAST_RUN_FILE="$LOG_DIR/daily-intel-last-run.json"
+RUN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+RUN_RECORDED=0
+PROMPT_FILE=""; STDOUT_FILE=""; STDERR_FILE=""; OUTREACH_CANDIDATE=""; TASKS_CANDIDATE=""
+# One status file per run (scheduled, dashboard or manual) so the dashboard can show what happened.
+record_run() {
+  RUN_RECORDED=1
+  python3 - "$LAST_RUN_FILE" "$1" "$2" "${3:-}" "$RUN_STARTED_AT" "${JOB_QUEST_INTEL_TRIGGER:-schedule}" "${TODAY:-}" <<'PYRUN' || true
+import json, os, sys, datetime
+path, status, reason, summary, started, trigger, date = sys.argv[1:8]
+run = {"schema": "job-quest-intel-run/1", "status": status, "reason": reason or None, "summary": summary or None,
+       "date": date or None, "trigger": trigger, "startedAt": started,
+       "finishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+tmp = f"{path}.{os.getpid()}.tmp"
+with open(tmp, "w") as f: json.dump(run, f, indent=2)
+os.replace(tmp, path)
+PYRUN
+}
+cleanup_run() {
+  local code=$?
+  if [ "$RUN_RECORDED" -eq 0 ]; then record_run failed "Runner stopped unexpectedly (exit $code). Check daily-intel.log."; fi
+  rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE" "$OUTREACH_CANDIDATE" "$TASKS_CANDIDATE"
+  release_run_lock
+}
+trap cleanup_run EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 
@@ -48,11 +72,13 @@ log "References dir: ${JOB_QUEST_REFERENCES_DIR:-unset}"
 
 if [ ! -f "$PROFILE" ]; then
   log "ERROR: profile.json not found at $PROFILE. Open Job Quest in your runtime and complete onboarding first."
+  record_run failed "profile.json not found. Complete onboarding first."
   exit 1
 fi
 
 if [ ! -f "$TEMPLATE" ]; then
   log "ERROR: intel-agent-template.md not found at $TEMPLATE"
+  record_run failed "intel-agent-template.md not found."
   exit 1
 fi
 
@@ -116,14 +142,27 @@ PYACCOUNTS
   fi
 fi
 
+# Today's intel file is the only "already ran" marker. Prep plans and interview follow-ups
+# write future-dated tasks files, so a tasks file must not block discovery.
 DAILY_OUTPUTS_PRESENT=0
-for OUTPUT_KIND in intel quizzes tasks; do
-  if [ -e "$JOB_QUEST_DATA_DIR/$OUTPUT_KIND/$TODAY.json" ]; then
-    log "SKIP: existing $OUTPUT_KIND/$TODAY.json preserved."
-    DAILY_OUTPUTS_PRESENT=1
-  fi
-done
-if [ "$DAILY_OUTPUTS_PRESENT" -eq 1 ] && [ "$COLLECT_OUTREACH" -eq 0 ]; then exit 0; fi
+if [ -e "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" ]; then
+  log "SKIP: intel/$TODAY.json already exists; today's discovery already ran."
+  DAILY_OUTPUTS_PRESENT=1
+fi
+if [ "$DAILY_OUTPUTS_PRESENT" -eq 1 ] && [ "$COLLECT_OUTREACH" -eq 0 ]; then
+  record_run skipped "intel/$TODAY.json already exists, so today's discovery already ran."
+  exit 0
+fi
+QUIZ_PRESENT=0
+if [ -e "$JOB_QUEST_DATA_DIR/quizzes/$TODAY.json" ]; then
+  log "Existing quizzes/$TODAY.json preserved; no new quiz today."
+  QUIZ_PRESENT=1
+fi
+if [ -e "$JOB_QUEST_DATA_DIR/tasks/$TODAY.json" ]; then
+  log "Existing tasks/$TODAY.json preserved; new daily tasks will be appended to it."
+fi
+TASKS_CANDIDATE="$(mktemp "$LOG_DIR/tasks-candidate.XXXXXX")"
+rm -f "$TASKS_CANDIDATE"
 
 OUTREACH_CANDIDATE=""
 if [ "$COLLECT_OUTREACH" -eq 1 ]; then
@@ -132,6 +171,13 @@ if [ "$COLLECT_OUTREACH" -eq 1 ]; then
 fi
 
 PROMPT_FILE="$(mktemp)"
+if [ "$QUIZ_PRESENT" -eq 1 ]; then
+  QUIZ_STEP="Skip this step: ${JOB_QUEST_DATA_DIR}/quizzes/${TODAY}.json already exists and must not be touched."
+  QUIZ_OUTPUT="- (no quiz today; the existing quiz file is preserved)"
+else
+  QUIZ_STEP="Mix of 2-3 system design, 2 coding concept, 1-2 behavioral questions. Bias toward weak spots: ${WEAK_SPOTS}. Each question has exactly 4 options with a 0-indexed correctIndex and an explanation."
+  QUIZ_OUTPUT="- ${JOB_QUEST_DATA_DIR}/quizzes/${TODAY}.json"
+fi
 cat > "$PROMPT_FILE" <<EOF
 You are ${NAME}'s automated daily job hunt intelligence agent. Today is ${TODAY}. Your job is to write fresh content for the Job Quest Command Center at ${JOB_QUEST_DATA_DIR}.
 
@@ -165,18 +211,18 @@ Search current company career pages, official ATS listings and LinkedIn Jobs for
 Search Blind, Reddit r/cscareerquestions, HackerNews, Glassdoor, levels.fyi. Focus on system design for ${TARGET_LEVEL} level, behavioral hacks, and negotiation tactics.
 
 ### 3. Create a 5-7 question quiz
-Mix of 2-3 system design, 2 coding concept, 1-2 behavioral questions. Bias toward weak spots: ${WEAK_SPOTS}. Each question has exactly 4 options with a 0-indexed correctIndex and an explanation.
+${QUIZ_STEP}
 
 ### 4. Create 8-10 daily tasks
-Categories: coding, system-design, behavioral, research, networking, application. Each task MUST include a substantial \`content\` field (100-400 words for non-coding tasks) with a detailed markdown walkthrough that ${NAME} can read in the UI.
+Categories: coding, system-design, behavioral, research, networking, application. Each task MUST include a substantial \`content\` field (100-400 words for non-coding tasks) with a detailed markdown walkthrough that ${NAME} can read in the UI. Write them as {"tasks": [...]} ONLY to ${TASKS_CANDIDATE}, never to the tasks folder; the runner adds them to today's Daily Tasks without disturbing tasks already planned there.
 
 ### 5. Add 3-5 adaptive coding problems
 Read ${JOB_QUEST_DATA_DIR}/problems/progress.json to see what ${NAME} has solved. Generate problems calibrated to performance, each with a referenceSolution, and add them ONLY with: node ${JOB_QUEST_APP_ROOT}/skill/bin/add-problems.js <your-problems.json> --data-dir ${JOB_QUEST_DATA_DIR} (rules in the template's "Add coding problems" section). Never edit problems.json directly; fix and re-run on an error.
 
 ## Output files
 - ${JOB_QUEST_DATA_DIR}/intel/${TODAY}.json
-- ${JOB_QUEST_DATA_DIR}/quizzes/${TODAY}.json
-- ${JOB_QUEST_DATA_DIR}/tasks/${TODAY}.json
+${QUIZ_OUTPUT}
+- daily tasks: ${TASKS_CANDIDATE} (the runner merges them into tasks/${TODAY}.json)
 - coding problems: via add-problems.js only
 
 Each file's schema is documented in ${TEMPLATE}. Validate JSON before writing. When done, print a one-line summary: "Done: N roles, M quiz questions, K tasks, P new problems".
@@ -200,8 +246,6 @@ fi
 
 STDOUT_FILE="$(mktemp)"
 STDERR_FILE="$(mktemp)"
-
-trap 'rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE" "${OUTREACH_CANDIDATE:-}"; release_run_lock' EXIT
 set +e
 if [ "$JOB_QUEST_ACTIVE_RUNTIME" = "codex" ]; then
   job_quest_run_prompt_file "$PROMPT_FILE" --approve-for-me >"$STDOUT_FILE" 2>"$STDERR_FILE"
@@ -227,13 +271,62 @@ if [ "$EXIT_CODE" -eq 0 ]; then
     fi
   fi
   log "Runtime completed (collection exit $EXIT_CODE)"
-  log "Summary: $(tail -1 "$STDOUT_FILE")"
+  SUMMARY="$(tail -1 "$STDOUT_FILE")"
+  log "Summary: $SUMMARY"
+  FAILURE_REASON=""
+  if [ "$DAILY_OUTPUTS_PRESENT" -eq 0 ]; then
+    # Exit 0 alone is not proof: the agent must have written today's intel.
+    if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" 2>/dev/null; then
+      FAILURE_REASON="The agent finished but intel/$TODAY.json is missing or not valid JSON. Agent said: $SUMMARY"
+    elif [ -f "$TASKS_CANDIDATE" ]; then
+      if MERGED="$(node - "$TASKS_CANDIDATE" "$JOB_QUEST_DATA_DIR/tasks" "$TODAY" <<'NODEMERGE' 2>&1
+const fs = require('fs'), path = require('path');
+const [candidate, dir, date] = process.argv.slice(2);
+const incoming = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+const tasks = Array.isArray(incoming) ? incoming : incoming.tasks;
+if (!Array.isArray(tasks)) throw new Error('candidate has no tasks array');
+const file = path.join(dir, `${date}.json`);
+fs.mkdirSync(dir, { recursive: true });
+const day = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { date, tasks: [] };
+if (!Array.isArray(day.tasks)) day.tasks = [];
+const seen = new Set(day.tasks.map(t => String(t.text || '').trim().toLowerCase()));
+let added = 0;
+for (const t of tasks) {
+  if (!t || typeof t.text !== 'string' || seen.has(t.text.trim().toLowerCase())) continue;
+  seen.add(t.text.trim().toLowerCase());
+  day.tasks.push({ ...t, completed: false, source: 'intel' });
+  added++;
+}
+const tmp = `${file}.${process.pid}.tmp`;
+fs.writeFileSync(tmp, JSON.stringify(day, null, 2));
+fs.renameSync(tmp, file);
+console.log(added);
+NODEMERGE
+)"; then
+        log "Added $MERGED intel tasks to tasks/$TODAY.json."
+      else
+        log "WARNING: daily tasks could not be merged: $MERGED"
+      fi
+    else
+      log "WARNING: agent wrote no daily tasks candidate."
+    fi
+  fi
+  if [ -n "$FAILURE_REASON" ]; then
+    log "FAILED: $FAILURE_REASON"
+    EXIT_CODE=1
+    record_run failed "$FAILURE_REASON" "$SUMMARY"
+  elif [ "$EXIT_CODE" -ne 0 ]; then
+    record_run failed "Outreach collection failed. Check daily-intel.log." "$SUMMARY"
+  else
+    record_run completed "" "$SUMMARY"
+  fi
 else
   log "FAILED: exit code $EXIT_CODE"
   log "Runtime command failed: ${JOB_QUEST_RUNTIME_COMMAND:-unknown} ${JOB_QUEST_RUNTIME_COMMAND_ARGS[*]:-}"
-  log "stderr: $(head -c 400 "$STDERR_FILE" | tr '\n' ' ')"
+  STDERR_HEAD="$(head -c 400 "$STDERR_FILE" | tr '\n' ' ')"
+  log "stderr: $STDERR_HEAD"
+  record_run failed "Runtime exited $EXIT_CODE. ${STDERR_HEAD:-$(tail -1 "$STDOUT_FILE")}"
 fi
 
-rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE"
 log "=== Daily intel run finished (exit $EXIT_CODE) ==="
 exit "$EXIT_CODE"
