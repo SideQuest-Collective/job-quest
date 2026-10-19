@@ -178,7 +178,7 @@ window.jobQuestCollectionSummary = function jobQuestCollectionSummary(status) {
   return 'An Intel schedule is installed. Open Intel to see its timing.';
 };
 
-window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpenRole, onConfigureIntel, active = true, configureRequest = 0, configureOnly = false }) {
+window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpenRole, onConfigureIntel, active = true, configureRequest = 0, configureOnly = false, embedded = false, launchItem = null, refreshKey = null }) {
   const { useEffect, useState } = React;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -219,7 +219,15 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
     } catch (cause) { setError(cause.message); }
   };
 
-  useEffect(() => { if (active) load(); }, [active]);
+  useEffect(() => { if (active) load(); }, [active, refreshKey]);
+  const launchedItem = React.useRef(0);
+  useEffect(()=>{
+    if(!active||configureOnly||!data||!launchItem?.id||launchedItem.current===launchItem.request)return;
+    if(view!=='outreach'||catchUp){setView('outreach');setCatchUp(false);return;}
+    const card=document.getElementById('outreach-card-'+launchItem.id);
+    if(card){card.scrollIntoView({block:'start'});card.focus({preventScroll:true});launchedItem.current=launchItem.request;}
+  },[active,configureOnly,data,launchItem,view,catchUp]);
+
 
   const refreshAccessCheck = async (isCurrent = () => true) => {
     const sequence = ++accessSequence.current;
@@ -398,12 +406,11 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       .jq-opps .error { border-color:var(--rose); color:var(--rose); }
       @media(max-width:390px) { .jq-opps { padding:0 2px; } .jq-opps .panel { padding:13px; } .jq-opps .op-card { padding:12px 13px; } .jq-opps .actions button { flex:1 1 auto; } }
     `}</style>
-    {!configureOnly && <><h2>Recruiter outreach</h2>
-    <p className="intro">Review recruiter outreach and choose when to reply or book. Discover jobs opens your native job shortlist.</p>
+    {!configureOnly && <>{embedded?<h3>Recruiter outreach</h3>:<h2>Recruiter outreach</h2>}
+    <p className="intro">Review conversations, choose a reply and follow up when it’s due.</p>
     <div className="tabs" role="group" aria-label="Opportunity views">
       <button className={view === 'outreach' ? 'active' : ''} onClick={() => setView('outreach')}>Outreach</button>
       <button className={view === 'held' ? 'active' : ''} onClick={() => setView('held')}>Paused</button>
-      {setPage && <button onClick={() => setPage('discover')}>Discover jobs</button>}
       <button onClick={openAccounts}>Outreach sources</button>
       <button className={catchUp ? 'active' : ''} onClick={() => { setView('outreach'); setCatchUp(!catchUp); }}>{catchUp ? 'Show recent order' : 'Review older outreach'}</button>
     </div>
@@ -455,7 +462,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       </section>}
       {!configureOnly && <>
       {visible.length === 0 && <div className="panel" role="status">{data.briefState === 'ready' ? 'No results in this view from the latest local brief.' : 'Results unavailable until the local brief is connected.'}</div>}
-      {visible.map(item => <article className="panel op-card" key={item.id}>
+      {visible.map(item => <article className="panel op-card" key={item.id} id={'outreach-card-'+item.id} tabIndex={-1}>
         <div className="card-head"><div><h3>{item.title} · {item.company}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
           {(item.kind === 'job' ? item.availability : item.status && !['ready_for_review'].includes(item.status)) && <span className="status">{item.kind === 'job' ? item.availability : item.status.replaceAll('_', ' ')}</span>}
         </div>

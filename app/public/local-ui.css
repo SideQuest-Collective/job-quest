@@ -117,3 +117,21 @@ button.intel-filter-tab {border:0;background:transparent;font:inherit;min-height
 .setup-page .jq-opps .account-remove{margin-top:16px;color:var(--text-secondary)}
 .setup-page .account-all-coverage p{overflow-wrap:anywhere}
 @media(max-width:600px){.setup-page .jq-opps .account-setup{padding:16px}.account-status{grid-template-columns:1fr}.account-setup-header{gap:8px}.setup-page .account-form button{width:100%}.setup-page .account-row .actions button{width:100%}}
+
+/* Discover is decision-making; Intel groups ongoing work. */
+.intel-hub-header {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+.intel-hub-header h2 {font-size:30px;margin:0 0 6px;}.intel-hub-header p {color:var(--text-secondary);margin:0;line-height:1.6;}
+.intel-hub-tabs {display:flex;gap:10px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:16px;}
+.intel-hub [hidden] {display:none!important;}
+.intel-hub .intel-filter-tabs {flex-wrap:wrap;}.intel-hub .intel-filter-tab {min-height:44px;font-size:14px;}
+.intel-hub .codelab-toolbar h3 {font-size:22px;}.intel-hub .codelab-toolbar p {font-size:15px;line-height:1.5;}
+.intel-hub .op-card {scroll-margin-top:90px;}.intel-hub .op-card:focus {outline:2px solid var(--amber);outline-offset:4px;}
+.discover-review-controls {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+.discover-review-controls .discover-tabs {margin:0;}.discover-review .discover-tab {font-size:16px;min-height:44px;}
+.discover-review .discover-single {position:relative;inset:auto;height:auto;min-height:260px;transform:none;opacity:1;width:100%;z-index:auto;}
+.discover-review .discover-fit-text {font-size:16px;line-height:1.6;}.discover-review .discover-role {font-size:26px;line-height:1.3;}
+.discover-review .secondary-copy {font-size:14px;line-height:1.5;color:var(--text-secondary);margin:16px 0;}
+.discover-review .discover-single a {display:inline-flex;align-items:center;min-height:44px;}
+.discover-review .discover-meta {font-size:15px;line-height:1.5;}.discover-review .discover-undo {margin:16px 0;line-height:1.6;}
+.discover-review .saved-list .role-card {gap:14px;}.discover-review .role-info h3 {font-size:17px;}
+@media(max-width:600px){.intel-hub-header h2{font-size:26px}.discover-review .discover-role{font-size:23px}.intel-hub-tabs .btn{flex:1}.discover-review-controls{align-items:stretch}.discover-review-controls .btn{width:100%}}

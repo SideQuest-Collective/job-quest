@@ -82,6 +82,17 @@ if [ ! -f "$TEMPLATE" ]; then
   exit 1
 fi
 
+# The same strict parser is used by the dashboard. Missing preferences retain legacy defaults.
+if ! SCOPE_FLAGS="$(node "$JOB_QUEST_APP_ROOT/app/lib/intel-control/preferences.js" "$JOB_QUEST_DATA_DIR")"; then
+  record_run failed "Saved Intel preferences are invalid; no activities started."
+  exit 1
+fi
+read -r ENABLE_JOBS ENABLE_OUTREACH ENABLE_PRACTICE <<< "$SCOPE_FLAGS"
+if [ "$ENABLE_JOBS$ENABLE_OUTREACH$ENABLE_PRACTICE" = "000" ]; then
+  record_run skipped "All Intel activities are disabled; no runtime launched."
+  exit 0
+fi
+log "Enabled activities: jobs=$ENABLE_JOBS outreach=$ENABLE_OUTREACH practice=$ENABLE_PRACTICE"
 log "Prompt template: $TEMPLATE"
 
 read_profile() {
@@ -119,7 +130,9 @@ except (ValueError, OSError):
     print('unknown')
 PYOWNER
 )"
-if [ "$OUTREACH_OWNER" = "external" ]; then
+if [ "$ENABLE_OUTREACH" -eq 0 ]; then
+  log "Outreach collection disabled in Intel preferences."
+elif [ "$OUTREACH_OWNER" = "external" ]; then
   log "Outreach collection skipped: configured external review owns native outreach ingestion."
 elif [ "$OUTREACH_OWNER" = "unknown" ]; then
   log "Outreach collection skipped: local setup unreadable; collector ownership unknown. Public daily work remains available."
@@ -142,15 +155,20 @@ PYACCOUNTS
   fi
 fi
 
-# Today's intel file is the only "already ran" marker. Prep plans and interview follow-ups
-# write future-dated tasks files, so a tasks file must not block discovery.
-DAILY_OUTPUTS_PRESENT=0
+# Discovery and preparation have independent daily completion checks.
+GENERATE_JOBS=$ENABLE_JOBS
+GENERATE_PRACTICE=$ENABLE_PRACTICE
+PRACTICE_MARKER="$LOG_DIR/.daily-intel-practice-$TODAY.json"
 if [ -e "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" ]; then
-  log "SKIP: intel/$TODAY.json already exists; today's discovery already ran."
-  DAILY_OUTPUTS_PRESENT=1
+  log "Existing intel/$TODAY.json preserved; no new discovery today."
+  GENERATE_JOBS=0
 fi
-if [ "$DAILY_OUTPUTS_PRESENT" -eq 1 ] && [ "$COLLECT_OUTREACH" -eq 0 ]; then
-  record_run skipped "intel/$TODAY.json already exists, so today's discovery already ran."
+if [ -e "$PRACTICE_MARKER" ] || { [ -e "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" ] && [ -e "$JOB_QUEST_DATA_DIR/quizzes/$TODAY.json" ] && [ -e "$JOB_QUEST_DATA_DIR/tasks/$TODAY.json" ]; }; then
+  GENERATE_PRACTICE=0
+  log "Today's completed practice content is preserved."
+fi
+if [ "$GENERATE_JOBS$GENERATE_PRACTICE$COLLECT_OUTREACH" = "000" ]; then
+  record_run skipped "No pending enabled activities: existing intel/practice files preserved; no native outreach collection available."
   exit 0
 fi
 QUIZ_PRESENT=0
@@ -181,6 +199,9 @@ fi
 cat > "$PROMPT_FILE" <<EOF
 You are ${NAME}'s automated daily job hunt intelligence agent. Today is ${TODAY}. Your job is to write fresh content for the Job Quest Command Center at ${JOB_QUEST_DATA_DIR}.
 
+## Run scope
+Run only the activity sections included below. Active work: job discovery=${GENERATE_JOBS}, outreach review=${COLLECT_OUTREACH}, practice content=${GENERATE_PRACTICE}. Do not read inboxes or recruiter conversations unless the collection section is included. The template at ${TEMPLATE} documents schemas and safety contracts; its general task list does not authorize disabled activities. Validate JSON outputs and print a concise summary of the work actually completed.
+
 ## Profile
 - Name: ${NAME}
 - Target level: ${TARGET_LEVEL}
@@ -200,15 +221,26 @@ Read every JSON file in ${JOB_QUEST_DATA_DIR}/intel/ first. Match existing roles
 Read existing dated tasks and quizzes before planning. Never overwrite, delete, or modify any existing intel, task, or quiz file, any role action/tracker state, coding progress, or saved practice. Suggest unfinished work in today's new tasks where helpful; do not mark older work complete. Keep all existing coding problems unchanged and append new problems only through add-problems.js. If any listed output file already exists, stop and report that it was preserved instead of replacing it.
 
 EOF
-if [ "$DAILY_OUTPUTS_PRESENT" -eq 0 ]; then
+if [ "$GENERATE_JOBS" -eq 1 ]; then
 cat >> "$PROMPT_FILE" <<EOF
 ## Tasks
 
 ### 1. Discover 15-20 new roles
 Search current company career pages, official ATS listings and LinkedIn Jobs for ${TARGET_LEVEL} Software Engineer roles matching the location, industries, values, specific companies and categories above. Exclude roles that violate stated deal-breakers. Rotate specific-company coverage and include comparable companies. Verify each posting at its source; a search snippet alone does not establish availability. Read the template's LinkedIn discovery contract. Prefer verified employer/ATS URLs; accept a source-read specific LinkedIn /jobs/view/<numeric-id> posting when it is the only available listing and its title, employer and availability are established. Record independent employer verification limits. Use only web tools or an already authorized browser exposed to this invocation; an interactive app browser is not proof of scheduled CLI access. Do not create a scraper/token store, read OS browser secrets or bypass tool restrictions through Bash. Bound LinkedIn to 2 result pages and 25 job detail pages. Write sourceCoverage in today's Intel JSON with actual queries, filters, pages/details read, remaining pagination and ready/partial/unavailable status; unavailable has checkedAt null. Capture company, role title, level, location, canonical URL, fit and evidence of current availability with a check date. Distinguish check date, first-seen date and posted date when known. Report material changes to an existing role without resetting the user's actions.
 
-### 2. Find 8-10 interview tips
-Search Blind, Reddit r/cscareerquestions, HackerNews, Glassdoor, levels.fyi. Focus on system design for ${TARGET_LEVEL} level, behavioral hacks, and negotiation tactics.
+## Discovery output
+- ${JOB_QUEST_DATA_DIR}/intel/${TODAY}.json (roles and sourceCoverage; leave tips empty if practice is disabled)
+EOF
+else
+cat >> "$PROMPT_FILE" <<EOF
+Role discovery is disabled or already complete. Do not search for new roles or write any intel file.
+EOF
+fi
+
+if [ "$GENERATE_PRACTICE" -eq 1 ]; then
+cat >> "$PROMPT_FILE" <<EOF
+## Prepare daily practice
+Find 8-10 grounded interview tips for ${TARGET_LEVEL} from Blind, Reddit r/cscareerquestions, HackerNews, Glassdoor or levels.fyi. Include useful tips in today's new task content. Do not write or modify intel files for this practice step.
 
 ### 3. Create a 5-7 question quiz
 ${QUIZ_STEP}
@@ -220,7 +252,6 @@ Categories: coding, system-design, behavioral, research, networking, application
 Read ${JOB_QUEST_DATA_DIR}/problems/progress.json to see what ${NAME} has solved. Generate problems calibrated to performance, each with a referenceSolution, and add them ONLY with: node ${JOB_QUEST_APP_ROOT}/skill/bin/add-problems.js <your-problems.json> --data-dir ${JOB_QUEST_DATA_DIR} (rules in the template's "Add coding problems" section). Never edit problems.json directly; fix and re-run on an error.
 
 ## Output files
-- ${JOB_QUEST_DATA_DIR}/intel/${TODAY}.json
 ${QUIZ_OUTPUT}
 - daily tasks: ${TASKS_CANDIDATE} (the runner merges them into tasks/${TODAY}.json)
 - coding problems: via add-problems.js only
@@ -230,7 +261,7 @@ EOF
 
 else
 cat >> "$PROMPT_FILE" <<EOF
-Today's native daily content already exists. This is OUTREACH ONLY: do not discover/write roles, tips, quizzes, tasks or problems; preserve all daily files exactly.
+Daily practice is disabled or already complete. Do not generate/write quizzes, tasks or coding problems; preserve all existing practice files exactly.
 EOF
 fi
 
@@ -274,11 +305,19 @@ if [ "$EXIT_CODE" -eq 0 ]; then
   SUMMARY="$(tail -1 "$STDOUT_FILE")"
   log "Summary: $SUMMARY"
   FAILURE_REASON=""
-  if [ "$DAILY_OUTPUTS_PRESENT" -eq 0 ]; then
+  PRACTICE_FAILED=0
+  if [ "$GENERATE_JOBS" -eq 1 ]; then
     # Exit 0 alone is not proof: the agent must have written today's intel.
     if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" 2>/dev/null; then
       FAILURE_REASON="The agent finished but intel/$TODAY.json is missing or not valid JSON. Agent said: $SUMMARY"
-    elif [ -f "$TASKS_CANDIDATE" ]; then
+    fi
+  fi
+  if [ "$GENERATE_PRACTICE" -eq 1 ]; then
+    if [ "$QUIZ_PRESENT" -eq 0 ] && ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JOB_QUEST_DATA_DIR/quizzes/$TODAY.json" 2>/dev/null; then
+      PRACTICE_FAILED=1
+      FAILURE_REASON="${FAILURE_REASON:+$FAILURE_REASON }The agent finished but the requested quiz is missing or invalid JSON."
+    fi
+    if [ -f "$TASKS_CANDIDATE" ]; then
       if MERGED="$(node - "$TASKS_CANDIDATE" "$JOB_QUEST_DATA_DIR/tasks" "$TODAY" <<'NODEMERGE' 2>&1
 const fs = require('fs'), path = require('path');
 const [candidate, dir, date] = process.argv.slice(2);
@@ -305,12 +344,17 @@ NODEMERGE
 )"; then
         log "Added $MERGED intel tasks to tasks/$TODAY.json."
       else
-        log "WARNING: daily tasks could not be merged: $MERGED"
+        log "FAILED: daily tasks could not be merged: $MERGED"
+        PRACTICE_FAILED=1
+        FAILURE_REASON="${FAILURE_REASON:+$FAILURE_REASON }Daily tasks candidate could not be merged."
       fi
     else
-      log "WARNING: agent wrote no daily tasks candidate."
+      PRACTICE_FAILED=1
+      FAILURE_REASON="${FAILURE_REASON:+$FAILURE_REASON }The agent wrote no requested daily tasks candidate."
+      log "FAILED: $FAILURE_REASON"
     fi
   fi
+  if [ "$GENERATE_PRACTICE" -eq 1 ] && [ "$PRACTICE_FAILED" -eq 0 ]; then printf '{"date":"%s","status":"completed"}\n' "$TODAY" > "$PRACTICE_MARKER"; fi
   if [ -n "$FAILURE_REASON" ]; then
     log "FAILED: $FAILURE_REASON"
     EXIT_CODE=1

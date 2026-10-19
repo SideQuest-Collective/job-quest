@@ -67,6 +67,7 @@ test('existing dated native output stops the actual helper before generation', (
   mkdir(path.join(product, 'app/lib'));
   mkdir(path.join(product, 'app/app/lib/intel-control'));
   fs.copyFileSync(path.join(repoRoot, 'app/lib/intel-control/lock.js'), path.join(product, 'app/app/lib/intel-control/lock.js'));
+  fs.copyFileSync(path.join(repoRoot, 'app/lib/intel-control/preferences.js'), path.join(product, 'app/app/lib/intel-control/preferences.js'));
   mkdir(path.join(product, 'bin'));
   mkdir(path.join(product, 'references'));
   mkdir(path.join(fixtureHome, '.codex/skills/job-quest'));
@@ -81,7 +82,8 @@ test('existing dated native output stops the actual helper before generation', (
   fs.writeFileSync(preload, 'require("os").homedir = () => process.env.JOB_QUEST_FIXTURE_HOME;');
   const date = spawnSync('date', ['+%Y-%m-%d'], { encoding: 'utf8' }).stdout.trim();
   try {
-    // Only today's intel file marks the day as done; tasks/quizzes files alone are covered in native-intel-run-status.
+    // With preparation disabled, existing discovery is the only pending output to preserve.
+    fs.writeFileSync(path.join(data,'intel-preferences.json'),JSON.stringify({schema:'job-quest-intel-preferences/1',scopes:{jobs:true,outreach:false,practice:false}}));
     for (const kind of ['intel']) {
       mkdir(path.join(data, kind));
       const output = path.join(data, kind, `${date}.json`);
@@ -90,7 +92,7 @@ test('existing dated native output stops the actual helper before generation', (
       const result = spawnSync('bash', [helper], { encoding: 'utf8', timeout: 15000,
         env: { ...process.env, NODE_OPTIONS: `--require ${preload}`, JOB_QUEST_FIXTURE_HOME: fixtureHome, JOB_QUEST_SYSTEM_HOME: os.homedir(), JOB_QUEST_RUNTIME: 'codex' } });
       assert.equal(result.status, 0, result.stderr);
-      assert.match(result.stderr, new RegExp(`SKIP: ${kind}/${date}.json already exists`));
+      assert.match(result.stderr, new RegExp(`Existing ${kind}/${date}.json preserved`));
       assert.equal(fs.readFileSync(output, 'utf8'), original);
       fs.unlinkSync(output);
     }

@@ -662,13 +662,15 @@ const api = {
 
 /* ===== PAGE HASH ROUTING ===== */
 const PAGE_IDS = new Set([
-  'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel',
+  'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel', 'intel-outreach', 'intel-roles',
   'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup', 'setup-podcast', 'setup-accounts', 'setup-practice', 'setup-access', 'dailydrop',
 ]);
 
+function canonicalPage(id) { return ({intel:'intel-roles',opportunities:'intel-outreach'})[id] || id; }
+
 function readPageHash() {
   const id = window.location.hash.slice(1);
-  return PAGE_IDS.has(id) ? id : null;
+  return PAGE_IDS.has(id) ? canonicalPage(id) : null;
 }
 
 function usePageRouting() {
@@ -687,6 +689,7 @@ function usePageRouting() {
     return () => { window.removeEventListener('hashchange', changed); window.removeEventListener('popstate', changed); };
   }, [show]);
   const navigate = useCallback((id) => {
+    id = canonicalPage(id);
     if (!PAGE_IDS.has(id) || id === current.current) return;
     window.history.pushState({jobQuest:true}, '', `#${id}`);
     show(id);
@@ -699,6 +702,7 @@ function App() {
   const visited = useRef(new Set()); visited.current.add(page);
   const [menuOpen, setMenuOpen] = useState(false);
   const setupPage = page === 'setup' || page.startsWith('setup-');
+  const intelPage = page === 'intel-outreach' || page === 'intel-roles';
   useEffect(() => {
     const openSetup = event => { const section = event.detail?.section; setPage(['podcast','accounts','practice','access'].includes(section) ? `setup-${section}` : 'setup'); setMenuOpen(false); };
     window.addEventListener('jq:open-setup', openSetup);
@@ -719,6 +723,11 @@ function App() {
   const roleTrackerPendingRef = useRef(false);
   const [jobStatus, setJobStatus] = useState(null);
   const [roleLaunch, setRoleLaunch] = useState(null);
+  const openSavedRoles = () => {setRoleLaunch({filter:'saved',request:Date.now()});setPage('intel-roles');};
+  const [discoverLaunch, setDiscoverLaunch] = useState(null);
+  const [outreachLaunch, setOutreachLaunch] = useState(null);
+  const reviewJob = role => { setDiscoverLaunch({identity:discoveryRoleId(role),request:Date.now()}); setPage('discover'); };
+  const openOutreach = item => { setOutreachLaunch({id:item.id,request:Date.now()}); setPage('intel-outreach'); };
   const openNativeRole = role => {
     setRoleLaunch({ key: `${role.company}|${role.role}`, request: Date.now() });
     setPage('intel');
@@ -770,19 +779,18 @@ function App() {
   const quizCount = todayQuiz?.questions?.length || 0;
   const newRoles = allRoles.filter(r => {
     const key = `${r.company}|${r.role}`;
-    return !roleActions.skipped.includes(key) && !nativeRoleStatus(key, roleActions, roleTracker).pipelineStarted && !roleActions.saved.includes(key);
+    return undecidedRole(r,roleActions,roleTracker);
   });
 
   const navItems = [
     { id: 'dashboard', icon: Icons.target, label: 'Dashboard' },
     { id: 'practice', icon: Icons.play, label: 'Practice' },
     { id: 'dailydrop', icon: Icons.headphones, label: 'Daily Drop' },
-    { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
     { id: 'tasks', icon: Icons.checkSquare, label: 'Daily Tasks', badge: taskCount || null },
     { id: 'quiz', icon: Icons.brain, label: 'Quiz', badge: quizCount || null },
     { id: 'divider1' },
-    { id: 'opportunities', icon: Icons.briefcase, label: 'Outreach' },
-    { id: 'intel', icon: Icons.radar, label: 'Intel' },
+    { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
+    { id: 'intel-outreach', icon: Icons.radar, label: 'Intel' },
     { id: 'resume', icon: Icons.fileText, label: 'Resume' },
     { id: 'workbooks', icon: Icons.clipboard, label: 'Workbooks' },
     { id: 'calendar', icon: Icons.calendarIcon, label: 'Progress & calendar' },
@@ -801,7 +809,7 @@ function App() {
         <div className="sidebar-brand"><h1><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}>Job Quest</a></h1><div className="subtitle">Your next step</div></div>
         <div className="nav-section">
           {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider">{n.label && <span className="nav-group-label">{n.label}</span>}</div> : (
-            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
+            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (intelPage && n.id === 'intel-outreach') || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (intelPage && n.id === 'intel-outreach') || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
               <n.icon className="nav-icon" />{n.label}
               {n.badge ? <span className="badge">{n.badge}</span> : null}
             </a>
@@ -810,15 +818,20 @@ function App() {
         <div className="sidebar-footer">Local to your Mac</div>
       </nav>
       <header className="mobile-header"><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}><strong>Job Quest</strong></a><div style={{display:'flex',gap:8}}><button className="btn btn-secondary refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></div></header>
-      <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''} ${page === 'sysdesign' ? 'main-sysdesign' : ''}`}>
-        <div className="route-bar"><span>{setupPage ? 'Setup' : page === 'learn' ? 'Practice · On the go' : navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
+      <div className={`main ${page === 'codelab' || page === 'intel-roles' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''} ${page === 'sysdesign' ? 'main-sysdesign' : ''}`}>
+        <div className="route-bar"><span>{setupPage ? 'Setup' : intelPage ? 'Intel' : page === 'learn' ? 'Practice · On the go' : navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
         {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
-        {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
-        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
+        {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard onReviewJob={reviewJob} onOpenOutreach={openOutreach} nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
+        {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover onOpenSaved={openSavedRoles} launchRole={discoverLaunch} allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
         {visited.current.has('tasks') && <section className="page-surface" hidden={page !== 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></section>}
         {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
         {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} setPage={setPage} onOpenRole={openNativeRole} /></section>}
-        {visited.current.has('intel') && <section className="page-surface" hidden={page !== 'intel'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage} /></section>}
+        {(visited.current.has('intel-outreach') || visited.current.has('intel-roles')) && <section className="page-surface intel-hub" hidden={!intelPage}>
+          <header className="intel-hub-header"><div><h2>Intel</h2><p>Conversations to follow up and roles you’re pursuing.</p></div><button className="btn btn-secondary" onClick={()=>setPage('setup')}>Intel setup</button></header>
+          <nav className="intel-hub-tabs" aria-label="Intel views">{[['intel-outreach','Outreach'],['intel-roles','My roles']].map(([id,label])=><a key={id} href={'#'+id} className={'btn '+(page===id?'btn-primary':'btn-secondary')} aria-current={page===id?'page':undefined} onClick={e=>{e.preventDefault();setPage(id);}}>{label}</a>)}</nav>
+          {visited.current.has('intel-outreach') && <div hidden={page!=='intel-outreach'}><window.Opportunities embedded launchItem={outreachLaunch} onConfigureIntel={()=>{setIntelConfigureRequest(n=>n+1);setPage('setup');}} active={page==='intel-outreach'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole}/></div>}
+          {visited.current.has('intel-roles') && <div hidden={page!=='intel-roles'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage}/></div>}
+        </section>}
         {visited.current.has('workbooks') && <section className="page-surface" hidden={page !== 'workbooks'}><Workbooks setPage={setPage} /></section>}
         {visited.current.has('calendar') && <section className="page-surface" hidden={page !== 'calendar'}><Calendar progress={progress} /></section>}
         {visited.current.has('codelab') && <section className="page-surface" hidden={page !== 'codelab'}><CodeLab sessionRef={codeLabSessionRef} initialProblemRef={codeLabInitialProblemRef} /></section>}
@@ -835,7 +848,7 @@ function App() {
           {visited.current.has('learn') && <div hidden={page !== 'learn'}><window.Learning mode="learn" /></div>}
         </section>}
         {[...visited.current].some(id => id === 'setup' || id.startsWith('setup-')) && <section className="page-surface" hidden={!setupPage}><window.JobQuestSetup active={setupPage} section={page.startsWith('setup-') ? page.slice(6) : 'intel'} intelConfigureRequest={intelConfigureRequest} setPage={setPage}/></section>}
-        {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities onConfigureIntel={()=>{setIntelConfigureRequest(n=>n+1);setPage('setup');}} active={page==='opportunities'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
+
 
       </div>
 
@@ -1187,6 +1200,21 @@ function nativeRoleStatus(key, actions, tracker) {
   return { applied, stage, pipelineStarted: ['applied','phone-screen','onsite','offer','rejected'].includes(stage) };
 }
 
+function discoveryRoleId(role) { return JSON.stringify([role.company,role.role,role.url||'',role.location||'']); }
+function undecidedRole(role, actions, tracker) {
+  const key=role.company+'|'+role.role;
+  return !(actions.skipped||[]).includes(key) && !(actions.saved||[]).includes(key) && !nativeRoleStatus(key,actions,tracker).pipelineStarted && !tracker[key];
+}
+function myRoleMatches(role, actions, tracker, filter='all') {
+  const key=role.key || role.company+'|'+role.role, stage=nativeRoleStatus(key,actions,tracker).stage;
+  const saved=(actions.saved||[]).includes(key), tracked=!!tracker[key], closed=['offer','rejected'].includes(stage);
+  const progressing=['researching','applied','phone-screen','onsite'].includes(stage);
+  if (filter==='saved') return saved && !closed && !progressing;
+  if (filter==='progress') return progressing;
+  if (filter==='closed') return closed;
+  return saved || tracked || nativeRoleStatus(key,actions,tracker).pipelineStarted;
+}
+
 function DiscoverySourceCoverage({ reports = [] }) {
   const report = reports.find(item => Array.isArray(item.sourceCoverage) && item.sourceCoverage.length);
   if (!report) return null;
@@ -1195,131 +1223,47 @@ function DiscoverySourceCoverage({ reports = [] }) {
   </details>;
 }
 
-function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole }) {
-  const [viewMode, setViewMode] = useState('discover');
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [swipeDir, setSwipeDir] = useState(null);
-  const [applyRole, setApplyRole] = useState(null);
-  const [actionBusy, setActionBusy] = useState(false);
-  const [actionError, setActionError] = useState('');
-
-  const unseen = allRoles.filter(r => {
-    const key = `${r.company}|${r.role}`;
-    return !roleActions.skipped.includes(key) && !nativeRoleStatus(key, roleActions, roleTracker).pipelineStarted && !roleActions.saved.includes(key);
-  });
-  const savedRoles = allRoles.filter(r => roleActions.saved.includes(`${r.company}|${r.role}`));
-  const appliedRoles = allRoles.filter(r => nativeRoleStatus(`${r.company}|${r.role}`, roleActions, roleTracker).applied);
-
-  const doAction = async (action) => {
-    if (actionBusy || !unseen[currentIdx]) return;
-    const role = unseen[currentIdx];
-    const key = `${role.company}|${role.role}`;
-    setSwipeDir(action === 'skip' ? 'left' : 'right');
-    setActionBusy(true); setActionError('');
-    try {
-      const updated = { ...roleActions };
-      if (action === 'skip') updated.skipped = [...updated.skipped, key];
-      else if (action === 'save') updated.saved = [...updated.saved, key];
-      else if (action === 'apply') { updated.applied = [...updated.applied, key]; updated.saved = updated.saved.filter(k => k !== key); }
-      await api.post('/api/role-actions', updated);
-      setRoleActions(updated);
-    } catch (error) { setActionError(error.message || 'Could not save this role. Retry.'); }
-    finally { setActionBusy(false); setSwipeDir(null); }
+function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole, launchRole, onOpenSaved }) {
+  const [view,setView]=useState('new'),[selectedKey,setSelectedKey]=useState(null);
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[lastAction,setLastAction]=useState(null);
+  const unseen=allRoles.filter(r=>undecidedRole(r,roleActions,roleTracker));
+  const dismissed=allRoles.filter(r=>(roleActions.skipped||[]).includes(r.company+'|'+r.role));
+  const selected=selectedKey?unseen.find(r=>discoveryRoleId(r)===selectedKey):unseen[0];
+  useEffect(()=>{if(launchRole?.identity){setView('new');setSelectedKey(launchRole.identity);}},[launchRole?.request]);
+  const update=async(role,action)=>{
+    if(busy)return;const key=role.company+'|'+role.role;setBusy(true);setError('');
+    const next={...roleActions};
+    if(action==='restore')next.skipped=(next.skipped||[]).filter(k=>k!==key);
+    else {const field=action==='like'?'saved':'skipped';next[field]=[...new Set([...(next[field]||[]),key])];}
+    try {await api.post('/api/role-actions',next);setRoleActions(next);setLastAction(action==='restore'?null:{role,action});setSelectedKey(null);}
+    catch(e){setError(e.message||'Could not save your choice. Try again.');}finally{setBusy(false);}
   };
-
-  const handleApply = (role) => { setApplyRole(role); };
-  const confirmApply = async () => {
-    if (actionBusy || !applyRole) return;
-    const key = `${applyRole.company}|${applyRole.role}`;
-    const updated = { ...roleActions, applied: [...roleActions.applied, key], saved: roleActions.saved.filter(k => k !== key) };
-    setActionBusy(true); setActionError('');
-    try {
-    await api.post('/api/role-actions', updated);
-    setRoleActions(updated);
-    // Application state changes only through explicit submission confirmation.
-    setApplyRole(null);
-    } catch (error) { setActionError(error.message || 'Could not record your application. Retry.'); }
-    finally { setActionBusy(false); }
+  const undo=async()=>{
+    if(busy||!lastAction)return;setBusy(true);setError('');
+    const key=lastAction.role.company+'|'+lastAction.role.role,field=lastAction.action==='like'?'saved':'skipped';
+    const next={...roleActions,[field]:(roleActions[field]||[]).filter(k=>k!==key)};
+    try{await api.post('/api/role-actions',next);setRoleActions(next);setSelectedKey(discoveryRoleId(lastAction.role));setView('new');setLastAction(null);}
+    catch(e){setError(e.message||'Could not undo. Try again.');}finally{setBusy(false);}
   };
-
-  return (
-    <>
-      <div className="page-header anim-enter"><h2>Discover Roles</h2><div className="greeting-sub">Find listings, assess fit, and save roles. Manage applications and preparation in Intel.</div></div>
-      <DiscoverySourceCoverage reports={allIntel} />
-      {actionError && !applyRole && <p role="alert" style={{color:'var(--rose)'}}>{actionError}</p>}
-      <div className="discover-container">
-        <div className="discover-tabs anim-enter anim-delay-1">
-          <button type="button" className={`discover-tab ${viewMode==='discover'?'active':''}`} onClick={() => setViewMode('discover')}>New ({unseen.length})</button>
-          <button type="button" className={`discover-tab ${viewMode==='saved'?'active':''}`} onClick={() => setViewMode('saved')}>Saved ({savedRoles.length})</button>
-          <button type="button" className={`discover-tab ${viewMode==='applied'?'active':''}`} onClick={() => setViewMode('applied')}>Applied ({appliedRoles.length})</button>
-        </div>
-
-        {viewMode === 'discover' && (unseen.length > 0 ? (
-          <>
-            <div className="card-stack anim-enter anim-delay-2">
-              {unseen.slice(currentIdx, currentIdx + 3).reverse().map((role, i, arr) => {
-                const pos = arr.length - 1 - i;
-                let cls = 'discover-card';
-                if (pos === 0) cls += swipeDir === 'left' ? ' swiping-left' : swipeDir === 'right' ? ' swiping-right' : ' active';
-                else if (pos === 1) cls += ' behind-1';
-                else cls += ' behind-2';
-                return (
-                  <div key={`${role.company}|${role.role}`} className={cls}>
-                    <div className="discover-company">{role.company}</div>
-                    <div className="discover-role">{role.role}</div>
-                    <div className="discover-meta">
-                      <span className="discover-meta-item"><Icons.briefcase style={{width:14,height:14}} /> {role.level}</span>
-                      <span className="discover-meta-item"><Icons.mapPin style={{width:14,height:14}} /> {role.location}</span>
-                    </div>
-                    {(role.fit || role.employerVerification) && <div className="discover-fit">{role.fit && <><div className="discover-fit-label">Why this fits you</div><div className="discover-fit-text">{role.fit}</div></>}{typeof role.employerVerification === 'string' && role.employerVerification && <p className="discover-fit-text" style={{marginTop:12,color:'var(--text-muted)'}}>Source check: {role.employerVerification}</p>}</div>}
-                    {role.url && <a href={role.url} target="_blank" rel="noopener" style={{fontSize:12,color:'var(--amber)',fontFamily:'var(--font-mono)',display:'flex',alignItems:'center',gap:6,textDecoration:'none'}}><Icons.externalLink style={{width:14,height:14}} /> View posting</a>}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="discover-actions anim-enter anim-delay-3">
-              <button className="discover-btn skip" disabled={actionBusy} onClick={() => doAction('skip')} aria-label="Skip role"><Icons.x /></button>
-              <button className="discover-btn save" disabled={actionBusy} onClick={() => doAction('save')} aria-label="Save role"><Icons.heart /></button>
-              <button className="discover-btn apply" disabled={actionBusy} onClick={() => handleApply(unseen[currentIdx])} aria-label="Review application status"><Icons.send /></button>
-            </div>
-            <div className="discover-counter">{currentIdx + 1} / {unseen.length}</div>
-          </>
-        ) : (
-          <div className="discover-empty anim-enter anim-delay-2"><Icons.compass style={{width:56,height:56}} /><p style={{fontSize:16,color:'var(--text-muted)',marginBottom:8}}>No new native discoveries</p><p style={{fontSize:13,color:'var(--text-muted)'}}>This list does not establish inbox coverage. Open Opportunities for the connected career review and source status.</p></div>
-        ))}
-
-        {viewMode === 'saved' && (
-          <div className="saved-list anim-enter anim-delay-2">
-            {savedRoles.length > 0 ? savedRoles.map((r, i) => (
-              <div key={i} className="role-card" style={{marginBottom:8}}>
-                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{[r.level, r.location].filter(Boolean).join(' · ')}</p></div>
-                <div style={{display:'flex',gap:8}}>
-                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => onOpenRole ? onOpenRole(r) : setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
-                  <button className="btn btn-primary" style={{padding:'7px 14px',fontSize:12}} onClick={() => handleApply(r)}>Application status</button>
-                </div>
-              </div>
-            )) : <div className="discover-empty"><p style={{color:'var(--text-muted)'}}>No saved roles yet. Save roles from the Discover tab.</p></div>}
-          </div>
-        )}
-
-        {viewMode === 'applied' && (
-          <div className="saved-list anim-enter anim-delay-2">
-            {appliedRoles.length > 0 ? appliedRoles.map((r, i) => (
-              <div key={i} className="role-card" style={{marginBottom:8}}>
-                <div className="role-info"><h4>{r.company} &mdash; {r.role}</h4><p>{[r.level, r.location].filter(Boolean).join(' · ')}</p></div>
-                <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <button className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={() => onOpenRole ? onOpenRole(r) : setPage('intel')}><Icons.radar style={{width:12,height:12}} /> Intel</button>
-                  <span style={{fontSize:11,color:'var(--emerald)',fontFamily:'var(--font-mono)',fontWeight:600,display:'flex',alignItems:'center',gap:4}}><Icons.check style={{width:14,height:14}} /> Applied</span>
-                </div>
-              </div>
-            )) : <div className="discover-empty"><p style={{color:'var(--text-muted)'}}>No applications yet.</p></div>}
-          </div>
-        )}
-      </div>
-
-      {applyRole && <ApplyModal role={applyRole} resume={resume} busy={actionBusy} error={actionError} onClose={() => { if (!actionBusy) { setApplyRole(null); setActionError(''); } }} onApply={confirmApply} />}
-    </>
-  );
+  return <div className="discover-review">
+    <header className="page-header"><h2>Discover</h2><p className="greeting-sub">Like a job to save it. Dismiss one to move on. Track your choices in Intel.</p></header>
+    <div className="discover-review-controls"><div className="discover-tabs"><button className={'discover-tab '+(view==='new'?'active':'')} aria-pressed={view==='new'} onClick={()=>setView('new')}>New ({unseen.length})</button><button className={'discover-tab '+(view==='dismissed'?'active':'')} aria-pressed={view==='dismissed'} onClick={()=>setView('dismissed')}>Dismissed</button></div><button className="btn btn-secondary" onClick={()=>onOpenSaved?onOpenSaved():setPage('intel-roles')}>My saved roles</button></div>
+    <DiscoverySourceCoverage reports={allIntel}/>
+    {error&&<p role="alert">{error}</p>}
+    {lastAction&&<p role="status" className="discover-undo">{lastAction.action==='like'?'Saved':'Dismissed'} {lastAction.role.company} · {lastAction.role.role}. <button className="btn btn-secondary" disabled={busy} onClick={undo}>Undo</button></p>}
+    {view==='new'&&(selected?<div className="discover-container">
+      <article className="discover-card active discover-single" key={selected.company+'|'+selected.role}>
+        <div className="discover-company">{selected.company}</div><h3 className="discover-role">{selected.role}</h3>
+        <p className="discover-meta">{[selected.level,selected.location].filter(Boolean).join(' · ')}</p>
+        {selected.fit&&<div className="discover-fit"><h4 className="discover-fit-label">Why this fits you</h4><p className="discover-fit-text">{selected.fit}</p></div>}
+        {selected.employerVerification&&<p className="secondary-copy">Source check: {selected.employerVerification}</p>}
+        {selected.url&&<a href={selected.url} target="_blank" rel="noopener noreferrer">View posting</a>}
+      </article>
+      <div className="discover-actions"><button className="discover-btn skip" disabled={busy} aria-label="Dismiss role" title="Dismiss role" onClick={()=>update(selected,'dismiss')}><Icons.x/></button><button className="discover-btn save" disabled={busy} aria-label="Like and save role" title="Like and save role" onClick={()=>update(selected,'like')}><Icons.heart/></button></div>
+      <p className="discover-counter">Dismiss or like · {unseen.length} left to review</p>
+    </div>:<div className="discover-empty"><h3>{selectedKey?'This job is no longer in New':'You’re caught up'}</h3><p>{selectedKey?'It may have been saved, dismissed or moved into progress.':'No undecided jobs in your saved discoveries.'} Review saved roles or revisit dismissed jobs.</p>{selectedKey&&<button className="btn btn-secondary" onClick={()=>setSelectedKey(null)}>Review other new jobs</button>}<button className="btn btn-secondary" onClick={()=>setPage('intel-roles')}>Open my roles</button></div>)}
+    {view==='dismissed'&&<div className="saved-list">{dismissed.length?dismissed.map((role,index)=><article className="role-card" key={role.company+'|'+role.role+'|'+index}><div className="role-info"><h3>{role.company} · {role.role}</h3><p>{role.location}</p></div><button className="btn btn-secondary" disabled={busy} onClick={()=>update(role,'restore')}>Return to New</button></article>):<p>No dismissed jobs.</p>}</div>}
+  </div>;
 }
 
 /* ===== APPLY MODAL ===== */
@@ -2886,30 +2830,22 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
     lastActivity: roleTracker[r.key]?.timeline?.slice(-1)[0]?.date || r.intelDate || '',
   }));
 
-  // Filter
-  const savedSet = new Set(roleActions.saved || []);
-  const filtered = roles.filter(r => {
-    if (filter === 'all') return r.stage !== 'rejected';
-    if (filter === 'saved') return savedSet.has(r.key);
-    if (filter === 'active') return ['discovered','researching'].includes(r.stage);
-    if (filter === 'applied') return r.stage === 'applied';
-    if (filter === 'interviewing') return ['phone-screen','onsite'].includes(r.stage);
-    if (filter === 'archived') return ['offer','rejected'].includes(r.stage);
-    return true;
-  }).sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
-
-  // A source-linked recruiter card opens the exact native role, without changing its status.
-  useEffect(() => {
-    if (launchRole?.key && roleMap[launchRole.key]) {
-      setFilter('all');
-      setSelectedKey(launchRole.key);
+  // My roles contains chosen/tracked work. An exact incoming role may be previewed without saving it.
+  const filtered = roles.filter(r=>myRoleMatches(r,roleActions,roleTracker,filter))
+    .sort((a,b)=>(b.lastActivity||'').localeCompare(a.lastActivity||''));
+  // Consume each requested destination once; keep tab switches and local filters stable.
+  const handledRoleLaunch=useRef(null);
+  useEffect(()=>{
+    if(launchRole?.request && handledRoleLaunch.current!==launchRole.request) {
+      if(launchRole.key && roleMap[launchRole.key]) {
+        handledRoleLaunch.current=launchRole.request;setFilter('all');setSelectedKey(launchRole.key);return;
+      }
+      if(launchRole.filter==='saved') {
+        handledRoleLaunch.current=launchRole.request;setFilter('saved');setSelectedKey(null);return;
+      }
     }
-  }, [launchRole?.request, allRoles.length]);
-
-  // Auto-select first role
-  useEffect(() => {
-    if (!selectedKey && filtered.length > 0) setSelectedKey(launchRole?.key && roleMap[launchRole.key] ? launchRole.key : filtered[0].key);
-  }, [filtered.length]);
+    if(!selectedKey&&filtered.length)setSelectedKey(filtered[0].key);
+  },[launchRole?.request,allRoles.length,filtered.length,filter,selectedKey]);
 
   const selected = selectedKey ? roleMap[selectedKey] : null;
   const tracker = selectedKey ? (roleTracker[selectedKey] || null) : null;
@@ -3033,11 +2969,12 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   return (
     <>
       <div className="codelab-toolbar anim-enter">
-        <h2>Intel</h2><p className="muted">Your role workspace: application status, interview preparation, workbooks and tailored resumes.</p>
+        <h3>My roles</h3><p className="muted">Saved jobs, applications and interview preparation.</p>
         <div style={{flex:1}} />
-        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{roles.length} roles available</span>
+        <span style={{fontSize:12,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>{roles.filter(r=>myRoleMatches(r,roleActions,roleTracker)).length} tracked roles</span>
       </div>
 
+      {selected && !myRoleMatches(selected,roleActions,roleTracker) && <p className="muted" role="status">Related role preview · This job has not been saved to My roles.</p>}
       {trackerSaving && <p role="status" className="muted">Saving role changes…</p>}
       {trackerError && <div role="alert" style={{marginBottom:12,color:'var(--rose)',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
         <span>Role changes are unsaved. {trackerError} Your edits are still here.</span>
@@ -3049,8 +2986,8 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
         <div className="intel-left">
           <div className="intel-left-header">
             <div className="intel-filter-tabs">
-              {[['all','All'],['saved','Saved'],['active','Active'],['applied','Applied'],['interviewing','Interview'],['archived','Archive']].map(([id,label]) => (
-                <button type="button" key={id} className={`intel-filter-tab ${filter===id?'active':''}`} aria-pressed={filter===id} onClick={() => setFilter(id)}>{label}</button>
+              {[['all','All my roles'],['saved','Saved'],['progress','In progress'],['closed','Closed']].map(([id,label]) => (
+                <button type="button" key={id} className={`intel-filter-tab ${filter===id?'active':''}`} aria-pressed={filter===id} onClick={() => {setFilter(id);setSelectedKey(null);}}>{label}</button>
               ))}
             </div>
           </div>
@@ -3070,7 +3007,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 </div>
               </button>
             ))}
-            {filtered.length === 0 && <div style={{padding:24,textAlign:'center',color:'var(--text-muted)',fontSize:13}}>No roles in this filter.</div>}
+            {filtered.length === 0 && <div style={{padding:24,textAlign:'center',color:'var(--text-muted)',fontSize:13}}>No roles in this view. Like a job in Discover to save it here.</div>}
           </div>
         </div>
 

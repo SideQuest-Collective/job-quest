@@ -64,15 +64,17 @@ function routing(hash = '') {
   };
 }
 
-test('routing accepts exactly the mounted page IDs, including new pages', () => {
+test('routing accepts mounted page IDs, setup pages and explicit legacy aliases', () => {
   assert.match(app, /const \[page, setPage\] = usePageRouting\(\)/);
   const block = html.match(/\/\* ===== PAGE HASH ROUTING ===== \*\/([\s\S]*?)\nfunction App\(/);
   const pageIds = vm.runInNewContext(`${block[1]}\nArray.from(PAGE_IDS)`);
   const setupPages = ['setup', 'setup-podcast', 'setup-accounts', 'setup-practice', 'setup-access'];
+  const aliases = { intel: 'intel-roles', opportunities: 'intel-outreach' };
   assert.match(app, /<window\.JobQuestSetup/);
-  assert.deepEqual(Array.from(pageIds).sort(), [...mountedPages, ...setupPages].sort());
+  assert.deepEqual(Array.from(pageIds).sort(), [...mountedPages, ...setupPages, ...Object.keys(aliases)].sort());
   for (const page of setupPages) assert.equal(routing(`#${page}`).render()[0], page);
-  assert.ok(mountedPages.includes('practice') && mountedPages.includes('learn') && mountedPages.includes('opportunities'));
+  assert.ok(['practice', 'learn', 'discover', 'intel-outreach', 'intel-roles'].every(page => mountedPages.includes(page)));
+  for (const [alias, page] of Object.entries(aliases)) assert.equal(routing(`#${alias}`).render()[0], page);
   for (const page of mountedPages) assert.equal(routing(`#${page}`).render()[0], page);
   for (const invalid of ['', '#code', '#tracker', '#divider1', '#__proto__', '#toString', '#INTEL', '#intel/extra']) {
     assert.equal(routing(invalid).render()[0], 'dashboard', invalid);
@@ -96,9 +98,10 @@ test('bare dashboard URLs stay bare until navigation and use browser history', (
 });
 
 test('initial deep links select the requested page without adding history entries', () => {
-  for (const page of ['intel', 'tasks', 'workbooks', 'codelab', 'trainer', 'practice', 'learn', 'opportunities']) {
+  const aliases = { intel: 'intel-roles', opportunities: 'intel-outreach' };
+  for (const page of ['intel', 'intel-roles', 'intel-outreach', 'tasks', 'workbooks', 'codelab', 'trainer', 'practice', 'learn', 'opportunities']) {
     const h = routing(`#${page}`);
-    assert.equal(h.render()[0], page);
+    assert.equal(h.render()[0], aliases[page] || page);
     assert.equal(h.window.location.hash, `#${page}`);
     assert.deepEqual(h.pushes, []);
   }
@@ -123,9 +126,9 @@ test('in-app navigation pushes once and restores saved scroll positions', () => 
   h.window.scrollY = 190;
   setPage('intel'); h.render();
   assert.equal(h.window.scrollY, 320);
-  assert.deepEqual(h.pushes, ['#codelab', '#intel']);
+  assert.deepEqual(h.pushes, ['#codelab', '#intel-roles']);
   setPage('intel'); h.render();
-  assert.deepEqual(h.pushes, ['#codelab', '#intel']);
+  assert.deepEqual(h.pushes, ['#codelab', '#intel-roles']);
 });
 
 test('workbook mock-interview links remove sd query and select system design', () => {

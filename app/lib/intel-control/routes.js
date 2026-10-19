@@ -7,6 +7,7 @@ const {state:lockState}=require('./lock');
 const {getLocalDateStamp}=require('../local-date');
 const {readLegacyRun}=require('./history');
 const crypto=require('crypto');
+const preferences=require('./preferences');
 function failure(message, status=400) {return Object.assign(new Error(message), {status});}
 function scheduleCron(value) {
   if (!value || !['daily','weekdays','off'].includes(value.frequency)) throw failure('Choose daily, weekdays, or off.');
@@ -28,15 +29,17 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
   function readRun() {try {return JSON.parse(fs.readFileSync(stateFile,'utf8'));} catch(e) {if(e.code==='ENOENT') return null; return {status:'unknown',error:'Run history could not be read. Existing data was preserved.'};}}
   function writeRun(run) {fs.mkdirSync(path.dirname(stateFile),{recursive:true}); const temp=`${stateFile}.${process.pid}.tmp`;fs.writeFileSync(temp,JSON.stringify(run,null,2),{mode:0o600});fs.renameSync(temp,stateFile);}
   function setup() {try{const value=JSON.parse(fs.readFileSync(path.join(dataDir,'local-setup.json'),'utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw Error('invalid setup');return value;}catch(e){if(e.code==='ENOENT')return {};throw failure('Local setup could not be read. Repair it before running Intel.',503);}}
+  function targeting() {try{const profile=JSON.parse(fs.readFileSync(path.join(dataDir,'profile.json'),'utf8'));const text=value=>typeof value==='string'?value:Array.isArray(value)?value.filter(entry=>typeof entry==='string').join(', '):'';return {targetLevel:text(profile.targetLevel),location:text(profile.locationPrefs),companies:text(profile.targetCompanies?.specific),categories:text(profile.targetCompanies?.categories),industries:text(profile.industries),values:text(profile.values),dealBreakers:text(profile.dealBreakers)};}catch{return null;}}
   function runtime() {const r=getRuntime();return {displayName:r.runtimeDisplayName,ready:r.runtimeValidation?.status==='ready',error:r.runtimeValidation?.lastFailureReason || null};}
   function requireMatchingData() {const r=getRuntime();if(r.dataDir){const configured=r.dataDir.replace(/^~(?=\/|$)/,require('os').homedir());if(path.resolve(configured)!==path.resolve(dataDir))throw failure('This dashboard uses a different data folder from the native Intel runner. Update the Job Quest runtime data directory before running or scheduling Intel.',503);}}
   async function status() {
     let schedule={installed:false,cron:null,error:null};
     try {const result=await exec('/bin/bash',[helper,'--current-cron'],{timeout:10000,maxBuffer:16384});const cron=result.stdout.trim();if(cron) schedule={installed:true,cron,error:null};}catch(e){if(e.code!==1)schedule.error='Could not inspect the native Intel schedule.';}
+    let config=null,preferencesError=null;try{config=preferences.read(dataDir);}catch(e){preferencesError=e.message;}
     const date=getLocalDateStamp(now());
     const outputs=Object.fromEntries(['intel','quizzes','tasks'].map(kind=>[kind,fs.existsSync(path.join(dataDir,kind,`${date}.json`))]));
     const lockDir=path.join(dataDir,'logs','.daily-intel.lock');
-    const lock=lockState(lockDir);let run=readRun();if(run?.status==='running'&&!child&&lock==='absent')run={...run,status:'interrupted',error:'The dashboard restarted before this requested run could be confirmed. Check the run log.'};return {runtime:runtime(),schedule,schedulePreference:readPreference(),outreachOwner:setup().schedule==='external'?'external':'native',run,running:!!child||['running','unknown'].includes(lock),lock,outputs,lastRun:readLastRun(),latestIntelDate:latestIntelDate(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone};
+    const lock=lockState(lockDir);let run=readRun();if(run?.status==='running'&&!child&&lock==='absent')run={...run,status:'interrupted',error:'The dashboard restarted before this requested run could be confirmed. Check the run log.'};return {targeting:targeting(),preferences:config,preferencesError,runtime:runtime(),schedule,schedulePreference:readPreference(),outreachOwner:setup().schedule==='external'?'external':'native',run,running:!!child||['running','unknown'].includes(lock),lock,outputs,lastRun:readLastRun(),latestIntelDate:latestIntelDate(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone};
   }
   async function configure(value) {
     const cron=scheduleCron(value);
@@ -48,6 +51,7 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
     finally {changingSchedule=false;}
   }
   function run() {
+    const config=preferences.read(dataDir);if(!Object.values(config.scopes).some(Boolean))throw failure('Enable at least one Intel activity before running.',409);
     setup(); requireMatchingData();if(!runtime().ready)throw failure('Configure the agent runtime before running Intel.',503);
     if(child||['running','unknown'].includes(lockState(path.join(dataDir,'logs','.daily-intel.lock'))))throw failure('Intel is already running, or its last run left a lock. Check the run log before retrying.',409);
     if(!fs.existsSync(path.join(dataDir,'profile.json')))throw failure('Complete your job-search profile before running Intel.',409);
@@ -62,12 +66,15 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
     active.once('error',()=>finish(null,true));active.once('close',code=>finish(code,false));
     return {accepted:true,run};
   }
-  return {status,configure,run};
+  async function configurePreferences(value){if(child||['running','unknown'].includes(lockState(path.join(dataDir,'logs','.daily-intel.lock'))))throw failure('Wait for the current Intel run before changing its activities.',409);preferences.write(dataDir,value);return status();}
+  return {status,configure,run,configurePreferences};
 }
 function registerIntelControls(app,options) {
   const control=createIntelControls(options);
   const wrap=fn=>async(req,res)=>{try{await fn(req,res);}catch(e){res.status(e.status||500).json({error:e.status?e.message:'Intel controls are unavailable. Existing data was preserved.'});}};
   app.get('/api/intel-control',wrap(async(req,res)=>res.json(await control.status())));
+  app.get('/api/intel-control/config',wrap(async(req,res)=>res.json(await control.status())));
+  app.put('/api/intel-control/config',wrap(async(req,res)=>res.json(await control.configurePreferences(req.body))));
   app.post('/api/intel-control/run',wrap(async(req,res)=>res.status(202).json(control.run())));
   app.put('/api/intel-control/schedule',wrap(async(req,res)=>res.json(await control.configure(req.body))));
   return control;

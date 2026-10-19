@@ -1,7 +1,7 @@
 /* global React */
 (() => {
   const {useState,useEffect,useRef}=React;
-  const sections=[['intel','Intel'],['podcast','Podcasts'],['accounts','Outreach sources'],['practice','Practice preferences'],['access','Runtime & access']];
+  const sections=[['intel','Intel'],['podcast','Podcasts'],['practice','Practice preferences'],['access','Runtime & access']];
   const route=id=>id==='intel'?'setup':`setup-${id}`;
   const request=async(url,method='GET',body)=>{const r=await fetch(url,{method,...(body?{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const v=await r.json();if(!r.ok)throw Error(v.error||'Settings could not be loaded.');return v;};
   function PracticePreferences({active}) {
@@ -53,11 +53,12 @@
     return <><RuntimeChecks active={active}/>{error&&<p role="alert">{error} <button className="btn btn-secondary" onClick={load}>Try again</button></p>}<section className="card"><h2>Use on this Mac</h2><p>Available at localhost:3847. Your saved work stays on this Mac. Requested AI coaching uses your selected provider.</p></section><section className="card"><h2>Private phone access</h2><p>{!setup?'Checking private access…':setup.privateAuthenticated?'Connected through your private Tailscale link.':setup.privateConfigured?'Your private link is configured. Open it from your phone with Tailscale connected.':'Local-only mode. Private phone access is optional.'}</p><p>Use Tailscale on both devices with the same personal account. This Mac must stay awake and online.</p>{setup?.privateConfigured&&setup?.privateOrigin&&<p><a className="btn btn-secondary" href={setup.privateOrigin+'/#dashboard'}>Open private Job Quest</a></p>}<div className="setup-actions"><a href="https://tailscale.com/download/mac" target="_blank" rel="noopener noreferrer">Tailscale for Mac</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noopener noreferrer">Tailscale for iPhone</a></div></section><details className="card"><summary>Advanced local connections</summary><p>Ask Job Quest to configure a local review source or private Tailscale origin. Saving a connection does not enable network access by itself.</p><code>~/.job-quest/bin/configure-local.cjs --help</code></details></>;
   }
   function JobQuestSetup({active,section='intel',intelConfigureRequest,setPage}) {
-    const visited=useRef(new Set());if(active)visited.current.add(section);
-    return <div className="setup-page"><header className="page-header"><h1>Setup</h1><p className="greeting-sub">Connections, schedules and preferences in one place.</p></header><nav className="setup-sections" aria-label="Setup sections">{sections.map(([id,label])=><a key={id} href={`#${route(id)}`} aria-current={id===section?'page':undefined} onClick={e=>{e.preventDefault();setPage(route(id));}}>{label}</a>)}</nav>
-      {visited.current.has('intel')&&<div hidden={section!=='intel'}><window.IntelSetup active={active&&section==='intel'} configureRequest={intelConfigureRequest}/></div>}
+    const accountsRequest=useRef(0),previousSection=useRef(null);if(active&&section==='accounts'&&previousSection.current!=='accounts')accountsRequest.current++;if(active)previousSection.current=section;
+    const currentSection=section==='accounts'?'intel':section;
+    const visited=useRef(new Set());if(active)visited.current.add(currentSection);
+    return <div className="setup-page"><header className="page-header"><h1>Setup</h1><p className="greeting-sub">Connections, schedules and preferences in one place.</p></header><nav className="setup-sections" aria-label="Setup sections">{sections.map(([id,label])=><a key={id} href={`#${route(id)}`} aria-current={id===currentSection?'page':undefined} onClick={e=>{e.preventDefault();setPage(route(id));}}>{label}</a>)}</nav>
+      {visited.current.has('intel')&&<div hidden={currentSection!=='intel'}><window.IntelSetup active={active&&currentSection==='intel'} configureRequest={intelConfigureRequest} sourceConfigureRequest={accountsRequest.current} setPage={setPage}/></div>}
       {visited.current.has('podcast')&&<div hidden={section!=='podcast'}><window.DailyDropSetupCard active={active&&section==='podcast'}/></div>}
-      {visited.current.has('accounts')&&<div hidden={section!=='accounts'}><window.Opportunities configureOnly active={active&&section==='accounts'} setPage={setPage} onConfigureIntel={()=>setPage('setup')}/></div>}
       {visited.current.has('practice')&&<div hidden={section!=='practice'}><PracticePreferences active={active&&section==='practice'}/></div>}
       {visited.current.has('access')&&<div hidden={section!=='access'}><LocalAccess active={active&&section==='access'}/></div>}
     </div>;

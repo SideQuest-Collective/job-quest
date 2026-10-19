@@ -13,6 +13,8 @@ function fixture(t, {existing=false, candidate=true, reject=false, runtime='code
   fs.copyFileSync(source,path.join(root,'skill/bin/run-daily-intel.sh'));
   fs.mkdirSync(path.join(root,'app/lib/intel-control'),{recursive:true});
   fs.copyFileSync(path.resolve(__dirname,'../lib/intel-control/lock.js'),path.join(root,'app/lib/intel-control/lock.js'));
+  fs.copyFileSync(path.resolve(__dirname,'../lib/intel-control/preferences.js'),path.join(root,'app/lib/intel-control/preferences.js'));
+  fs.writeFileSync(path.join(root,'data/intel-preferences.json'),JSON.stringify({schema:'job-quest-intel-preferences/1',scopes:{jobs:true,outreach:true,practice:false}}));
   fs.writeFileSync(path.join(root,'data/profile.json'),JSON.stringify({name:'Fixture'}));
   if(external) fs.writeFileSync(path.join(root,'data/local-setup.json'),JSON.stringify({schedule:'external'}));
   fs.writeFileSync(path.join(root,'data/opportunity-accounts.json'),JSON.stringify({accounts:[{id:'fixture',kind:'gmail',label:'fixture@example.test'}]}));
@@ -49,7 +51,7 @@ test('existing daily work permits bounded outreach-only collection and preserves
   const before=fs.readFileSync(path.join(root,'data/intel',`${new Date().toLocaleDateString('en-CA')}.json`),'utf8');
   const result=run(); assert.equal(result.status,0,result.stderr);
   const prompt=fs.readFileSync(path.join(root,'prompt'),'utf8');
-  assert.match(prompt,/OUTREACH ONLY/);
+  assert.match(prompt,/Daily practice is disabled or already complete/);
   assert.match(prompt,/already signed-in browser exposed to THIS invocation/);
   assert.match(prompt,/canonical profile URL/);
   assert.match(prompt,/Interactive app browser access does not establish scheduled CLI browser access/);
