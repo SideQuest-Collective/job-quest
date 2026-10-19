@@ -188,3 +188,33 @@ test('setup offers distinct LinkedIn browser surfaces and a Gmail account choose
   assert.equal(new URL(gmail[0].url).searchParams.get('continue'), 'https://mail.google.com/mail/');
   assert.deepEqual(plain(context.window.jobQuestAccountSetupLinks('linkedin_email')), plain(gmail));
 });
+
+test('external review ownership never presents native Intel as its inbox collector', () => {
+  const summary = context.window.jobQuestCollectionSummary({outreachOwner:'external',schedule:{installed:true},schedulePreference:{frequency:'daily',time:'09:00'}});
+  assert.match(summary, /separate career review/);
+  assert.match(summary, /native Intel does not refresh these accounts/);
+  assert.doesNotMatch(summary, /09:00/);
+});
+
+test('collection summary distinguishes off, unreadable, saved timing and unknown timing', () => {
+  const summary = context.window.jobQuestCollectionSummary;
+  assert.match(summary({outreachOwner:'native',schedule:{installed:false}}), /runs are off/);
+  assert.match(summary({outreachOwner:'native',schedule:{installed:false,error:'failed'}}), /could not be checked/);
+  assert.match(summary({outreachOwner:'native',schedule:{installed:true,cron:'30 8 * * 1-5'},schedulePreference:{frequency:'weekdays',time:'08:30',cron:'30 8 * * 1-5'},timeZone:'America/New_York'}), /on weekdays at 08:30 \(America\/New_York\)/);
+  assert.match(summary({outreachOwner:'native',schedule:{installed:true}}), /see its timing/);
+});
+
+test('account review labels preserve partial and unavailable coverage instead of claiming connected', () => {
+  const label = context.window.jobQuestAccountReviewStatus;
+  assert.equal(label(null), 'No review recorded');
+  assert.equal(label({status:'partial'}), 'Partial review');
+  assert.equal(label({status:'blocked'}), 'Could not review');
+  assert.equal(label({status:'ready'}), 'Reviewed');
+  assert.equal(label({status:'unexpected'}), 'See review details');
+});
+
+test('stale schedule preferences do not override the installed cron', () => {
+  const summary=context.window.jobQuestCollectionSummary({outreachOwner:'native',schedule:{installed:true,cron:'0 9 * * *'},schedulePreference:{frequency:'daily',time:'07:00',cron:'0 7 * * *'}});
+  assert.doesNotMatch(summary,/07:00/);
+  assert.match(summary,/see its timing/);
+});

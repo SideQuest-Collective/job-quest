@@ -102,3 +102,18 @@ button.intel-filter-tab {border:0;background:transparent;font:inherit;min-height
 
 .setup-runtime-result{margin-top:24px;padding-top:16px;border-top:1px solid var(--border)}
 .setup-runtime-result h3{margin-bottom:8px}.setup-runtime-result dd{margin:4px 0 14px;overflow-wrap:anywhere}.setup-runtime-result dt{font-weight:600}.setup-page .setup-hint{font-size:14px}
+
+/* Accounts setup: saved status first, agent handoff explicit, implementation details folded away. */
+.setup-page .jq-opps .account-setup{padding:24px;font-size:16px;background:var(--bg-card)}
+.account-setup-header{display:flex;justify-content:space-between;align-items:start;gap:20px;flex-wrap:wrap}
+.account-setup-header h2{margin:0}.account-setup-header button{flex-shrink:0}
+.setup-page .jq-opps .account-hint{font-size:14px;line-height:1.6;color:var(--text-secondary)}
+.account-row{padding:24px 0;border-bottom:1px solid var(--border)}
+.account-kind{color:var(--text-secondary);font-size:14px}.setup-page .account-row h3{font-size:18px;margin:4px 0 14px;overflow-wrap:anywhere}
+.account-status{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 14px}.account-status dt{font-size:14px;color:var(--text-secondary)}.account-status dd{margin:4px 0;font-size:16px}.account-status dd span{display:block;font-size:14px;color:var(--text-secondary)}
+.setup-page .jq-opps .op-details summary{font-size:15px;min-height:44px;display:list-item;align-content:center}
+.account-add,.account-access-help,.account-collection{padding:24px 0;border-bottom:1px solid var(--border)}
+.setup-page .account-form label{flex:1 1 230px;min-width:0}.account-form button{flex:0 0 auto}
+.setup-page .jq-opps .account-remove{margin-top:16px;color:var(--text-secondary)}
+.setup-page .account-all-coverage p{overflow-wrap:anywhere}
+@media(max-width:600px){.setup-page .jq-opps .account-setup{padding:16px}.account-status{grid-template-columns:1fr}.account-setup-header{gap:8px}.setup-page .account-form button{width:100%}.setup-page .account-row .actions button{width:100%}}

@@ -457,7 +457,7 @@
           <VoicesCard state={info} reload={load} disabled={!!busy || loading} onBusyChange={(value) => setBusy(value ? 'key' : '')} />
           <form className="card" aria-label="Recording schedule" onSubmit={saveSchedule}>
             <h3 style={{ marginTop: 0 }}>Recording schedule</h3>
-            <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{info.schedule.installed ? `Daily recording is on at ${info.schedule.time}.` : 'Automatic recording is off. You can make episodes by hand on Daily Drop.'} This Mac must be awake for scheduled recordings.</p>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{info.schedule.installed ? `Daily recording is scheduled for ${info.schedule.time}.` : 'Automatic recording is off. You can make episodes by hand on Daily Drop.'} This Mac must be awake for scheduled recordings.</p>
             <fieldset disabled={!!busy || loading} style={{ padding: 0, border: 0, margin: 0 }}>
               <div style={grid}>
                 <label style={{ fontSize: 14 }}>Automatic recording<select style={field} value={scheduleDraft.enabled ? 'daily' : 'off'} onChange={(e) => editSchedule({ enabled: e.target.value === 'daily' })}><option value="off">Off — make episodes by hand</option><option value="daily">Every day</option></select></label>

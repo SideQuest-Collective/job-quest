@@ -116,6 +116,23 @@ window.jobQuestAccountSetupLinks = function jobQuestAccountSetupLinks(kind) {
   ] : [{ label: 'Choose Gmail account', url: 'https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fmail.google.com%2Fmail%2F' }];
 };
 
+window.jobQuestAccountReviewStatus = function jobQuestAccountReviewStatus(source) {
+  if (!source) return 'No review recorded';
+  const labels = {ready:'Reviewed', checked:'Reviewed', partial:'Partial review', blocked:'Could not review', unavailable:'Could not review', unverified:'Not verified'};
+  return labels[source.status] || 'See review details';
+};
+
+window.jobQuestCollectionSummary = function jobQuestCollectionSummary(status) {
+  if (status.outreachOwner === 'external') return 'Your separate career review collects inbox updates. Running native Intel does not refresh these accounts.';
+  if (status.schedule.error) return 'The Intel schedule could not be checked. Open Intel to review its status.';
+  if (!status.schedule.installed) return 'Automatic Intel runs are off. You can start a run from Intel.';
+  const preference = status.schedulePreference;
+  if (preference && preference.cron && preference.cron === status.schedule.cron && ['daily','weekdays'].includes(preference.frequency) && preference.time) {
+    return `Intel is scheduled ${preference.frequency === 'daily' ? 'daily' : 'on weekdays'} at ${preference.time}${status.timeZone ? ' (' + status.timeZone + ')' : ''}.`;
+  }
+  return 'An Intel schedule is installed. Open Intel to see its timing.';
+};
+
 window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpenRole, onConfigureIntel, active = true, configureRequest = 0, configureOnly = false }) {
   const { useEffect, useState } = React;
   const [data, setData] = useState(null);
@@ -300,47 +317,42 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       {!configureOnly && catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before replying. Due snoozes and reconnects return for review; explicit holds remain paused.</p>}
       {!configureOnly && data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
       {!configureOnly && data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
-      {configureOnly && <details id="outreach-account-setup" ref={accountPanel} open={configureOnly || accountsOpen} onToggle={event => setAccountsOpen(event.currentTarget.open)} className="panel secondary-panel"><summary>Accounts & sources</summary><div className="detail-body">
-        <div className="actions">
-          <button onClick={() => load()}>Refresh local results</button>
-
-        </div>
-        {data.generatedAt && <p className="muted">Brief generated {new Date(data.generatedAt).toLocaleString()}.</p>}
-        {data.sources.length > 0 && <details className="op-details"><summary>Latest source coverage</summary>
-          {data.sources.map((source, index) => <p key={`${source.name}-${index}`}><strong>{source.name}</strong> · {source.status} · {source.checkedAt ? new Date(source.checkedAt).toLocaleString() : 'time unknown'}<br /><span className="muted">{source.detail}</span></p>)}
-          {data.coverage.backfill?.detail && <p>Pending backfill: {data.coverage.backfill.detail}</p>}
-          {data.coverage.invitations?.detail && <p>Invitations: {data.coverage.invitations.detail}</p>}
-        </details>}
-        <h3>1. Choose accounts to review</h3>
-        <p className="muted">Selecting an account records your preference. Access and scanning must be verified separately. LinkedIn email notifications cover only messages that generated email; they do not cover the full LinkedIn inbox or invitations.</p>
-        {data.accounts.map(account => {
-          const source = data.sources.find(s => s.accountId === account.id || (account.sourceName && s.name === account.sourceName));
-          return <div key={account.id} className="actions" style={{ marginBottom: 8 }}>
-            <span>{account.label} · {account.kind.replaceAll('_', ' ')} · <span className="status">Access {account.accessStatus || 'unverified'}{account.accessCheckedAt ? ` ${new Date(account.accessCheckedAt).toLocaleDateString()}` : ''}; {source ? `review ${source.status} ${source.checkedAt || ''}` : 'review coverage unverified'}</span>{account.accessDetail && <><br /><span className="muted">{account.accessDetail}</span></>}</span>
-            <label>Coverage source <select value={account.sourceName || ''} disabled={busy === 'accounts'} onChange={event => saveAccounts(data.accounts.map(a => a.id === account.id ? { ...a, sourceName: event.target.value } : a))}>
-              <option value="">Not mapped</option>
-              {data.sources.map((s, index) => <option value={s.name} key={`${s.name}-${index}`}>{s.name}</option>)}
-            </select></label>
-            <button onClick={() => copyAccessRequest([account])}>{accessRequestCopied === window.jobQuestOutreachAccessRequest([account]) ? 'Request copied' : 'Copy access check'}</button>
-            <button disabled={busy === 'accounts'} onClick={() => saveAccounts(data.accounts.filter(a => a.id !== account.id))}>Remove</button>
-          </div>;
-        })}
-        <form className="account-form" onSubmit={addAccount}>
-          <label>Source<select value={accountKind} onChange={event => setAccountKind(event.target.value)}><option value="gmail">Gmail</option><option value="linkedin_email">LinkedIn email notifications</option><option value="linkedin">LinkedIn direct inbox</option></select></label>
-          <label>Email address or LinkedIn profile<input ref={accountInput} value={accountLabel} onChange={event => setAccountLabel(event.target.value)} placeholder={accountKind === 'linkedin' ? 'LinkedIn profile URL or name' : 'you@example.com'} maxLength="150" /></label>
-          <button type="submit" disabled={busy === 'accounts' || !accountLabel.trim()}>Add account</button>
-        </form>
-        <h3>2. Sign in and verify access</h3>
-        <p>For Gmail, connect your mail account in the agent app you use for Job Quest. For direct LinkedIn messages and jobs, ask your agent to open LinkedIn in its browser, then sign in there if prompted. Your usual browser and the agent’s browser may have different sessions.</p>
-        <div className="links primary-links">{window.jobQuestAccountSetupLinks(accountKind).map(link => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a>)}</div>
-        <p className="muted">These links open in your browser. Opening a page or saving an account does not grant agent access. A Gmail browser login does not connect a mail tool. The access check confirms the signed-in identity and checks LinkedIn messages and jobs separately.</p>
-        <button disabled={!data.accounts.length} onClick={() => copyAccessRequest()}>{accessRequestCopied === window.jobQuestOutreachAccessRequest(data.accounts) ? 'Access-check request copied' : 'Copy access-check request for all accounts'}</button>
-        {!data.accounts.length && <p className="reply-help">Add an account above, then copy its access-check request into your Job Quest agent chat.</p>}
-        <details className="op-details"><summary>Show request to paste in chat</summary><p style={{userSelect:'text'}}>{window.jobQuestOutreachAccessRequest(data.accounts)}</p></details>
-        <h3>3. Run or schedule collection</h3>
-        <p>Intel collection reviews available accounts and saves recruiter conversations here. If an existing review manages your inbox collection, it keeps that responsibility and native Intel skips a duplicate inbox scan. Unavailable sources stay visible in coverage.</p>
-        {setPage && <button onClick={() => onConfigureIntel ? onConfigureIntel() : setPage('setup')}>Open Intel run settings</button>}
-      </div></details>}
+      {configureOnly && <section id="outreach-account-setup" ref={accountPanel} className="panel account-setup" aria-labelledby="accounts-heading">
+        <div className="account-setup-header"><div><h2 id="accounts-heading">Accounts to review</h2><p>Choose where Job Quest should look for recruiter messages.</p></div><button disabled={busy==='accounts'} onClick={()=>load()}>Reload saved status</button></div>
+        <p className="account-hint">Adding an account saves your choice. It does not sign in or start an inbox review.</p>
+        {data.accounts.length===0&&<p>No accounts selected. Add an account below to get started.</p>}
+        <div className="account-list">{data.accounts.map(account=>{
+          const source=data.sources.find(s=>s.accountId===account.id||(account.sourceName&&s.name===account.sourceName));
+          const kind={gmail:'Gmail',linkedin_email:'LinkedIn email notifications',linkedin:'LinkedIn inbox'}[account.kind]||account.kind;
+          const date=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString():null;
+          const checked=date(account.accessCheckedAt),reviewed=date(source?.checkedAt);
+          const access=account.accessStatus==='verified'?'Previously verified':account.accessStatus==='blocked'?'Needs attention':'Not checked';
+          return <article key={account.id} className="account-row" aria-label={`${kind}: ${account.label}`}><header><span className="account-kind">{kind}</span><h3>{account.label}</h3></header>
+            <dl className="account-status"><div><dt>Agent access</dt><dd>{access}{checked&&<span> · {checked}</span>}</dd></div><div><dt>Latest inbox review</dt><dd>{window.jobQuestAccountReviewStatus(source)}{reviewed&&<span> · {reviewed}</span>}</dd></div></dl>
+            {account.kind==='linkedin_email'&&<p className="account-hint">Only LinkedIn notifications sent by email. This does not cover your full LinkedIn inbox.</p>}
+            <div className="actions"><button disabled={busy==='accounts'} onClick={()=>copyAccessRequest([account])}>{accessRequestCopied===window.jobQuestOutreachAccessRequest([account])?'Copied — paste in agent chat':'Copy request to check access'}</button></div>
+            <details className="op-details"><summary>Review details & account options</summary>
+              <p>{account.accessDetail||'No access-check notes saved.'}</p>{source?.detail&&<p><strong>Latest review:</strong> {source.detail}</p>}
+              <p className="account-hint">Previous access checks do not guarantee access from a scheduled run.</p>
+              <details className="op-details"><summary>Advanced source mapping</summary><p className="account-hint">Links this account to an existing review record. Changing the mapping does not connect or review the account.</p><label>Review record<select value={account.sourceName||''} disabled={busy==='accounts'} onChange={event=>saveAccounts(data.accounts.map(a=>a.id===account.id?{...a,sourceName:event.target.value}:a))}><option value="">Not mapped</option>{data.sources.map((source,index)=><option value={source.name} key={`${source.name}-${index}`}>{source.name}</option>)}</select></label></details>
+              <button className="account-remove" disabled={busy==='accounts'} onClick={()=>saveAccounts(data.accounts.filter(a=>a.id!==account.id))}>Remove from review list</button>
+            </details>
+          </article>;
+        })}</div>
+        <section className="account-add"><h3>Add an account</h3><form className="account-form" onSubmit={addAccount}>
+          <label>Account type<select value={accountKind} disabled={busy==='accounts'} onChange={event=>setAccountKind(event.target.value)}><option value="gmail">Gmail</option><option value="linkedin_email">LinkedIn email notifications</option><option value="linkedin">LinkedIn inbox</option></select></label>
+          <label>{accountKind==='linkedin'?'LinkedIn profile':'Email address'}<input ref={accountInput} disabled={busy==='accounts'} value={accountLabel} onChange={event=>setAccountLabel(event.target.value)} placeholder={accountKind==='linkedin'?'LinkedIn profile URL or name':'you@example.com'} maxLength="150" /></label>
+          <button type="submit" disabled={busy==='accounts'||!accountLabel.trim()}>Add account</button>
+        </form></section>
+        <section className="account-access-help" aria-labelledby="account-access-heading"><h2 id="account-access-heading">Check access with your agent</h2><p>Use an account’s copy button, then paste the request into your Job Quest agent chat. The agent checks that it can read the right account and guides you through any connection or sign-in needed.</p><p className="account-hint">Copying a request does not run it. After your agent finishes, use “Reload saved status” above.</p>
+          <button disabled={!data.accounts.length||busy==='accounts'} onClick={()=>copyAccessRequest()}>{accessRequestCopied===window.jobQuestOutreachAccessRequest(data.accounts)?'Copied — paste in agent chat':'Copy request for all accounts'}</button>
+          {accessRequestCopied&&<p role="status">Request copied. Paste it into your Job Quest agent chat to check access.</p>}
+          <details className="op-details"><summary>View request to copy manually</summary><p style={{userSelect:'text'}}>{window.jobQuestOutreachAccessRequest(data.accounts)}</p></details>
+          <details className="op-details"><summary>How Gmail and LinkedIn access work</summary><p><strong>Gmail:</strong> your agent needs an authorized mail connection for the selected address. Signing into Gmail in a browser alone does not create that connection.</p><p><strong>LinkedIn:</strong> your agent checks its own browser session. If it needs you to sign in, it will open the correct browser for you.</p></details>
+        </section>
+        <AccountCollectionStatus active={active} refreshToken={data} onOpenIntel={()=>onConfigureIntel?onConfigureIntel():setPage('setup')}/>
+        {data.sources.length>0&&<details className="op-details account-all-coverage"><summary>All saved source reports</summary>{data.generatedAt&&<p>Latest report saved {new Date(data.generatedAt).toLocaleString()}.</p>}{data.sources.map((source,index)=><p key={`${source.name}-${index}`}><strong>{source.name}</strong> · {source.status}<br/><span>{source.detail}</span></p>)}{data.coverage.backfill?.detail&&<p>Pending backfill: {data.coverage.backfill.detail}</p>}{data.coverage.invitations?.detail&&<p>Invitations: {data.coverage.invitations.detail}</p>}</details>}
+      </section>}
       {!configureOnly && <>
       {visible.length === 0 && <div className="panel" role="status">{data.briefState === 'ready' ? 'No results in this view from the latest local brief.' : 'Results unavailable until the local brief is connected.'}</div>}
       {visible.map(item => <article className="panel op-card" key={item.id}>
@@ -405,3 +417,14 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
     </>}
   </div>;
 };
+
+function AccountCollectionStatus({active,onOpenIntel,refreshToken}) {
+  const [status,setStatus]=React.useState(null),[error,setError]=React.useState('');
+  const load=async()=>{try{const response=await fetch('/api/intel-control');if(!response.ok)throw Error('Collection settings could not be loaded.');setStatus(await response.json());setError('');}catch(e){setError(e.message);}};
+  React.useEffect(()=>{if(active)load();},[active,refreshToken]);
+  return <section className="account-collection" aria-labelledby="account-collection-heading"><h2 id="account-collection-heading">When accounts are reviewed</h2>
+    {error?<p role="alert">{error} <button onClick={load}>Try again</button></p>:!status?<p role="status">Checking collection settings…</p>:<><p>{window.jobQuestCollectionSummary(status)}</p>
+      {status.outreachOwner==='external'?<p>Ask your Job Quest agent to check the existing career review’s schedule and latest results.</p>:<><p>Each run checks which selected accounts it can read. A successful Intel run can still have missing or partial inbox coverage—see each account’s review details above.</p><button onClick={onOpenIntel}>View Intel runs & schedule</button></>}
+    </>}
+  </section>;
+}
