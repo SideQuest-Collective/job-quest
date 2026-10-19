@@ -45,12 +45,43 @@ job_quest_apply_runtime_env() {
 # launchd/cron jobs run with a minimal PATH that misses node and the runtime
 # CLIs (Homebrew, nvm, ~/.local/bin). Extend PATH so scheduled runs behave
 # like interactive ones.
-job_quest_ensure_tool_path() {
-  local extra="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin"
-  case ":$PATH:" in
-    *":/opt/homebrew/bin:"*) ;;
-    *) export PATH="$extra:$PATH" ;;
+job_quest_append_tool_path() {
+  local extra="$1"
+  [ -d "$extra" ] || return 0
+  case ":${PATH:-}:" in
+    *":$extra:"*) ;;
+    *) export PATH="${PATH:+$PATH:}$extra" ;;
   esac
+}
+
+job_quest_ensure_tool_path() {
+  # Add each directory independently and keep the caller's chosen tools first.
+  local extra
+  for extra in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
+    job_quest_append_tool_path "$extra"
+  done
+
+  # Keg-only Node formulas do not necessarily link node into Homebrew's bin.
+  # Limit discovery to Homebrew's stable opt links, including versioned formulas.
+  local brew_root
+  for brew_root in /opt/homebrew /usr/local; do
+    for extra in "$brew_root"/opt/node/bin "$brew_root"/opt/node@*/bin; do
+      [ -x "$extra/node" ] || continue
+      job_quest_append_tool_path "$extra"
+    done
+  done
+
+  # Desktop bundles can supply the CLI without a separate global installation.
+  # Check known layouts in both system and per-user Applications directories.
+  local applications
+  for applications in /Applications "$HOME/Applications" "${JOB_QUEST_SYSTEM_HOME:-$HOME}/Applications"; do
+    for extra in \
+      "$applications/Codex.app/Contents/Resources" \
+      "$applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"; do
+      [ -x "$extra/codex" ] || continue
+      job_quest_append_tool_path "$extra"
+    done
+  done
   if ! command -v node >/dev/null 2>&1 && [ -d "$HOME/.nvm/versions/node" ]; then
     local latest
     latest="$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)"
