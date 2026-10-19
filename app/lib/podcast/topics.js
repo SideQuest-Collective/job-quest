@@ -231,8 +231,12 @@ async function buildTopicGroups({ dataDir, ranking, runAgentFn = runAgent, timeo
 
 function missingTopicSheets(dataDir, ranking) {
   const missing = (ranking && ranking.topics ? ranking.topics : []).filter((t) => { const s = readSheet(dataDir, t.id); return !s || s.sourceHash !== t.sourceHash; });
-  // Stable: algorithm topics first, each group still in ranking order.
-  return [...missing.filter((t) => isAlgorithmTopic(t)), ...missing.filter((t) => !isAlgorithmTopic(t))];
+  // Alternate algorithm and other topics, algorithm first, each still in ranking order, so the top design topics
+  // get sheets too instead of waiting behind every algorithm topic.
+  const algo = missing.filter((t) => isAlgorithmTopic(t)), other = missing.filter((t) => !isAlgorithmTopic(t));
+  const out = [];
+  for (let i = 0; i < Math.max(algo.length, other.length); i++) { if (algo[i]) out.push(algo[i]); if (other[i]) out.push(other[i]); }
+  return out;
 }
 
 async function topUpTopicSheets(dataDir, ranking, limit, log = () => {}, opts = {}) {

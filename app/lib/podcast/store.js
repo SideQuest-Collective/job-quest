@@ -8,15 +8,15 @@ const DEFAULT_CONFIG = {
   enabled: true,
   model: 'gemini-3.8-flash-tts',
   hosts: [
-    { name: 'Maya', voice: 'Kore', role: 'coach', style: 'warm, quick, a little playful' },
-    { name: 'Dev', voice: 'Puck', role: 'skeptical interviewer', style: 'dry, sharp, curious' },
+    { name: 'Maya', voice: 'Kore', role: 'teacher', style: 'patient, plain, unhurried' },
+    { name: 'Dev', voice: 'Puck', role: 'rusty learner', style: 'curious, honest about what he has forgotten' },
   ],
-  targetMinutes: 15,
+  targetMinutes: 20,
   hour: 8,
   minute: 30,
   sheetsPerRun: 3,
-  topicsPerEpisode: 4,
-  algorithmTopics: 2,
+  topicsPerEpisode: 2,
+  algorithmTopics: 1,
   imessage: true,
 };
 

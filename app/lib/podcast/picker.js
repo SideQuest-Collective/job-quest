@@ -101,7 +101,9 @@ function pickConcepts({ dataDir, master, topics = null, today, now = new Date(),
     .sort((a, b) => b.score - a.score);
   // Reserve slots for algorithm topics so every day drills at least that many, then fill by importance.
   const algoFirst = eligible.filter((t) => isAlgorithmTopic(t)).slice(0, Math.min(counts.algorithmTopics, counts.topics));
-  const rest = eligible.filter((t) => !algoFirst.includes(t)).slice(0, counts.topics - algoFirst.length);
+  // The other slots go to design and other non-algorithm topics first, so each day pairs a coding lesson with a design one.
+  const others = eligible.filter((t) => !algoFirst.includes(t));
+  const rest = [...others.filter((t) => !isAlgorithmTopic(t)), ...others.filter((t) => isAlgorithmTopic(t))].slice(0, counts.topics - algoFirst.length);
   const topicsPicked = [...rest, ...algoFirst]
     .sort((a, b) => b.score - a.score)
     .map((t) => ({

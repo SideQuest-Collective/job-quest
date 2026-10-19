@@ -904,6 +904,7 @@ Continue mentoring. Be concise and encouraging. Format with markdown.`;
 });
 
 // --- System Design Mock Interview ---
+const { sdTopicState, sdFeedbackGiven, buildSdWrapUpPrompt, completeSdConversation } = require('./lib/sd-interview');
 const sdConversations = {};
 const SD_CONV_DIR = path.join(DATA_DIR, 'sd-conversations');
 
@@ -933,15 +934,33 @@ function getSdConversationFile(topicId) {
   return path.join(SD_CONV_DIR, `${safeTopicId}.json`);
 }
 
+function readSdConversation(topicId) {
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile || !fs.existsSync(convFile)) return null;
+  try { return JSON.parse(fs.readFileSync(convFile, 'utf-8')); } catch { return null; }
+}
+
+// Ticks off today's matching system-design task once a session is substantive (8+ messages).
+function autoCompleteSdDailyTask(topic, conv) {
+  if (conv.messages.length < 8) return;
+  const topicTitle = topic.title.toLowerCase();
+  autoCompleteDailyTask(task => {
+    if (task.category !== 'system-design') return false;
+    // Match by checking if the topic keywords appear in the task text
+    const taskText = task.text.toLowerCase();
+    // Extract key subject from topic title (e.g., "Design a Rate Limiter" → "rate limiter")
+    const subject = topicTitle.replace(/^design\s+(a|an)\s+/i, '');
+    return taskText.includes(subject);
+  });
+}
+
 function getSdTopic(topicId) {
   return SD_TOPICS.find(t => t.id === topicId) || getWorkbookSdTopics(DATA_DIR).find(t => t.id === topicId);
 }
 
 app.get('/api/sd-topics', (req, res) => {
   const topics = [...SD_TOPICS, ...getWorkbookSdTopics(DATA_DIR)].map(t => {
-    const convFile = getSdConversationFile(t.id);
-    const hasConversation = fs.existsSync(convFile);
-    return { ...t, hasConversation };
+    return { ...t, ...sdTopicState(readSdConversation(t.id)) };
   });
   res.json(topics);
 });
@@ -971,6 +990,7 @@ app.post('/api/sd-conversation/:topicId', (req, res) => {
   if (fs.existsSync(convFile)) {
     conv = JSON.parse(fs.readFileSync(convFile, 'utf-8'));
   }
+  if (conv.completedAt) return res.status(409).json({ error: 'This interview is complete. Restart it to practice again.', messages: conv.messages });
 
   const isFirstMessage = conv.messages.length === 0;
 
@@ -1049,20 +1069,58 @@ Continue the interview. Remember:
       conv.messages.push({ role: 'assistant', content: result, timestamp: new Date().toISOString() });
       fs.writeFileSync(convFile, JSON.stringify(conv, null, 2));
       logActivity('sd_interview', { topicId, exchanges: conv.messages.length });
-      // Auto-complete matching daily system-design task after substantive session (8+ exchanges)
-      if (conv.messages.length >= 8) {
-        const topicTitle = topic.title.toLowerCase();
-        autoCompleteDailyTask(task => {
-          if (task.category !== 'system-design') return false;
-          // Match by checking if the topic keywords appear in the task text
-          const taskText = task.text.toLowerCase();
-          // Extract key subject from topic title (e.g., "Design a Rate Limiter" → "rate limiter")
-          const subject = topicTitle.replace(/^design\s+(a|an)\s+/i, '');
-          return taskText.includes(subject);
-        });
-      }
+      autoCompleteSdDailyTask(topic, conv);
       res.json({ response: result, messages: conv.messages });
     }
+  });
+});
+
+// Ends an interview. The interviewer gives final scored feedback first, unless it already did
+// (natural end) or the caller asks to skip it (runtime unavailable). Saved messages are kept.
+app.post('/api/sd-conversation/:topicId/complete', (req, res) => {
+  const { topicId } = req.params;
+  const topic = getSdTopic(topicId);
+  if (!topic) return res.status(404).json({ error: 'Topic not found' });
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile) return res.status(400).json({ error: 'Invalid topic id' });
+  const conv = readSdConversation(topicId);
+  if (!conv || !Array.isArray(conv.messages) || conv.messages.length === 0) return res.status(409).json({ error: 'Start the interview before ending it.' });
+  if (conv.completedAt) return res.json(conv);
+
+  const finish = (feedback) => {
+    // Re-read so a message saved while the feedback was running is not lost.
+    const latest = readSdConversation(topicId) || conv;
+    if (!latest.completedAt) {
+      completeSdConversation(latest, { feedback });
+      fs.writeFileSync(convFile, JSON.stringify(latest, null, 2));
+      logActivity('sd_interview_completed', { topicId, exchanges: latest.messages.length, score: latest.score, endedEarly: latest.endedEarly });
+      autoCompleteSdDailyTask(topic, latest);
+    }
+    res.json(latest);
+  };
+  if (req.body?.skipFeedback || sdFeedbackGiven(conv)) return finish(null);
+
+  const prepContext = topic.source === 'workbook' ? `
+This is a workbook question for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
+Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
+` : '';
+  const tmpPrompt = path.join(os.tmpdir(), `sd_wrapup_${Date.now()}.txt`);
+  fs.writeFileSync(tmpPrompt, buildSdWrapUpPrompt(topic, conv, prepContext));
+  const scriptPath = path.join(__dirname, 'scripts', 'code-review.sh');
+  const nvmBin = path.join(os.homedir(), '.nvm/versions/node/v22.12.0/bin');
+  const { exec: execAsync } = require('child_process');
+  execAsync(`cat "${tmpPrompt}" | bash "${scriptPath}"`, {
+    encoding: 'utf-8',
+    timeout: 120000,
+    maxBuffer: 2 * 1024 * 1024,
+    env: { ...process.env, HOME: os.homedir(), PATH: `${nvmBin}:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}` },
+  }, (err, stdout, stderr) => {
+    try { fs.unlinkSync(tmpPrompt); } catch {}
+    const feedback = (stdout || '').trim();
+    if (err || !feedback) {
+      return res.status(502).json({ error: `Could not get final feedback from ${runtimeDisplayName}. You can try again or end without feedback.\n\n` + (stderr || err?.message || '').slice(0, 200), canSkipFeedback: true });
+    }
+    finish(feedback);
   });
 });
 

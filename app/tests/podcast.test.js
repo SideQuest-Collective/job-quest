@@ -80,7 +80,7 @@ test('picker mixes weak spots and cards and holds back recently aired ones', () 
 });
 
 // A script shaped the way episodes must be: every pause follows a question to the listener, lines are full sentences.
-function goodScript(words = 1900, { pauses = 7 } = {}) {
+function goodScript(words = 2600, { pauses = 7 } = {}) {
   const segs = [];
   const sentence = 'You lock the rule first and then you write the code out loud. ';
   const linesPerPause = Math.max(2, Math.floor(words / 39 / pauses));
@@ -138,7 +138,7 @@ test('episodes teach concepts, not interviews: material and script carry no comp
 });
 
 test('script validation enforces hosts, length and pause beats', () => {
-  const ok = validateScript(goodScript(), { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  const ok = validateScript(goodScript(1400), { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
   assert.ok(ok.ok, ok.errors.join('; '));
   const bad = goodScript(300);
   bad.segments = bad.segments.filter((s) => s.type === 'line');
@@ -301,4 +301,43 @@ test('iMessage delivery sends the audio the way that reaches the phone: an alias
   const { sharedAudioName } = require('../lib/podcast/episode');
   assert.notStrictEqual(sharedAudioName({ date: '2026-10-16' }, 'x.mp3', new Date('2026-10-16T10:00:00Z')), sharedAudioName({ date: '2026-10-16' }, 'x.mp3', new Date('2026-10-16T11:00:00Z')));
   assert.match(sharedAudioName({ date: '2026-10-16' }, 'x.mp3', new Date('2026-10-16T10:00:00Z')), /^Daily Drop 2026-10-16 .*\.mp3$/);
+});
+
+test('script validation keeps it a conversation: short lines, no long monologues, the learner host speaks', () => {
+  const run = goodScript(1400, { pauses: 7 });
+  const at = run.segments.findIndex((s, i) => i > 3 && s.type === 'line');
+  const maya = { type: 'line', speaker: HOSTS[0].name, text: 'You lock the rule first and then you write the code out loud, one step at a time, slowly.' };
+  run.segments.splice(at, 0, maya, maya, maya, maya);
+  let v = validateScript(run, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /in a row/.test(e)), v.errors.join('; '));
+
+  const lecture = goodScript(1400, { pauses: 7 });
+  lecture.segments.forEach((s, i) => { if (s.type === 'line' && s.speaker === HOSTS[1].name && i % 3) s.speaker = HOSTS[0].name; });
+  v = validateScript(lecture, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /quarter of the lines/.test(e)), v.errors.join('; '));
+
+  const long = goodScript(1400, { pauses: 7 });
+  long.segments[0].text = 'You lock the rule first and then you write the code out loud. '.repeat(8);
+  v = validateScript(long, { hosts: HOSTS, targetMinutes: 11, concepts: 5 });
+  assert.ok(!v.ok && v.errors.some((e) => /450/.test(e)), v.errors.join('; '));
+});
+
+test('the coding loop and design frame from the shared sheets reach the material; other cards do not', () => {
+  const { readFrameworks, materialText } = require('../lib/podcast/script');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-interview-'));
+  const dir = path.join(home, 'cheatsheets', 'topics');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'coding-loop.json'), JSON.stringify({ cards: [{ title: 'Restate in one sentence', category: 'process', bullets: ['Say what I get and what I return.'] }] }));
+  fs.writeFileSync(path.join(dir, 'system-design-frame.json'), JSON.stringify({ cards: [
+    { title: 'Seven steps in 45 minutes', category: 'frame', bullets: ['Requirements, entities, API, HLD, deep dives.'] },
+    { title: 'Columnar store', category: 'blocks', bullets: ['Analytics.'] },
+  ] }));
+  const f = readFrameworks(home);
+  assert.deepStrictEqual(f.map((x) => x.cards.length), [1, 1]);
+  const m = materialText({ weak: [], topics: [], cards: [], review: [], frameworks: f });
+  assert.match(m, /How to talk a problem through/);
+  assert.match(m, /Restate in one sentence/);
+  assert.match(m, /Seven steps in 45 minutes/);
+  assert.ok(!/Columnar/.test(m));
+  assert.deepStrictEqual(readFrameworks(path.join(home, 'missing')), []);
 });

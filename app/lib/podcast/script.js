@@ -21,6 +21,10 @@ function countWords(s) { return String(s).trim().split(/\s+/).filter(Boolean).le
 // The validator holds the writer to that shape so it cannot drift back into reading notes aloud.
 const CLIPPED_WORDS = 8;
 const MAX_INTRO_WORDS = 300;
+// He is relearning the fundamentals: long monologues read as a lecture, so lines stay short and the learner host keeps talking.
+const MAX_LINE_CHARS = 450;
+const MAX_RUN = 3;
+const MIN_LEARNER_SHARE = 0.25;
 function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = Math.max(3, concepts + 1), forbidden = [] }) {
   const errors = [];
   if (!data || typeof data !== 'object') return { ok: false, errors: ['not a JSON object'] };
@@ -29,6 +33,7 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
   if (typeof data.summary !== 'string' || !data.summary.trim()) errors.push('missing summary');
   if (!Array.isArray(data.segments) || data.segments.length < 10) errors.push('segments must be a list of at least 10 items');
   let words = 0, pauses = 0, lines = 0, clipped = 0, prevLine = null, wordsBeforeFirstPause = null;
+  let run = 0, longestRun = 0, runAt = null, learnerLines = 0;
   (data.segments || []).forEach((s, i) => {
     const at = `segment ${i + 1}`;
     if (!s || typeof s !== 'object') { errors.push(`${at}: not an object`); return; }
@@ -41,7 +46,7 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
     } else if (s.type === 'line') {
       if (!names.includes(s.speaker)) errors.push(`${at}: speaker must be ${names.join(' or ')}`);
       if (typeof s.text !== 'string' || !s.text.trim()) errors.push(`${at}: empty text`);
-      else if (s.text.length > 600) errors.push(`${at}: text is ${s.text.length} chars > 600`);
+      else if (s.text.length > MAX_LINE_CHARS) errors.push(`${at}: text is ${s.text.length} chars > ${MAX_LINE_CHARS}; split it into shorter spoken steps`);
       else if (/[—]/.test(s.text)) errors.push(`${at}: remove em dashes`);
       else if (/lightning round/i.test(s.text)) errors.push(`${at}: no lightning round; every concept is a lesson with a think beat`);
       else if (/brought to you by|our sponsor|sponsored by/i.test(s.text)) errors.push(`${at}: no sponsors or ads, real or made up`);
@@ -50,6 +55,9 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
         const hit = forbidden.find((t) => t && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(s.text));
         if (hit) errors.push(`${at}: don't name companies ("${hit}"); the lesson is about the concept`);
       }
+      run = prevLine && prevLine.speaker === s.speaker ? run + 1 : 1;
+      if (run > longestRun) { longestRun = run; runAt = at; }
+      if (s.speaker === names[1]) learnerLines++;
       const n = countWords(s.text || '');
       words += n; lines++;
       if (n < CLIPPED_WORDS) clipped++;
@@ -61,6 +69,8 @@ function validateScript(data, { hosts, targetMinutes, concepts = 0, minPauses = 
   if (words > maxWords) errors.push(`${words} spoken words; keep it under ${maxWords}`);
   if (pauses < minPauses) errors.push(`only ${pauses} think beats (a question, then a pause); need at least ${minPauses}: one per concept plus the closing replay`);
   if (wordsBeforeFirstPause !== null && wordsBeforeFirstPause > MAX_INTRO_WORDS) errors.push(`${wordsBeforeFirstPause} words before the first question; ask it within the first ${MAX_INTRO_WORDS} words, no long intro`);
+  if (longestRun > MAX_RUN) errors.push(`${runAt}: ${longestRun} lines in a row from one host; at most ${MAX_RUN}, then let ${names[1]} ask, check or voice the tempting wrong answer`);
+  if (lines >= 10 && learnerLines / lines < MIN_LEARNER_SHARE) errors.push(`${names[1]} speaks ${learnerLines} of ${lines} lines; make it a conversation, at least a quarter of the lines`);
   if (lines && clipped / lines > 0.5) errors.push(`${clipped} of ${lines} lines are under ${CLIPPED_WORDS} words; that reads like clipped commentary, write full conversational sentences`);
   if (errors.length) return { ok: false, errors, words, pauses };
   return {
@@ -82,6 +92,13 @@ function materialText(picked) {
     parts.push('### Mistakes he has made in practice (teach the concept behind each; never say where or when it happened)');
     for (const w of picked.weak) {
       parts.push(`- ${w.label}${w.question ? `\n  The problem: ${w.question.title}\n  What a strong answer does: ${w.question.rubric}` : ''}`);
+    }
+  }
+  if (picked.frameworks && picked.frameworks.length) {
+    parts.push('### How to talk a problem through (walk algorithm lessons through the coding loop and design lessons through the design frame, step by step, in these words)');
+    for (const f of picked.frameworks) {
+      parts.push(`#### ${f.title}`);
+      for (const c of f.cards) parts.push(`- ${c.title}: ${c.bullets.join(' ')}`);
     }
   }
   if (picked.recall && picked.recall.length) {
@@ -109,8 +126,22 @@ function materialText(picked) {
   return parts.join('\n\n');
 }
 
-// The scenario-first script is long; give the writer fifteen minutes. A finished file counts even if the agent is cut off while summarising.
-async function writeScript({ dataDir, workDir, picked, config, upcoming, timeoutMs = 900000, runAgentFn = runAgent }) {
+// The shared interview concept sheets hold the coding loop and the system design delivery frame. Only their
+// process and frame cards are read; the library is never written from here.
+const FRAMEWORK_SHEETS = [['coding-loop', 'The coding loop', ['process']], ['system-design-frame', 'The system design delivery frame', ['frame']]];
+const NOT_FRAMEWORK = /scenario|closing questions/i;
+function readFrameworks(interviewHome = process.env.INTERVIEW_HOME || path.join(require('os').homedir(), '.interview')) {
+  const out = [];
+  for (const [file, title, categories] of FRAMEWORK_SHEETS) {
+    const sheet = readJson(path.join(interviewHome, 'cheatsheets', 'topics', `${file}.json`), null);
+    const cards = ((sheet && sheet.cards) || []).filter((c) => c && categories.includes(c.category) && Array.isArray(c.bullets) && !NOT_FRAMEWORK.test(c.title || ''));
+    if (cards.length) out.push({ title, cards: cards.map((c) => ({ title: String(c.title), bullets: c.bullets.map(String) })) });
+  }
+  return out;
+}
+
+// The step-by-step script is long; give the writer twenty minutes. A finished file counts even if the agent is cut off while summarising.
+async function writeScript({ dataDir, workDir, picked, config, upcoming, timeoutMs = 1200000, runAgentFn = runAgent, frameworks = readFrameworks() }) {
   const [a, b] = config.hosts;
   const { minWords, maxWords } = wordTargets(config.targetMinutes);
   const concepts = picked.all.length;
@@ -127,7 +158,7 @@ async function writeScript({ dataDir, workDir, picked, config, upcoming, timeout
       hostA: a.name, hostAStyle: a.style, hostB: b.name, hostBStyle: b.style,
       targetMinutes: config.targetMinutes, minWords, maxWords, minPauses, concepts,
       upcoming: upcoming.length ? upcoming.join('; ') : 'none scheduled yet',
-      material: materialText(picked),
+      material: materialText({ ...picked, frameworks }),
       errors: errors.length ? `## Your previous file was rejected. Fix these problems:\n${errors.map((e) => `- ${e}`).join('\n')}` : '',
     });
     const run = await runAgentFn({ agent: SCRIPT_AGENT, prompt, cwd: workDir, profile: 'write', timeoutMs, logFile: path.join(workDir, 'agent.log'), env: { DATA_DIR: path.resolve(dataDir) } });
@@ -141,4 +172,4 @@ async function writeScript({ dataDir, workDir, picked, config, upcoming, timeout
   return { ok: false, error: `script-invalid: ${errors.slice(0, 4).join('; ')}` };
 }
 
-module.exports = { SCRIPT_AGENT, validateScript, materialText, writeScript, wordTargets };
+module.exports = { SCRIPT_AGENT, validateScript, materialText, writeScript, wordTargets, readFrameworks };

@@ -19,8 +19,9 @@
         <p >Runtime: {data.runtime.displayName || 'Not configured'} · {data.runtime.ready?'ready':'needs setup'}</p>
         {!data.runtime.ready&&<p className="intel-warning">{data.runtime.error || 'Complete Job Quest setup in your agent chat first.'}</p>}
         <div className="intel-actions"><button className="btn btn-primary" disabled={busy||data.running||!data.runtime.ready} onClick={()=>act(async()=>{await request('/api/intel-control/run','POST');setMessage('Intel run started. You can leave this page while it works.');await load();})}>{data.running?'Intel running…':'Run Intel now'}</button><button className="btn btn-secondary" disabled={busy} onClick={load}>Check run status</button></div>
-        {data.run&&<p  role="status">Last requested run: {data.run.status}{data.run.finishedAt?` · ${new Date(data.run.finishedAt).toLocaleString()}`:''}. {data.run.error||''}</p>}
-        {Object.values(data.outputs).some(Boolean)&&<p >Some daily content already exists. The runner preserves it; “completed” can mean there was no new daily batch to generate.</p>}
+        {data.lastRun?<p role="status" className={data.lastRun.status==='failed'||data.lastRun.status==='unknown'?'intel-warning':undefined}>Last run{data.lastRun.trigger?` (${data.lastRun.trigger==='dashboard'?'started here':data.lastRun.trigger})`:''}: <strong>{data.lastRun.status}</strong>{data.lastRun.finishedAt?` · ${new Date(data.lastRun.finishedAt).toLocaleString()}`:''}{data.lastRun.summary&&data.lastRun.status==='completed'?` · ${data.lastRun.summary}`:''}{data.lastRun.reason?` · ${data.lastRun.reason}`:''}</p>
+          :data.run&&<p  role="status">Last requested run: {data.run.status}{data.run.finishedAt?` · ${new Date(data.run.finishedAt).toLocaleString()}`:''}. {data.run.error||''}</p>}
+        <p >Newest intel: {data.latestIntelDate?new Date(`${data.latestIntelDate}T12:00:00`).toLocaleDateString():'none yet'}{data.outputs.intel?' (today’s discovery is done)':''}</p>
         <div className="intel-schedule">
           <p >Native Intel schedule: {data.schedule.installed?scheduleLabel(data.schedule.cron):'off'} · {data.timeZone}</p>
           {data.schedule.error&&<p className="intel-warning">{data.schedule.error}</p>}
