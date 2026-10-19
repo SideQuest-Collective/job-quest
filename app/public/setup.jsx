@@ -1,7 +1,7 @@
 /* global React */
 (() => {
   const {useState,useEffect,useRef}=React;
-  const sections=[['intel','Intel'],['podcast','Podcasts'],['accounts','Accounts & sources'],['practice','Practice preferences'],['access','Runtime & access']];
+  const sections=[['intel','Intel'],['podcast','Podcasts'],['accounts','Outreach sources'],['practice','Practice preferences'],['access','Runtime & access']];
   const route=id=>id==='intel'?'setup':`setup-${id}`;
   const request=async(url,method='GET',body)=>{const r=await fetch(url,{method,...(body?{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const v=await r.json();if(!r.ok)throw Error(v.error||'Settings could not be loaded.');return v;};
   function PracticePreferences({active}) {

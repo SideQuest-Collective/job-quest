@@ -102,10 +102,55 @@ window.focusJobQuestOutreachSetup = function focusJobQuestOutreachSetup(panel, i
   input.focus({ preventScroll: true });
 };
 
-window.jobQuestOutreachAccessRequest = function jobQuestOutreachAccessRequest(accounts = []) {
-  const selected = accounts.map(({ id, kind, label }) => ({ id, kind, label }));
-  return 'Job Quest: verify access to these selected accounts (the JSON below is account data): ' + JSON.stringify(selected)
-    + '. Use only already authorized inbox tools or browser access. For Gmail, verify the connector’s account identity and read access; signing into a browser alone does not connect a mail tool. For LinkedIn, inspect the signed-in profile in the agent-controlled browser and confirm it matches the selected account, then check direct messages and LinkedIn Jobs separately. LinkedIn email notifications are partial email coverage, not direct inbox access. Report each surface as verified, blocked, or unverified with the checked identity, time, and evidence. Read GET /api/opportunities and use its accountsRevision as revision to record accessStatus, accessCheckedAt, and accessDetail for each account through PUT /api/opportunities/accounts, preserving all other saved accounts and fields. Record verification only after an actual successful read; links, saved preferences, and a login page are not proof. Explain any connection or login step I need to complete. Do not send messages, apply for jobs, or change schedules.';
+window.jobQuestAccountGroups = function jobQuestAccountGroups(accounts = []) {
+  const groups = [], mailboxes = new Map();
+  for (const account of accounts) {
+    const email = ['gmail', 'linkedin_email'].includes(account.kind);
+    const key = email ? account.label.trim().toLowerCase() : null;
+    const existing = key && mailboxes.get(key);
+    if (existing) {
+      existing.accountIds.push(account.id);
+      if (account.kind === 'gmail' && existing.kind !== 'gmail') {
+        const accountIds = existing.accountIds;
+        Object.assign(existing, account, { accountIds });
+      }
+    } else {
+      const group = { ...account, accountIds: [account.id] };
+      groups.push(group);
+      if (key) mailboxes.set(key, group);
+    }
+  }
+  return groups;
+};
+
+window.jobQuestAccessResult = function jobQuestAccessResult(check, accountId) {
+  if (!check?.accountIds?.includes(accountId)) return null;
+  if (check.status === 'running') return { label: 'Checking…', detail: 'Your agent is checking this account in the background.', status: 'running' };
+  const result = check.results?.find(item => item.accountId === accountId);
+  const labels = { verified: 'Access verified', sign_in_required: 'Sign in required', connection_unavailable: 'Connection unavailable', identity_mismatch: 'Wrong account signed in', unverified: 'Access not verified' };
+  const actions = {
+    sign_in_required: 'Complete sign-in in your agent’s browser, then check access again.',
+    connection_unavailable: 'Connect the selected account to your agent, then check access again.',
+    identity_mismatch: 'Switch your agent’s connection or browser to the selected account, then check access again.',
+    unverified: 'Review the check details and try again after resolving the access issue.',
+  };
+  if (!result || check.status !== 'completed') return {
+    label: check.status === 'interrupted' ? 'Check interrupted' : 'Check could not finish',
+    detail: check.error || 'Run Check access again to get a current result.', status: 'unverified',
+    action: 'Check access again when your agent is available.',
+  };
+  return { label: labels[result.status] || labels.unverified, detail: result.detail || 'No check details returned.', status: result.status, action: actions[result.status] };
+};
+
+window.requestJobQuestAccessCheck = async function requestJobQuestAccessCheck(fetcher, accountIds, revision) {
+  const response = await fetcher('/api/opportunities/access-check', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountIds, revision }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw Error(result.error || 'Could not start the access check.');
+  if (!result.check?.id || !result.check.status) throw Error('The access check returned no status. Reload and try again.');
+  return result.check;
 };
 
 window.jobQuestAccountSetupLinks = function jobQuestAccountSetupLinks(kind) {
@@ -152,7 +197,14 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
   const accountInput = React.useRef(null);
   const configuredRequest = React.useRef(0);
   const [accountsOpen, setAccountsOpen] = useState(false);
-  const [accessRequestCopied, setAccessRequestCopied] = useState('');
+  const [accessCheck, setAccessCheck] = useState(null);
+  const [accessError, setAccessError] = useState('');
+  const [accessStarting, setAccessStarting] = useState(false);
+  const [accessLoading, setAccessLoading] = useState(true);
+  const accessSequence = React.useRef(0);
+  const accessFinished = React.useRef('');
+  const accessRunning = accessCheck?.status === 'running';
+  const accountsLocked = busy === 'accounts' || accessStarting || accessLoading || accessRunning;
 
   const load = async ({ clearError = true } = {}) => {
     try {
@@ -168,6 +220,42 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
   };
 
   useEffect(() => { if (active) load(); }, [active]);
+
+  const refreshAccessCheck = async (isCurrent = () => true) => {
+    const sequence = ++accessSequence.current;
+    try {
+      const response = await fetch('/api/opportunities/access-check');
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || 'Could not load the access check.');
+      if (!isCurrent() || sequence !== accessSequence.current) return;
+      const check = result.check || null;
+      setAccessCheck(check);
+      setAccessError('');
+      if (check && check.status !== 'running' && accessFinished.current !== `${check.id}:${check.status}`) {
+        accessFinished.current = `${check.id}:${check.status}`;
+        await load({ clearError: false });
+      }
+    } catch (cause) {
+      if (isCurrent() && sequence === accessSequence.current) setAccessError(`${cause.message} Use Reload status to retry.`);
+    } finally {
+      if (isCurrent() && sequence === accessSequence.current) setAccessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!active || !configureOnly) return;
+    let cancelled = false;
+    setAccessLoading(true);
+    refreshAccessCheck(() => !cancelled);
+    return () => { cancelled = true; };
+  }, [active, configureOnly]);
+
+  useEffect(() => {
+    if (!active || !configureOnly || !accessRunning) return;
+    let cancelled = false;
+    const timer = setInterval(() => refreshAccessCheck(() => !cancelled), 3000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [active, configureOnly, accessRunning]);
   useEffect(() => {
     if (!active || !data || !configureRequest || configuredRequest.current === configureRequest) return;
     configuredRequest.current = configureRequest;
@@ -180,12 +268,19 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
     setAccountsOpen(true);
     window.focusJobQuestOutreachSetup(accountPanel.current, accountInput.current);
   };
-  const copyAccessRequest = async (accounts = data.accounts) => {
+  const checkAccess = async (accounts = data.accounts) => {
+    if (accountsLocked || !accounts.length) return;
+    ++accessSequence.current;
+    setAccessStarting(true);
+    setAccessError('');
     try {
-      const request = window.jobQuestOutreachAccessRequest(accounts);
-      await navigator.clipboard.writeText(request);
-      setAccessRequestCopied(request);
-    } catch { setError('Could not copy the request. Select the request text below and copy it manually.'); }
+      const check = await window.requestJobQuestAccessCheck(fetch, accounts.flatMap(account => account.accountIds || [account.id]), data.accountsRevision);
+      setAccessCheck(check);
+      if (check.status !== 'running') await load({ clearError: false });
+    } catch (cause) {
+      await refreshAccessCheck();
+      setAccessError(cause.message);
+    } finally { setAccessStarting(false); }
   };
 
   const mutate = async (item, action, extra = {}) => {
@@ -214,6 +309,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
   };
 
   const saveAccounts = async accounts => {
+    if (accountsLocked) return;
     setBusy('accounts'); setError('');
     try {
       const response = await fetch('/api/opportunities/accounts', {
@@ -232,7 +328,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
     event.preventDefault();
     const label = accountLabel.trim();
     if (!label || !data) return;
-    if (data.accounts.some(account => account.kind === accountKind && account.label.trim().toLowerCase() === label.toLowerCase())) {
+    if (data.accounts.some(account => (account.kind === accountKind || (['gmail','linkedin_email'].includes(account.kind) && ['gmail','linkedin_email'].includes(accountKind))) && account.label.trim().toLowerCase() === label.toLowerCase())) {
       setError('This account is already selected.');
       return;
     }
@@ -308,7 +404,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       <button className={view === 'outreach' ? 'active' : ''} onClick={() => setView('outreach')}>Outreach</button>
       <button className={view === 'held' ? 'active' : ''} onClick={() => setView('held')}>Paused</button>
       {setPage && <button onClick={() => setPage('discover')}>Discover jobs</button>}
-      <button onClick={openAccounts}>Accounts & sources</button>
+      <button onClick={openAccounts}>Outreach sources</button>
       <button className={catchUp ? 'active' : ''} onClick={() => { setView('outreach'); setCatchUp(!catchUp); }}>{catchUp ? 'Show recent order' : 'Review older outreach'}</button>
     </div>
     </>}
@@ -318,37 +414,41 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       {!configureOnly && data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
       {!configureOnly && data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
       {configureOnly && <section id="outreach-account-setup" ref={accountPanel} className="panel account-setup" aria-labelledby="accounts-heading">
-        <div className="account-setup-header"><div><h2 id="accounts-heading">Accounts to review</h2><p>Choose where Job Quest should look for recruiter messages.</p></div><button disabled={busy==='accounts'} onClick={()=>load()}>Reload saved status</button></div>
+        <div className="account-setup-header"><div><h2 id="accounts-heading">Outreach sources</h2><p>Choose where Job Quest should look for recruiter messages.</p></div><button disabled={accessStarting} onClick={()=>{load();refreshAccessCheck();}}>Reload status</button></div>
         <p className="account-hint">Adding an account saves your choice. It does not sign in or start an inbox review.</p>
+        {accessError&&<p role="alert" className="error">{accessError}</p>}
+        {accessLoading&&!accessStarting&&!accessRunning&&<p role="status">Loading access-check status…</p>}
+        {(accessStarting||accessRunning)&&<p role="status">{accessStarting?'Starting access check…':'Your agent is checking access in the background. You can leave this page and return for the result.'}</p>}
+        {accessCheck&&accessCheck.status!=='running'&&<p role="status">{accessCheck.status==='completed'?'Access check finished. See each account’s result below.':accessCheck.status==='interrupted'?'The access check was interrupted. Check access again to retry.':'The access check could not finish. Check access again to retry.'}{accessCheck.error&&` ${accessCheck.error}`}{accessCheck.status==='completed'&&!accessCheck.saved&&' These results were not saved to the account history. Check access again to update it.'}</p>}
         {data.accounts.length===0&&<p>No accounts selected. Add an account below to get started.</p>}
-        <div className="account-list">{data.accounts.map(account=>{
+        <div className="account-list">{window.jobQuestAccountGroups(data.accounts).map(account=>{
           const source=data.sources.find(s=>s.accountId===account.id||(account.sourceName&&s.name===account.sourceName));
-          const kind={gmail:'Gmail',linkedin_email:'LinkedIn email notifications',linkedin:'LinkedIn inbox'}[account.kind]||account.kind;
+          const kind={gmail:'Email (Gmail)',linkedin_email:'Email mailbox',linkedin:'LinkedIn inbox'}[account.kind]||account.kind;
           const date=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString():null;
           const checked=date(account.accessCheckedAt),reviewed=date(source?.checkedAt);
-          const access=account.accessStatus==='verified'?'Previously verified':account.accessStatus==='blocked'?'Needs attention':'Not checked';
+          const currentAccess=window.jobQuestAccessResult(accessCheck,account.id);
+          const access=account.accessStatus==='verified'?'Previously verified':account.accessStatus==='blocked'?'Needs attention':checked?'Could not verify':'Not checked';
           return <article key={account.id} className="account-row" aria-label={`${kind}: ${account.label}`}><header><span className="account-kind">{kind}</span><h3>{account.label}</h3></header>
-            <dl className="account-status"><div><dt>Agent access</dt><dd>{access}{checked&&<span> · {checked}</span>}</dd></div><div><dt>Latest inbox review</dt><dd>{window.jobQuestAccountReviewStatus(source)}{reviewed&&<span> · {reviewed}</span>}</dd></div></dl>
-            {account.kind==='linkedin_email'&&<p className="account-hint">Only LinkedIn notifications sent by email. This does not cover your full LinkedIn inbox.</p>}
-            <div className="actions"><button disabled={busy==='accounts'} onClick={()=>copyAccessRequest([account])}>{accessRequestCopied===window.jobQuestOutreachAccessRequest([account])?'Copied — paste in agent chat':'Copy request to check access'}</button></div>
+            <dl className="account-status"><div><dt>Saved access history</dt><dd>{access}{checked&&<span> · {checked}</span>}</dd></div><div><dt>Latest inbox review</dt><dd>{window.jobQuestAccountReviewStatus(source)}{reviewed&&<span> · {reviewed}</span>}</dd></div></dl>
+            {['gmail','linkedin_email'].includes(account.kind)&&<p className="account-hint">Recruiter emails, including LinkedIn notifications received here.</p>}
+            {currentAccess&&<div className="account-check-result" role="status"><span className="account-hint">Latest access check{date(accessCheck.finishedAt||accessCheck.startedAt)&&` · ${date(accessCheck.finishedAt||accessCheck.startedAt)}`}</span><br/><strong>{currentAccess.label}</strong><p>{currentAccess.detail}</p>{currentAccess.action&&<p>{currentAccess.action}</p>}</div>}
+            <div className="actions"><button disabled={accountsLocked} onClick={()=>checkAccess([account])}>{accessRunning&&accessCheck.accountIds.includes(account.id)?'Checking…':'Check access'}</button></div>
             <details className="op-details"><summary>Review details & account options</summary>
-              <p>{account.accessDetail||'No access-check notes saved.'}</p>{source?.detail&&<p><strong>Latest review:</strong> {source.detail}</p>}
+              <p><strong>Saved access notes:</strong> {account.accessDetail||'No access-check notes saved.'}</p>{source?.detail&&<p><strong>Latest review:</strong> {source.detail}</p>}
               <p className="account-hint">Previous access checks do not guarantee access from a scheduled run.</p>
-              <details className="op-details"><summary>Advanced source mapping</summary><p className="account-hint">Links this account to an existing review record. Changing the mapping does not connect or review the account.</p><label>Review record<select value={account.sourceName||''} disabled={busy==='accounts'} onChange={event=>saveAccounts(data.accounts.map(a=>a.id===account.id?{...a,sourceName:event.target.value}:a))}><option value="">Not mapped</option>{data.sources.map((source,index)=><option value={source.name} key={`${source.name}-${index}`}>{source.name}</option>)}</select></label></details>
-              <button className="account-remove" disabled={busy==='accounts'} onClick={()=>saveAccounts(data.accounts.filter(a=>a.id!==account.id))}>Remove from review list</button>
+              <details className="op-details"><summary>Advanced source mapping</summary><p className="account-hint">Links this account to an existing review record. Changing the mapping does not connect or review the account.</p><label>Review record<select value={account.sourceName||''} disabled={accountsLocked} onChange={event=>saveAccounts(data.accounts.map(a=>a.id===account.id?{...a,sourceName:event.target.value}:a))}><option value="">Not mapped</option>{data.sources.map((source,index)=><option value={source.name} key={`${source.name}-${index}`}>{source.name}</option>)}</select></label></details>
+              <button className="account-remove" disabled={accountsLocked} onClick={()=>saveAccounts(data.accounts.filter(a=>!account.accountIds.includes(a.id)))}>{account.kind==='linkedin'?'Remove from review list':'Remove mailbox from review list'}</button>
             </details>
           </article>;
         })}</div>
         <section className="account-add"><h3>Add an account</h3><form className="account-form" onSubmit={addAccount}>
-          <label>Account type<select value={accountKind} disabled={busy==='accounts'} onChange={event=>setAccountKind(event.target.value)}><option value="gmail">Gmail</option><option value="linkedin_email">LinkedIn email notifications</option><option value="linkedin">LinkedIn inbox</option></select></label>
-          <label>{accountKind==='linkedin'?'LinkedIn profile':'Email address'}<input ref={accountInput} disabled={busy==='accounts'} value={accountLabel} onChange={event=>setAccountLabel(event.target.value)} placeholder={accountKind==='linkedin'?'LinkedIn profile URL or name':'you@example.com'} maxLength="150" /></label>
-          <button type="submit" disabled={busy==='accounts'||!accountLabel.trim()}>Add account</button>
+          <label>Account type<select value={accountKind} disabled={accountsLocked} onChange={event=>setAccountKind(event.target.value)}><option value="gmail">Email (Gmail)</option><option value="linkedin">LinkedIn inbox</option></select></label>
+          <label>{accountKind==='linkedin'?'LinkedIn profile':'Email address'}<input ref={accountInput} disabled={accountsLocked} value={accountLabel} onChange={event=>setAccountLabel(event.target.value)} placeholder={accountKind==='linkedin'?'LinkedIn profile URL or name':'you@example.com'} maxLength="150" /></label>
+          <button type="submit" disabled={accountsLocked||!accountLabel.trim()}>Add account</button>
         </form></section>
-        <section className="account-access-help" aria-labelledby="account-access-heading"><h2 id="account-access-heading">Check access with your agent</h2><p>Use an account’s copy button, then paste the request into your Job Quest agent chat. The agent checks that it can read the right account and guides you through any connection or sign-in needed.</p><p className="account-hint">Copying a request does not run it. After your agent finishes, use “Reload saved status” above.</p>
-          <button disabled={!data.accounts.length||busy==='accounts'} onClick={()=>copyAccessRequest()}>{accessRequestCopied===window.jobQuestOutreachAccessRequest(data.accounts)?'Copied — paste in agent chat':'Copy request for all accounts'}</button>
-          {accessRequestCopied&&<p role="status">Request copied. Paste it into your Job Quest agent chat to check access.</p>}
-          <details className="op-details"><summary>View request to copy manually</summary><p style={{userSelect:'text'}}>{window.jobQuestOutreachAccessRequest(data.accounts)}</p></details>
-          <details className="op-details"><summary>How Gmail and LinkedIn access work</summary><p><strong>Gmail:</strong> your agent needs an authorized mail connection for the selected address. Signing into Gmail in a browser alone does not create that connection.</p><p><strong>LinkedIn:</strong> your agent checks its own browser session. If it needs you to sign in, it will open the correct browser for you.</p></details>
+        <section className="account-access-help" aria-labelledby="account-access-heading"><h2 id="account-access-heading">Check agent access</h2><p>Your agent checks the account identity and reads only enough inbox metadata to confirm access. It does not save outreach or send anything.</p>
+          <button disabled={!data.accounts.length||accountsLocked} onClick={()=>checkAccess()}>Check all accounts</button>
+          <details className="op-details"><summary>How Gmail and LinkedIn access work</summary><p><strong>Gmail:</strong> your agent needs an authorized mail connection for the selected address. Signing into Gmail in a browser alone does not create that connection.</p><p><strong>LinkedIn:</strong> your agent checks its own browser session. If sign-in is needed, complete it in that browser and check access again.</p><p>Access checks are separate from inbox reviews and do not guarantee access during a later scheduled run.</p></details>
         </section>
         <AccountCollectionStatus active={active} refreshToken={data} onOpenIntel={()=>onConfigureIntel?onConfigureIntel():setPage('setup')}/>
         {data.sources.length>0&&<details className="op-details account-all-coverage"><summary>All saved source reports</summary>{data.generatedAt&&<p>Latest report saved {new Date(data.generatedAt).toLocaleString()}.</p>}{data.sources.map((source,index)=><p key={`${source.name}-${index}`}><strong>{source.name}</strong> · {source.status}<br/><span>{source.detail}</span></p>)}{data.coverage.backfill?.detail&&<p>Pending backfill: {data.coverage.backfill.detail}</p>}{data.coverage.invitations?.detail&&<p>Invitations: {data.coverage.invitations.detail}</p>}</details>}

@@ -753,6 +753,7 @@ app.get('/api/activity', (req, res) => {
 const problemStore = createProblemStore(DATA_DIR);
 require('./lib/codelab/drafts').registerDraftRoutes(app, {dataDir:DATA_DIR,getProblems:()=>problemStore.read()});
 require('./lib/opportunities/routes').registerOpportunityRoutes(app, { dataDir: DATA_DIR, briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE });
+require('./lib/opportunities/access-check').registerAccessCheckRoutes(app, {dataDir:DATA_DIR});
 require('./lib/learning/routes').registerLearningRoutes(app, {dataDir: DATA_DIR, getProblems: () => problemStore.read()});
 require('./lib/podcast/routes').registerPodcastRoutes(app, { dataDir: DATA_DIR, binDir: expandHome(runtimeState.binDir) });
 require('./lib/intel-control/routes').registerIntelControls(app,{dataDir:DATA_DIR,binDir:expandHome(runtimeState.binDir),getRuntime:()=>ensureRuntime({write:false,requireRunner:true,requireRegistration:true})});

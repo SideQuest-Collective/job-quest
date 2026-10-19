@@ -141,42 +141,132 @@ test('setup request waits for the visible loaded Outreach form, then opens and f
   assert.equal(calls.length, 6, 'returning through Setup should reopen the form');
 });
 
-test('access-check action copies an actionable request without account writes, scans or sending', async () => {
-  const handler = source.match(/  const copyAccessRequest = async \(accounts = data.accounts\) => \{[\s\S]*?\n  \};/)[0];
-  const writes = [], statuses = [], errors = [];
-  const copy = new Function('window', 'navigator', 'data', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
-    context.window, { clipboard: { async writeText(text) { writes.push(text); } } }, { accounts: [{ id: 'gmail', kind: 'gmail', label: 'you@example.test' }] },
-    value => statuses.push(value), value => errors.push(value));
-  await copy();
-  assert.equal(writes.length, 1);
-  assert.match(writes[0], /already authorized inbox tools or browser access/);
-  assert.match(writes[0], /Do not send messages/);
-  assert.deepEqual(statuses, [writes[0]]);
-  assert.deepEqual(errors, []);
-  const denied = new Function('window', 'navigator', 'data', 'setAccessRequestCopied', 'setError', `${handler}\nreturn copyAccessRequest;`)(
-    context.window, { clipboard: { async writeText() { throw Error('denied'); } } }, { accounts: [] },
-    value => statuses.push(value), value => errors.push(value));
-  await denied();
-  assert.match(errors[0], /copy it manually/);
-  assert.equal(statuses.length, 1);
+test('mailbox groups combine legacy notification aliases, prefer Gmail and preserve original saved records', () => {
+  const accounts = [
+    {id:'notification',kind:'linkedin_email',label:' You@Example.test ',sourceName:'legacy'},
+    {id:'li',kind:'linkedin',label:'You@Example.test'},
+    {id:'gmail',kind:'gmail',label:'you@example.test',sourceName:'gmail'},
+    {id:'other',kind:'gmail',label:'other@example.test'},
+    {id:'legacy-only',kind:'linkedin_email',label:'legacy@example.test'},
+  ];
+  const original = JSON.stringify(accounts);
+  const groups = plain(context.window.jobQuestAccountGroups(accounts));
+  assert.equal(groups.length,4);
+  assert.deepEqual(groups[0], {...accounts[2],accountIds:['notification','gmail']});
+  assert.deepEqual(groups[1], {...accounts[1],accountIds:['li']});
+  assert.deepEqual(groups[3].accountIds,['legacy-only']);
+  assert.equal(JSON.stringify(accounts),original,'grouping does not rewrite legacy data or source mappings');
+  assert.doesNotMatch(source, /<option value="linkedin_email">/);
+  assert.match(source, /Recruiter emails, including LinkedIn notifications received here/);
+  assert.match(source, /data.accounts.filter\(a=>!account.accountIds.includes\(a.id\)\)/);
 });
 
+test('adding Gmail refuses an already saved notification mailbox regardless of case', () => {
+  const handler=source.match(/  const addAccount = event => \{[\s\S]*?\n  \};/)[0];
+  const errors=[], saves=[];
+  const add=new Function('accountLabel','data','accountKind','setError','saveAccounts',`${handler}\nreturn addAccount;`)(
+    ' YOU@example.test ',{accounts:[{id:'old',kind:'linkedin_email',label:'you@EXAMPLE.test'}]},'gmail',value=>errors.push(value),value=>saves.push(value));
+  add({preventDefault(){}});
+  assert.deepEqual(saves,[]);
+  assert.deepEqual(errors,['This account is already selected.']);
+});
 
-test('account access requests target the selected identity and preserve evidence and revision safeguards', () => {
-  const account = { id: 'li', kind: 'linkedin', label: 'Profile name', accessStatus: 'unverified' };
-  const request = context.window.jobQuestOutreachAccessRequest([account]);
-  assert.match(request, /\"id\":\"li\"/);
-  assert.match(request, /\"label\":\"Profile name\"/);
-  assert.match(request, /signed-in profile/);
-  assert.match(request, /direct messages and LinkedIn Jobs separately/);
-  assert.match(request, /accountsRevision as revision/);
-  assert.match(request, /preserving all other saved accounts and fields/);
-  assert.match(request, /actual successful read/);
-  assert.match(request, /Do not send messages, apply for jobs, or change schedules/);
-  assert.equal(account.accessStatus, 'unverified');
-  const other = { id: 'other', kind: 'gmail', label: 'other@example.test' };
-  assert.doesNotMatch(request, /other@example/);
-  assert.match(context.window.jobQuestOutreachAccessRequest([account, other]), /other@example/);
+test('access checks send only selected ids and the saved revision to the background API', async () => {
+  const calls = [];
+  const check = { id: 'check-1', status: 'running', accountIds: ['gmail'] };
+  const fetcher = async (url, request) => { calls.push({url, request}); return {ok:true,json:async()=>({check})}; };
+  assert.equal(await context.window.requestJobQuestAccessCheck(fetcher, ['gmail'], 'revision-1'), check);
+  assert.equal(calls[0].url, '/api/opportunities/access-check');
+  assert.equal(calls[0].request.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].request.body), {accountIds:['gmail'],revision:'revision-1'});
+  await assert.rejects(context.window.requestJobQuestAccessCheck(async()=>({ok:false,json:async()=>({error:'Refresh accounts first.'})}), ['gmail'], 'old'), /Refresh accounts first/);
+  await assert.rejects(context.window.requestJobQuestAccessCheck(async()=>({ok:true,json:async()=>({})}), ['gmail'], 'old'), /returned no status/);
+  assert.doesNotMatch(source, /copyAccessRequest|jobQuestOutreachAccessRequest|paste.*agent chat|Copy request/);
+  assert.match(source, /does not save outreach or send anything/);
+});
+
+test('latest results distinguish active verification, blockers, failed and interrupted checks from saved history', () => {
+  const result = context.window.jobQuestAccessResult;
+  assert.equal(result(null, 'gmail'), null);
+  assert.equal(result({accountIds:['other'],status:'running'}, 'gmail'), null);
+  const check = {accountIds:['gmail'],status:'running'};
+  assert.equal(result(check, 'gmail').label, 'Checking…');
+  for (const status of ['sign_in_required','connection_unavailable','identity_mismatch','unverified']) {
+    const current = result({...check,status:'completed',results:[{accountId:'gmail',status,detail:'Actual evidence'}]}, 'gmail');
+    assert.notEqual(current.label, 'Access verified');
+    assert.equal(current.detail, 'Actual evidence');
+    assert.match(current.action, /again/);
+  }
+  const verified = result({...check,status:'completed',results:[{accountId:'gmail',status:'verified',detail:'Identity confirmed'}]}, 'gmail');
+  assert.equal(verified.label, 'Access verified');
+  assert.equal(verified.action, undefined);
+  for (const status of ['failed','interrupted']) {
+    const current = result({...check,status,error:'Agent unavailable',results:[{accountId:'gmail',status:'verified'}]}, 'gmail');
+    assert.notEqual(current.label, 'Access verified');
+    assert.equal(current.detail, 'Agent unavailable');
+  }
+  assert.notEqual(result({...check,status:'completed',results:[]}, 'gmail').label, 'Access verified');
+  assert.match(source, /<dt>Saved access history<\/dt>/);
+});
+
+test('the actual check handler prevents duplicate starts, uses the current revision and retains start errors', async () => {
+  const handler = source.match(/  const checkAccess = async \(accounts = data.accounts\) => \{[\s\S]*?\n  \};/)[0];
+  const run = (locked, request) => {
+    const calls = [], checks = [], errors = [], starting = [], accessSequence = {current:0};
+    const invoke = new Function('window','fetch','data','accountsLocked','accessSequence','setAccessStarting','setAccessError','setAccessCheck','load','refreshAccessCheck', `${handler}\nreturn checkAccess;`)(
+      {requestJobQuestAccessCheck:request},()=>{}, {accounts:[{id:'gmail'},{id:'linkedin'}],accountsRevision:'fresh'},locked,accessSequence,
+      value=>starting.push(value), value=>errors.push(value), value=>checks.push(value),async()=>calls.push('load'),async()=>{calls.push('refresh');errors.push('');});
+    return {invoke,calls,checks,errors,starting,accessSequence};
+  };
+  let requests = 0;
+  const expectedIds = [];
+  const request = async (_fetch, ids, revision) => {requests++;assert.deepEqual(ids,expectedIds.shift());assert.equal(revision,'fresh');return{id:'1',status:'running'};};
+  const locked = run(true,request);
+  await locked.invoke([{id:'gmail'}]);
+  assert.equal(requests,0);
+  const ready = run(false,request);
+  expectedIds.push(['gmail']);
+  await ready.invoke([{id:'gmail'}]);
+  assert.equal(requests,1);
+  assert.deepEqual(ready.starting,[true,false]);
+  assert.equal(ready.checks[0].status,'running');
+  assert.deepEqual(ready.calls,[],'a running check does not claim account history has been saved');
+  expectedIds.push(['gmail','old-notifications']);
+  await ready.invoke([{id:'gmail',accountIds:['gmail','old-notifications']}]);
+  expectedIds.push(['gmail','linkedin']);
+  await ready.invoke();
+  const failed=run(false,async()=>{throw Error('Agent unavailable');});
+  await failed.invoke();
+  assert.deepEqual(failed.calls,['refresh']);
+  assert.equal(failed.errors.at(-1),'Agent unavailable');
+});
+
+test('access polling runs every three seconds only while active and running, and stops on navigation', () => {
+  const effect = source.match(/  useEffect\(\(\) => \{\n    if \(!active \|\| !configureOnly \|\| !accessRunning\)[\s\S]*?\n  \}, \[active, configureOnly, accessRunning\]\);/)[0];
+  const run = new Function('active','configureOnly','accessRunning','refreshAccessCheck','setInterval','clearInterval','useEffect',effect);
+  for (const state of [[false,true,true],[true,false,true],[true,true,false]]) {
+    run(...state,()=>assert.fail('must not refresh'),()=>assert.fail('must not poll'),()=>{},callback=>callback());
+  }
+  let callback, cleanup, current, clears=0;
+  run(true,true,true, predicate=>{current=predicate();}, (fn,delay)=>{callback=fn;assert.equal(delay,3000);return 17;}, id=>{assert.equal(id,17);clears++;}, effect=>{cleanup=effect();});
+  callback();assert.equal(current,true);
+  cleanup();assert.equal(clears,1);
+  callback();assert.equal(current,false,'in-flight responses are ignored after navigation');
+});
+
+test('access status reload ignores stale responses and refreshes saved accounts after completion', async () => {
+  const handler = source.match(/  const refreshAccessCheck = async \(isCurrent = \(\) => true\) => \{[\s\S]*?\n  \};/)[0];
+  const calls=[], checks=[], errors=[], loading=[], sequence={current:0}, finished={current:''};
+  const completed={id:'check',status:'completed',saved:true};
+  const reload=new Function('fetch','accessSequence','setAccessCheck','setAccessError','accessFinished','load','setAccessLoading',`${handler}\nreturn refreshAccessCheck;`)(
+    async()=>({ok:true,json:async()=>({check:completed})}),sequence,value=>checks.push(value),value=>errors.push(value),finished,async options=>calls.push(options),value=>loading.push(value));
+  await reload(()=>false);
+  assert.equal(checks.length,0);
+  await reload();await reload();
+  assert.equal(checks.length,2);
+  assert.equal(calls.length,1,'each finished result refreshes account history once');
+  assert.deepEqual(calls[0],{clearError:false});
+  assert.deepEqual(loading,[false,false]);
 });
 
 test('setup offers distinct LinkedIn browser surfaces and a Gmail account chooser', () => {
