@@ -21,7 +21,7 @@ function registerPodcastRoutes(app, { dataDir, binDir, schedule = createPodcastS
     const apiKey = store.readApiKey(dataDir);
     const config = store.readConfig(dataDir);
     const r = await verifyApiKey({ apiKey, model: config.model, hosts: config.hosts, ...(fetchFn ? { fetchFn } : {}) });
-    return apiKey ? store.writeKeyStatus(dataDir, apiKey, r) : r;
+    return apiKey ? store.writeKeyStatus(dataDir, apiKey, r, config) : r;
   };
 
   app.get('/api/podcast', wrap(async () => {
@@ -51,6 +51,7 @@ function registerPodcastRoutes(app, { dataDir, binDir, schedule = createPodcastS
       key,
       schedule: sched,
       imessageAvailable: readTrainerPhone(),
+      imessageConfigured: Object.prototype.hasOwnProperty.call(store.readJson(path.join(dataDir, 'podcast', 'config.json'), {}), 'imessage'),
       config: store.readConfig(dataDir),
       content: { roles: roles.length, sheets: new Set(rawCards(dataDir).cards.map((c) => c.roleKey)).size, missingSheets: missingSheets(dataDir).length },
     };

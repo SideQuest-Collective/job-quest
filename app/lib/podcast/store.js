@@ -17,7 +17,7 @@ const DEFAULT_CONFIG = {
   sheetsPerRun: 3,
   topicsPerEpisode: 2,
   algorithmTopics: 1,
-  imessage: true,
+  imessage: false,
 };
 
 function podcastDir(dataDir) { return path.join(dataDir, 'podcast'); }
@@ -54,8 +54,11 @@ function writeApiKey(dataDir, key) {
 
 // Whether the saved key has been proven to record audio. Tied to the key itself, so a new key starts unchecked.
 function keyStatusFile(dataDir) { return path.join(podcastDir(dataDir), 'key-status.json'); }
-function writeKeyStatus(dataDir, apiKey, status) {
-  writeJson(keyStatusFile(dataDir), { ...status, keyHash: shortHash(apiKey) });
+function recordingHash(config) {
+  return shortHash(JSON.stringify({ model: config.model, hosts: config.hosts.map(({ name, voice }) => ({ name, voice })) }));
+}
+function writeKeyStatus(dataDir, apiKey, status, config = readConfig(dataDir)) {
+  writeJson(keyStatusFile(dataDir), { ...status, keyHash: shortHash(apiKey), recordingHash: recordingHash(config) });
   return readKeyStatus(dataDir);
 }
 // Where the active key comes from: the environment wins over the secrets file.
@@ -68,7 +71,7 @@ function removeApiKey(dataDir) {
   fs.rmSync(keyStatusFile(dataDir), { force: true });
 }
 // The status never includes the key itself; `hint` is the last four characters so the person can tell keys apart.
-function readKeyStatus(dataDir) {
+function readKeyStatus(dataDir, config = readConfig(dataDir)) {
   const apiKey = readApiKey(dataDir);
   if (!apiKey) {
     const { REMEDIATION } = require('./verify');
@@ -79,7 +82,10 @@ function readKeyStatus(dataDir) {
   if (!saved || saved.keyHash !== shortHash(apiKey)) {
     return { verified: false, code: 'unchecked', message: 'This key has not been checked yet.', remediation: 'Check the key to make sure it can record audio.', ...meta };
   }
-  const { keyHash, ...status } = saved;
+  if (saved.recordingHash !== recordingHash(config)) {
+    return { verified: false, code: 'recording-changed', message: 'The current model and voices have not been checked together.', remediation: 'In Setup → Podcast, use Check the key again before recording an episode.', ...meta };
+  }
+  const { keyHash, recordingHash: checkedRecordingHash, ...status } = saved;
   return { ...status, ...meta };
 }
 
@@ -89,9 +95,28 @@ function readConfig(dataDir) {
 }
 function writeConfig(dataDir, patch) {
   const allowed = ['enabled', 'targetMinutes', 'hour', 'minute', 'sheetsPerRun', 'topicsPerEpisode', 'algorithmTopics', 'imessage', 'hosts', 'model'];
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw Object.assign(new Error('Podcast preferences must be an object.'), { status: 400 });
+  const invalid = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
   const next = { ...readConfig(dataDir) };
   for (const k of allowed) if (patch[k] !== undefined) next[k] = patch[k];
-  next.targetMinutes = Math.min(20, Math.max(5, Number(next.targetMinutes) || DEFAULT_CONFIG.targetMinutes));
+  for (const [key, min, max] of [['targetMinutes', 5, 20], ['hour', 0, 23], ['minute', 0, 59], ['sheetsPerRun', 0, 20], ['topicsPerEpisode', 1, 20], ['algorithmTopics', 0, 20]]) {
+    if (patch[key] === undefined) continue;
+    if (!['number', 'string'].includes(typeof patch[key]) || String(patch[key]).trim() === '' || !Number.isInteger(Number(patch[key])) || Number(patch[key]) < min || Number(patch[key]) > max) invalid(`${key} must be a whole number from ${min} to ${max}.`);
+    next[key] = Number(patch[key]);
+  }
+  for (const key of ['enabled', 'imessage']) if (patch[key] !== undefined && typeof patch[key] !== 'boolean') invalid(`${key} must be true or false.`);
+  if (patch.model !== undefined) {
+    if (typeof patch.model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,199}$/.test(patch.model.trim())) invalid('Enter a valid Gemini text-to-speech model name.');
+    next.model = patch.model.trim();
+  }
+  if (patch.hosts !== undefined) {
+    if (!Array.isArray(patch.hosts) || patch.hosts.length !== 2) invalid('Exactly two podcast hosts are required.');
+    next.hosts = patch.hosts.map((host) => {
+      if (!host || typeof host !== 'object' || ['name', 'voice'].some((key) => typeof host[key] !== 'string' || !host[key].trim() || host[key].trim().length > 80 || /[\x00-\x1f\x7f]/.test(host[key]))) invalid('Each host needs a name and Gemini voice of up to 80 characters.');
+      return { ...host, name: host.name.trim(), voice: host.voice.trim() };
+    });
+    if (next.hosts[0].name.toLowerCase() === next.hosts[1].name.toLowerCase()) invalid('Use a different name for each podcast host.');
+  }
   writeJson(path.join(podcastDir(dataDir), 'config.json'), next);
   return next;
 }
@@ -144,6 +169,6 @@ const shortHash = (s) => crypto.createHash('sha1').update(String(s)).digest('hex
 
 module.exports = { EPISODE_ID,
   DEFAULT_CONFIG, podcastDir, episodesDir, episodeDir, readJson, writeJson,
-  readApiKey, writeApiKey, removeApiKey, keySource, readKeyStatus, writeKeyStatus, readConfig, writeConfig, readHistory, recordAired, markFuzzy, listEpisodes, shortHash,
+  readApiKey, writeApiKey, removeApiKey, keySource, readKeyStatus, writeKeyStatus, recordingHash, readConfig, writeConfig, readHistory, recordAired, markFuzzy, listEpisodes, shortHash,
   SNOOZE_DAYS, readOnboarding, writeOnboarding, shouldShowOnboarding,
 };

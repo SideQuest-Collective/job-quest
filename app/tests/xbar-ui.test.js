@@ -68,7 +68,10 @@ test('routing accepts exactly the mounted page IDs, including new pages', () => 
   assert.match(app, /const \[page, setPage\] = usePageRouting\(\)/);
   const block = html.match(/\/\* ===== PAGE HASH ROUTING ===== \*\/([\s\S]*?)\nfunction App\(/);
   const pageIds = vm.runInNewContext(`${block[1]}\nArray.from(PAGE_IDS)`);
-  assert.deepEqual(Array.from(pageIds).sort(), mountedPages);
+  const setupPages = ['setup', 'setup-podcast', 'setup-accounts', 'setup-practice', 'setup-access'];
+  assert.match(app, /<window\.JobQuestSetup/);
+  assert.deepEqual(Array.from(pageIds).sort(), [...mountedPages, ...setupPages].sort());
+  for (const page of setupPages) assert.equal(routing(`#${page}`).render()[0], page);
   assert.ok(mountedPages.includes('practice') && mountedPages.includes('learn') && mountedPages.includes('opportunities'));
   for (const page of mountedPages) assert.equal(routing(`#${page}`).render()[0], page);
   for (const invalid of ['', '#code', '#tracker', '#divider1', '#__proto__', '#toString', '#INTEL', '#intel/extra']) {

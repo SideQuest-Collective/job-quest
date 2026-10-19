@@ -5,6 +5,7 @@ const {promisify} = require('util');
 const execute = promisify(execFile);
 const {state:lockState}=require('./lock');
 const {getLocalDateStamp}=require('../local-date');
+const {readLegacyRun}=require('./history');
 const crypto=require('crypto');
 function failure(message, status=400) {return Object.assign(new Error(message), {status});}
 function scheduleCron(value) {
@@ -22,7 +23,7 @@ function createIntelControls({dataDir, binDir, getRuntime, exec=execute, launch=
   function readPreference(){try{const value=JSON.parse(fs.readFileSync(preferenceFile,'utf8'));if(!value||value.schema!=='job-quest-intel-schedule/1'||!['off','daily','weekdays'].includes(value.frequency))throw Error('invalid preference');return value;}catch(e){if(e.code==='ENOENT')return null;throw failure('The saved Intel schedule preference could not be read. Repair it before changing the schedule.',503);}}
   function writePreference(value,cron){const preference={schema:'job-quest-intel-schedule/1',frequency:value.frequency,time:cron?value.time:null,cron,updatedAt:now().toISOString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone};const temp=`${preferenceFile}.${crypto.randomUUID()}.tmp`;try{fs.writeFileSync(temp,JSON.stringify(preference,null,2),{mode:0o600,flag:'wx'});fs.renameSync(temp,preferenceFile);}finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}}
   // Written by run-daily-intel.sh for every run, including scheduled ones the dashboard did not start.
-  function readLastRun() {try {const value=JSON.parse(fs.readFileSync(path.join(dataDir,'logs','daily-intel-last-run.json'),'utf8'));return value&&typeof value.status==='string'?value:null;} catch(e) {if(e.code==='ENOENT') return null; return {status:'unknown',reason:'The last run record could not be read.'};}}
+  function readLastRun() {try {const value=JSON.parse(fs.readFileSync(path.join(dataDir,'logs','daily-intel-last-run.json'),'utf8'));return value&&typeof value.status==='string'?value:{status:'unknown',reason:'The last run record could not be read.'};} catch(e) {if(e.code==='ENOENT') return readLegacyRun(path.join(dataDir,'logs','daily-intel.log')); return {status:'unknown',reason:'The last run record could not be read.'};}}
   function latestIntelDate() {try {return fs.readdirSync(path.join(dataDir,'intel')).map(name=>/^(\d{4}-\d{2}-\d{2})\.json$/.exec(name)?.[1]).filter(Boolean).sort().pop()||null;} catch {return null;}}
   function readRun() {try {return JSON.parse(fs.readFileSync(stateFile,'utf8'));} catch(e) {if(e.code==='ENOENT') return null; return {status:'unknown',error:'Run history could not be read. Existing data was preserved.'};}}
   function writeRun(run) {fs.mkdirSync(path.dirname(stateFile),{recursive:true}); const temp=`${stateFile}.${process.pid}.tmp`;fs.writeFileSync(temp,JSON.stringify(run,null,2),{mode:0o600});fs.renameSync(temp,stateFile);}

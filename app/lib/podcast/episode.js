@@ -16,12 +16,13 @@ const topics = require('./topics');
 // Prove the key can record audio before any cheat-sheet or script agent runs. A key that failed
 // earlier is checked again here, so a billing fix takes effect on the next scheduled run by itself.
 async function ensureVerifiedKey({ dataDir, config, fetchFn, log }) {
-  let status = store.readKeyStatus(dataDir);
+  let status = store.readKeyStatus(dataDir, config);
+  if (status.code === 'recording-changed') throw Object.assign(new Error(`${status.message} ${status.remediation}`.trim()), { code: status.code });
   if (status.verified) return status;
   const apiKey = store.readApiKey(dataDir);
   if (apiKey) {
     log('checking the Gemini key can record audio');
-    status = store.writeKeyStatus(dataDir, apiKey, await verifyApiKey({ apiKey, model: config.model, hosts: config.hosts, ...(fetchFn ? { fetchFn } : {}) }));
+    status = store.writeKeyStatus(dataDir, apiKey, await verifyApiKey({ apiKey, model: config.model, hosts: config.hosts, ...(fetchFn ? { fetchFn } : {}) }), config);
     if (status.verified) return status;
   }
   throw Object.assign(new Error(`${status.message} ${status.remediation}`.trim()), { code: status.code });

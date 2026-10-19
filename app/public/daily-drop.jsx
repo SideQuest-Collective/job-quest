@@ -13,33 +13,40 @@
   const chip = (active) => ({ padding: '4px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer', border: '1px solid var(--border)', background: active ? 'var(--amber-dim)' : 'transparent', color: active ? 'var(--amber)' : 'var(--text-secondary)' });
   const tag = { fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', marginRight: 6, display: 'inline-block', marginTop: 4 };
 
-  const openOnboarding = () => window.dispatchEvent(new CustomEvent('jq:daily-drop-setup'));
+  const openPodcastSetup = () => window.dispatchEvent(new CustomEvent('jq:open-setup', { detail: { section: 'podcast' } }));
 
   // The key is only "connected" once Google has actually returned audio for it. Until then the fix is shown here.
   const keyProblem = (state) => state.hasKey && !(state.key && state.key.verified) ? state.key || { message: 'This key has not been checked yet.', remediation: '' } : null;
 
   function SetupPrompt({ state }) {
-    const missing = [!state.hasKey && 'voices', !(state.schedule && state.schedule.installed) && 'morning schedule'].filter(Boolean);
+    const missing = [!state.hasKey && 'Gemini voices'].filter(Boolean);
     const problem = keyProblem(state);
     if (!missing.length && !problem) return null;
     return (
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 14, color: 'var(--text-secondary)', flex: 1, minWidth: 240 }}>
           {missing.length > 0 && <div>Daily Drop still needs its {missing.join(' and ')}.</div>}
-          {problem && <div role="alert" style={{ color: 'var(--rose)', marginTop: missing.length ? 6 : 0 }}>{problem.code === 'unchecked' ? "The saved Gemini key hasn't been tested yet. Check it in the Voices card below." : "The saved Gemini key can't record audio yet. Fix it in the Voices card below."}</div>}
+          {problem && <div role="alert" style={{ color: 'var(--rose)', marginTop: missing.length ? 6 : 0 }}>{problem.code === 'unchecked' ? "The saved Gemini key hasn't been tested yet. Check it in Setup → Podcast." : "The saved Gemini key can't record audio yet. Fix it in Setup → Podcast."}</div>}
         </div>
-        <button className="btn btn-primary" onClick={openOnboarding}>Set up Daily Drop</button>
+        <button className="btn btn-primary" onClick={openPodcastSetup}>Open podcast setup</button>
       </div>
     );
   }
 
   // Manage the Gemini key here: see whether it works, replace it, check it again or remove it.
   // The key itself never comes back from the server; only its last four characters do.
-  function VoicesCard({ state, reload }) {
+  function VoicesCard({ state, reload, disabled = false, onBusyChange = () => {} }) {
     const [editing, setEditing] = useState(false), [draft, setDraft] = useState(''), [busy, setBusy] = useState(false), [note, setNote] = useState('');
+    const keyOperation = useRef(false);
+    const locked = busy || disabled;
     const key = state.key || { verified: false, code: 'no-key', source: 'none' };
     const verdict = (r) => (r.key.verified ? 'Voices connected.' : `${r.key.message} ${r.key.remediation}`);
-    const run = async (fn) => { setBusy(true); setNote(''); try { await fn(); } catch (e) { setNote(e.message); } finally { setBusy(false); reload(); } };
+    const run = async (fn) => {
+      if (keyOperation.current || disabled) return;
+      keyOperation.current = true; setBusy(true); onBusyChange(true); setNote('');
+      try { await fn(); } catch (e) { setNote(e.message); }
+      finally { try { await reload(); } finally { keyOperation.current = false; setBusy(false); onBusyChange(false); } }
+    };
     const save = () => run(async () => { const r = await req('/api/podcast/config', 'PUT', { apiKey: draft }); setDraft(''); setEditing(false); setNote(verdict(r)); });
     const check = () => run(async () => setNote(verdict(await req('/api/podcast/key/verify', 'POST'))));
     const remove = () => { if (window.confirm('Remove the saved Gemini key? Episodes stop until a new one is added.')) run(async () => { await req('/api/podcast/key', 'DELETE'); setNote('Key removed.'); }); };
@@ -50,16 +57,16 @@
         {!state.hasKey && <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 0 }}>No Gemini key saved. The hosts need one to record. Create it at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>; a short test recording checks it before anything else runs.</p>}
         {state.hasKey && key.verified && <p role="status" style={{ fontSize: 14, color: 'var(--emerald)', marginTop: 0 }}>Connected. Key {key.hint}{key.source === 'env' ? ' from GEMINI_API_KEY' : ''}{when ? `, checked ${when}` : ''}.</p>}
         {state.hasKey && !key.verified && <p role="alert" style={{ fontSize: 14, color: 'var(--rose)', marginTop: 0, lineHeight: 1.5 }}>Key {key.hint} can't record audio. {key.message} {key.remediation}</p>}
-        {editing && <label style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>New Gemini API key<input type="password" autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Paste key" style={field} /></label>}
+        {editing && <label style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>New Gemini API key<input type="password" disabled={locked} autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Paste key" style={field} /></label>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {editing
             ? <>
-                <button className="btn btn-primary" disabled={busy || !draft.trim()} onClick={save}>{busy ? 'Testing…' : 'Save and test'}</button>
-                <button className="btn btn-secondary" disabled={busy} onClick={() => { setEditing(false); setDraft(''); }}>Cancel</button>
+                <button className="btn btn-primary" style={{ minHeight: 44 }} disabled={locked || !draft.trim()} onClick={save}>{busy ? 'Testing…' : 'Save and test'}</button>
+                <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={locked} onClick={() => { setEditing(false); setDraft(''); }}>Cancel</button>
               </>
-            : <button className="btn btn-primary" disabled={busy || key.source === 'env'} onClick={() => setEditing(true)}>{state.hasKey ? 'Replace key' : 'Add key'}</button>}
-          {state.hasKey && !editing && <button className="btn btn-secondary" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check the key again'}</button>}
-          {state.hasKey && !editing && key.source !== 'env' && <button className="btn btn-secondary" disabled={busy} onClick={remove}>Remove key</button>}
+            : <button className="btn btn-primary" style={{ minHeight: 44 }} disabled={locked || key.source === 'env'} onClick={() => setEditing(true)}>{state.hasKey ? 'Replace key' : 'Add key'}</button>}
+          {state.hasKey && !editing && <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={locked} onClick={check}>{busy ? 'Checking…' : 'Check the key again'}</button>}
+          {state.hasKey && !editing && key.source !== 'env' && <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={locked} onClick={remove}>Remove key</button>}
         </div>
         {key.source === 'env' && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>This key is set by the GEMINI_API_KEY environment variable, so it can only be changed there.</p>}
         {note && <div role="status" style={{ fontSize: 13, marginTop: 10, color: 'var(--text-secondary)' }}>{note}</div>}
@@ -81,7 +88,7 @@
       <div>
         <SetupPrompt state={state} />
         <div className="card">
-          {!ep && <p style={{ color: 'var(--text-secondary)' }}>No episodes yet. The first one arrives at {String(state.config.hour).padStart(2, '0')}:{String(state.config.minute).padStart(2, '0')}, or make one now.</p>}
+          {!ep && <p style={{ color: 'var(--text-secondary)' }}>No episodes yet. {state.schedule && state.schedule.installed ? `The next scheduled recording is at ${state.schedule.time || `${String(state.config.hour).padStart(2, '0')}:${String(state.config.minute).padStart(2, '0')}`}. This Mac needs to be awake.` : 'Automatic recording is off. Open podcast setup to add a schedule, or make an episode now.'}</p>}
           {ep && (
             <>
               <div style={{ fontSize: 12, color: 'var(--amber)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1 }}>{pretty(ep.date)}{ep.seconds ? ` · ${mins(ep.seconds)}` : ''}</div>
@@ -114,7 +121,7 @@
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
             {ep && ep.status === 'ready' && <button className="btn btn-secondary" onClick={loadScript}>{showScript ? 'Hide transcript' : 'Read transcript'}</button>}
-            <button className="btn btn-secondary" disabled={busy || !(state.key && state.key.verified)} title={state.key && state.key.verified ? undefined : 'Connect a working Gemini key first'} onClick={generate}>{busy ? 'Making episode…' : 'Make a new episode now'}</button>
+            <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy || !(state.key && state.key.verified)} title={state.key && state.key.verified ? undefined : 'Connect a working Gemini key first'} onClick={generate}>{busy ? 'Making episode…' : 'Make a new episode now'}</button>
           </div>
           {note && <div role="status" style={{ fontSize: 13, marginTop: 10, color: 'var(--text-secondary)' }}>{note}</div>}
           {showScript && script && (
@@ -125,7 +132,6 @@
             </div>
           )}
         </div>
-        <VoicesCard state={state} reload={reload} />
         {eps.length > 1 && (
           <div className="card">
             <div className="card-title" style={{ fontWeight: 600, marginBottom: 8 }}>Past episodes</div>
@@ -155,7 +161,7 @@
           <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
             {t.topics.length} topics ranked from the questions your live roles' workbooks expect · {withSheet} with a concept sheet (a few more are built each morning)
           </div>
-          <button className="btn btn-secondary" disabled={busy} onClick={refresh}>{busy ? 'Ranking…' : 'Re-rank now'}</button>
+          <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={refresh}>{busy ? 'Ranking…' : 'Re-rank now'}</button>
         </div>
         {t.topics.map((x, i) => (
           <div key={x.id} className="card">
@@ -247,7 +253,8 @@
       <div style={{ maxWidth: 1050, margin: '0 auto' }}>
         <div className="page-header">
           <h2>Daily Drop</h2>
-          <div className="greeting-sub">A short lesson each morning on the concepts your upcoming interviews are most likely to ask, ranked across your roles' workbooks.</div>
+          <div className="greeting-sub">Interview lessons on the concepts your upcoming interviews are most likely to ask, ranked across your roles' workbooks.</div>
+          <button className="btn btn-secondary" style={{ minHeight: 44, marginTop: 12 }} onClick={openPodcastSetup}>Podcast settings</button>
         </div>
         <nav style={{ display: 'flex', gap: 8, marginBottom: 20 }} aria-label="Daily Drop view">
           <button className={`btn ${tab === 'today' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('today')}>Episode</button>
@@ -269,10 +276,10 @@
 
   function DailyDropOnboarding({ setPage, autoOpen = true }) {
     const [info, setInfo] = useState(null), [open, setOpen] = useState(false), [step, setStep] = useState('intro');
-    const [key, setKey] = useState(''), [time, setTime] = useState('08:30'), [imessage, setImessage] = useState(true);
+    const [key, setKey] = useState(''), [time, setTime] = useState('08:30'), [imessage, setImessage] = useState(false);
     const [busy, setBusy] = useState(false), [error, setError] = useState(''), [done, setDone] = useState('');
     const dialog = useRef(null);
-    const load = async () => { const v = await req('/api/podcast/onboarding'); setInfo(v); setImessage(v.config.imessage !== false); if (v.schedule.time) setTime(v.schedule.time); return v; };
+    const load = async () => { const v = await req('/api/podcast/onboarding'); setInfo(v); setImessage(setupConfig(v).imessage); if (v.schedule.time) setTime(v.schedule.time); return v; };
     useEffect(() => {
       let alive = true;
       const t = autoOpen ? setTimeout(() => load().then((v) => { if (alive && v.show) { setStep('intro'); setOpen(true); } }).catch(() => {}), 1200) : null;
@@ -331,12 +338,12 @@
 
           <div className="action-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 20 }}>
             {step === 'intro' && <>
-              <button className="btn btn-primary" disabled={busy} onClick={next}>Set it up</button>
-              <button className="btn btn-secondary" disabled={busy} onClick={() => close('later')}>Not now</button>
-              <button className="btn btn-secondary" disabled={busy} onClick={() => close('skip')}>No thanks</button>
+              <button className="btn btn-primary" style={{ minHeight: 44 }} disabled={busy} onClick={next}>Set it up</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={() => close('later')}>Not now</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={() => close('skip')}>No thanks</button>
             </>}
             {step === 'voices' && <>
-              <button className="btn btn-primary" disabled={busy || (!key.trim() && !info.hasKey)} onClick={() => act(async () => {
+              <button className="btn btn-primary" style={{ minHeight: 44 }} disabled={busy || (!key.trim() && !info.hasKey)} onClick={() => act(async () => {
                 // Saving runs a short test recording. A key that cannot record stays on this step with the fix shown.
                 const r = key.trim() ? await req('/api/podcast/config', 'PUT', { apiKey: key }) : { key: info.key };
                 setKey('');
@@ -344,36 +351,145 @@
                 if (!(r.key && r.key.verified) && !(v.key && v.key.verified)) throw new Error(`${r.key ? r.key.message : ''} ${r.key ? r.key.remediation : ''}`.trim());
                 next();
               })}>{key.trim() ? 'Save and test' : 'Continue'}</button>
-              {info.hasKey && !info.key.verified && <button className="btn btn-secondary" disabled={busy} onClick={() => act(async () => { const r = await req('/api/podcast/key/verify', 'POST'); await load(); if (!r.key.verified) throw new Error(`${r.key.message} ${r.key.remediation}`.trim()); next(); })}>Check the key again</button>}
-              <button className="btn btn-secondary" disabled={busy} onClick={back}>Back</button>
-              <button className="btn btn-secondary" disabled={busy} onClick={next}>Skip this step</button>
+              {info.hasKey && !info.key.verified && <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={() => act(async () => { const r = await req('/api/podcast/key/verify', 'POST'); await load(); if (!r.key.verified) throw new Error(`${r.key.message} ${r.key.remediation}`.trim()); next(); })}>Check the key again</button>}
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={back}>Back</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={next}>Skip this step</button>
             </>}
             {step === 'schedule' && <>
-              <button className="btn btn-primary" disabled={busy} onClick={() => act(async () => { await req('/api/podcast/config', 'PUT', { imessage: imessage && info.imessageAvailable }); await req('/api/podcast/schedule', 'PUT', { time }); await req('/api/podcast/onboarding', 'POST', { action: 'done' }); await load(); setDone('You are set'); next(); })}>Schedule it</button>
-              <button className="btn btn-secondary" disabled={busy} onClick={back}>Back</button>
-              <button className="btn btn-secondary" disabled={busy} onClick={() => act(async () => { await req('/api/podcast/onboarding', 'POST', { action: 'done' }); setDone('Set up without a schedule'); next(); })}>Skip, I'll make episodes by hand</button>
+              <button className="btn btn-primary" style={{ minHeight: 44 }} disabled={busy} onClick={() => act(async () => { await req('/api/podcast/config', 'PUT', { imessage: imessage && info.imessageAvailable }); await req('/api/podcast/schedule', 'PUT', { time }); await req('/api/podcast/onboarding', 'POST', { action: 'done' }); await load(); setDone('You are set'); next(); })}>Schedule it</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={back}>Back</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={() => act(async () => { await req('/api/podcast/onboarding', 'POST', { action: 'done' }); setDone('Set up without a schedule'); next(); })}>Skip, I'll make episodes by hand</button>
             </>}
             {step === 'finish' && <>
-              <button className="btn btn-primary" disabled={busy || !info.key.verified} onClick={() => act(async () => { await req('/api/podcast/generate', 'POST', { force: true, deliver: true }); setOpen(false); if (setPage) setPage('dailydrop'); })}>Make my first episode now</button>
-              <button className="btn btn-secondary" disabled={busy} onClick={() => setOpen(false)}>I'll wait</button>
+              <button className="btn btn-primary" style={{ minHeight: 44 }} disabled={busy || !info.key.verified} onClick={() => act(async () => { await req('/api/podcast/generate', 'POST', { force: true, deliver: true }); setOpen(false); if (setPage) setPage('dailydrop'); })}>Make my first episode now</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} disabled={busy} onClick={() => setOpen(false)}>I'll wait</button>
             </>}
           </div>
-          {!info.key.verified && step === 'finish' && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>{info.hasKey ? `The saved Gemini key can't record audio yet. ${info.key.remediation}` : 'Add a Gemini key on the Daily Drop page before the first episode can be recorded.'}</p>}
+          {!info.key.verified && step === 'finish' && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>{info.hasKey ? `The saved Gemini key can't record audio yet. ${info.key.remediation}` : 'Add a Gemini key in Setup → Podcast before the first episode can be recorded.'}</p>}
         </div>
       </div>
     );
   }
 
-  // Compact entry on the Setup page so a skipped onboarding is easy to come back to.
-  function DailyDropSetupCard() {
-    const [info, setInfo] = useState(null);
-    useEffect(() => { req('/api/podcast/onboarding').then(setInfo).catch(() => {}); }, []);
-    const ready = info && info.key && info.key.verified && info.schedule.installed;
+  // Only non-secret drafts live in this browser tab. Refreshing status or the page never saves them.
+  const PODCAST_DRAFT = 'jq:podcast-setup-draft:v1';
+  const readSetupDraft = () => { try { return JSON.parse(sessionStorage.getItem(PODCAST_DRAFT) || 'null') || {}; } catch { return {}; } };
+  const writeSetupDraft = (value) => { try { if (value.config || value.schedule) sessionStorage.setItem(PODCAST_DRAFT, JSON.stringify(value)); else sessionStorage.removeItem(PODCAST_DRAFT); } catch {} };
+  const setupConfig = (info) => {
+    const c = info.config;
+    const explicit = info.imessageConfigured !== undefined ? info.imessageConfigured : info.configConfigured;
+    return { targetMinutes: c.targetMinutes, imessage: explicit === false ? false : explicit === true ? c.imessage === true : c.imessage === true && !!(info.schedule.installed || (info.state && info.state.status === 'done')),
+      hosts: c.hosts.map((host) => ({ ...host })), model: c.model, sheetsPerRun: c.sheetsPerRun, topicsPerEpisode: c.topicsPerEpisode, algorithmTopics: c.algorithmTopics };
+  };
+  const setupSchedule = (info) => ({ enabled: !!info.schedule.installed, time: info.schedule.time || `${String(info.config.hour).padStart(2, '0')}:${String(info.config.minute).padStart(2, '0')}` });
+  const setupValidation = (draft) => {
+    if (!draft || !Array.isArray(draft.hosts) || draft.hosts.length !== 2) return 'Two hosts are required.';
+    if (draft.hosts.some((host) => !host.name.trim() || !host.voice.trim())) return 'Give each host a name and a Gemini voice.';
+    if (draft.hosts[0].name.trim().toLowerCase() === draft.hosts[1].name.trim().toLowerCase()) return 'Use a different name for each host.';
+    if (!Number.isInteger(Number(draft.targetMinutes)) || Number(draft.targetMinutes) < 5 || Number(draft.targetMinutes) > 20) return 'Choose a duration from 5 to 20 minutes.';
+    if (draft.model !== undefined && !draft.model.trim()) return 'Enter a text-to-speech model.';
+    for (const key of ['sheetsPerRun', 'topicsPerEpisode', 'algorithmTopics']) {
+      if (draft[key] !== undefined && (!Number.isInteger(Number(draft[key])) || Number(draft[key]) < (key === 'topicsPerEpisode' ? 1 : 0) || Number(draft[key]) > 20)) return 'Content counts must be whole numbers up to 20; include at least one topic.';
+    }
+    return '';
+  };
+
+  function DailyDropSetupCard({ active = true }) {
+    const restored = useRef(null);
+    if (!restored.current) restored.current = readSetupDraft();
+    const pending = useRef(restored.current);
+    const [info, setInfo] = useState(null), [draft, setDraft] = useState(restored.current.config || null), [scheduleDraft, setScheduleDraft] = useState(restored.current.schedule || null);
+    const [error, setError] = useState(''), [note, setNote] = useState(''), [loading, setLoading] = useState(false), [busy, setBusy] = useState('');
+    const loadingRef = useRef(false);
+    const load = async () => {
+      if (loadingRef.current) return;
+      loadingRef.current = true; setLoading(true); setError('');
+      try {
+        const value = await req('/api/podcast/onboarding');
+        setInfo(value);
+        if (!pending.current.config) setDraft(setupConfig(value));
+        if (!pending.current.schedule) setScheduleDraft(setupSchedule(value));
+      } catch (e) { setError(e.message); }
+      finally { loadingRef.current = false; setLoading(false); }
+    };
+    useEffect(() => { if (active) load(); }, [active]);
+    const editConfig = (patch) => { const next = { ...draft, ...patch }; pending.current = { ...pending.current, config: next }; writeSetupDraft(pending.current); setDraft(next); setNote(''); };
+    const editSchedule = (patch) => { const next = { ...scheduleDraft, ...patch }; pending.current = { ...pending.current, schedule: next }; writeSetupDraft(pending.current); setScheduleDraft(next); setNote(''); };
+    const saveConfig = async (e) => {
+      e.preventDefault(); const validation = setupValidation(draft);
+      if (validation) { setError(validation); return; }
+      setBusy('config'); setError(''); setNote('');
+      try {
+        const patch = { ...draft, targetMinutes: Number(draft.targetMinutes), hosts: draft.hosts.map((host) => ({ ...host, name: host.name.trim(), voice: host.voice.trim() })) };
+        for (const key of ['sheetsPerRun', 'topicsPerEpisode', 'algorithmTopics']) if (patch[key] !== undefined) patch[key] = Number(patch[key]);
+        // Availability never silently clears a previously saved delivery preference.
+        if (!info.imessageAvailable) delete patch.imessage;
+        await req('/api/podcast/config', 'PUT', patch);
+        delete pending.current.config; writeSetupDraft(pending.current); setNote('Podcast preferences saved.'); await load();
+      } catch (e) { setError(e.message); }
+      finally { setBusy(''); }
+    };
+    const saveSchedule = async (e) => {
+      e.preventDefault();
+      if (scheduleDraft.enabled && !/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduleDraft.time)) { setError('Choose a valid recording time.'); return; }
+      setBusy('schedule'); setError(''); setNote('');
+      try {
+        await req('/api/podcast/schedule', 'PUT', scheduleDraft);
+        delete pending.current.schedule; writeSetupDraft(pending.current); setNote(scheduleDraft.enabled ? 'Daily recording schedule saved.' : 'Automatic recording is off.'); await load();
+      } catch (e) { setError(e.message); }
+      finally { setBusy(''); }
+    };
+    const discard = () => { pending.current = {}; writeSetupDraft({}); setDraft(setupConfig(info)); setScheduleDraft(setupSchedule(info)); setError(''); setNote('Unsaved changes discarded.'); };
+    const control = { minHeight: 44, fontSize: 14 };
+    const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 };
     return (
-      <section className="card" aria-label="Daily Drop podcast">
-        <h3>Daily Drop podcast</h3>
-        <p>{!info ? 'Checking…' : ready ? `On. A new episode every day at ${info.schedule.time}.` : info.state.status === 'skipped' ? 'Off. You turned down the setup; you can still turn it on.' : 'Optional. A short daily two-host episode on what you need to remember.'}</p>
-        <button className="btn btn-secondary" onClick={openOnboarding}>{ready ? 'Change Daily Drop settings' : 'Set up Daily Drop'}</button>
+      <section aria-label="Daily Drop podcast" style={{ maxWidth: 820 }}>
+        <div className="card" style={{ fontSize: 14, lineHeight: 1.6 }}>
+          <h3 style={{ marginTop: 0 }}>Daily Drop podcast</h3>
+          <p>Connect Gemini, choose your hosts, and decide when this Mac records interview lessons. Listen on the Daily Drop page.</p>
+          <button type="button" className="btn btn-secondary" style={control} disabled={loading || !!busy} onClick={load}>{loading ? 'Refreshing…' : 'Refresh podcast status'}</button>
+          {(pending.current.config || pending.current.schedule) && <p role="status" style={{ color: 'var(--amber)', marginBottom: 0 }}>You have unsaved changes. They stay in this browser tab until you save or discard them.</p>}
+        </div>
+        {error && <div className="card" role="alert" style={{ color: 'var(--rose)', fontSize: 14 }}>{error} <button type="button" className="btn btn-secondary" style={control} disabled={loading || !!busy} onClick={load}>Retry status check</button></div>}
+        {note && <div className="card" role="status" style={{ fontSize: 14 }}>{note}</div>}
+        {!info && !error && <div className="card" role="status">Loading podcast settings…</div>}
+        {info && draft && scheduleDraft && <>
+          <VoicesCard state={info} reload={load} disabled={!!busy || loading} onBusyChange={(value) => setBusy(value ? 'key' : '')} />
+          <form className="card" aria-label="Recording schedule" onSubmit={saveSchedule}>
+            <h3 style={{ marginTop: 0 }}>Recording schedule</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{info.schedule.installed ? `Daily recording is on at ${info.schedule.time}.` : 'Automatic recording is off. You can make episodes by hand on Daily Drop.'} This Mac must be awake for scheduled recordings.</p>
+            <fieldset disabled={!!busy || loading} style={{ padding: 0, border: 0, margin: 0 }}>
+              <div style={grid}>
+                <label style={{ fontSize: 14 }}>Automatic recording<select style={field} value={scheduleDraft.enabled ? 'daily' : 'off'} onChange={(e) => editSchedule({ enabled: e.target.value === 'daily' })}><option value="off">Off — make episodes by hand</option><option value="daily">Every day</option></select></label>
+                <label style={{ fontSize: 14 }}>Local recording time<input type="time" style={field} value={scheduleDraft.time} disabled={!scheduleDraft.enabled} onChange={(e) => editSchedule({ time: e.target.value })} required={scheduleDraft.enabled} /></label>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ ...control, marginTop: 16 }} disabled={!pending.current.schedule}>{busy === 'schedule' ? 'Saving schedule…' : 'Save recording schedule'}</button>
+            </fieldset>
+          </form>
+          <form className="card" aria-label="Podcast preferences" onSubmit={saveConfig}>
+            <h3 style={{ marginTop: 0 }}>Podcast preferences</h3>
+            <fieldset disabled={!!busy || loading} style={{ padding: 0, border: 0, margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 14, maxWidth: 300 }}>Target duration (minutes)<input type="number" min="5" max="20" step="1" required value={draft.targetMinutes} style={field} onChange={(e) => editConfig({ targetMinutes: e.target.value })} /></label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 44, marginTop: 16, fontSize: 14 }}><input type="checkbox" style={{ width: 20, height: 20, flexShrink: 0 }} checked={draft.imessage} disabled={!info.imessageAvailable} onChange={(e) => editConfig({ imessage: e.target.checked })} />Text scheduled episodes to me on iMessage</label>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginTop: 4 }}>{info.imessageAvailable ? 'Opt in to delivery to your saved Trainer number. Saving preferences sends no message.' : 'Add your iMessage number in Trainer settings to enable delivery. Any saved delivery preference is preserved.'}</p>
+              <div style={grid}>{draft.hosts.map((host, i) => <div key={i} style={{ minWidth: 0 }}>
+                <h4 style={{ fontSize: 15, marginBottom: 12 }}>Host {i + 1}</h4>
+                <label style={{ display: 'block', fontSize: 14 }}>Host {i + 1} name<input style={field} required value={host.name} onChange={(e) => editConfig({ hosts: draft.hosts.map((h, j) => j === i ? { ...h, name: e.target.value } : h) })} /></label>
+                <label style={{ display: 'block', fontSize: 14, marginTop: 12 }}>Host {i + 1} Gemini voice<input style={field} required value={host.voice} onChange={(e) => editConfig({ hosts: draft.hosts.map((h, j) => j === i ? { ...h, voice: e.target.value } : h) })} /></label>
+              </div>)}</div>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Voice names must match a voice supported by your Gemini text-to-speech model. After saving a new voice or model, use “Check the key again” above to test recording.</p>
+              <details style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                <summary style={{ minHeight: 44, cursor: 'pointer', fontSize: 14 }}>Advanced model and content settings</summary>
+                <div style={grid}>
+                  {draft.model !== undefined && <label style={{ fontSize: 14 }}>Gemini text-to-speech model<input style={field} required value={draft.model} onChange={(e) => editConfig({ model: e.target.value })} /></label>}
+                  {[['sheetsPerRun', 'New cheat sheets per recording', 0], ['topicsPerEpisode', 'Interview topics per episode', 1], ['algorithmTopics', 'Algorithm topics within that total', 0]].filter(([key]) => draft[key] !== undefined).map(([key, label, min]) => <label key={key} style={{ fontSize: 14 }}>{label}<input type="number" min={min} max="20" step="1" required style={field} value={draft[key]} onChange={(e) => editConfig({ [key]: e.target.value })} /></label>)}
+                </div>
+              </details>
+              <button type="submit" className="btn btn-primary" style={{ ...control, marginTop: 16 }} disabled={!pending.current.config}>{busy === 'config' ? 'Saving preferences…' : 'Save podcast preferences'}</button>
+            </fieldset>
+          </form>
+          {(pending.current.config || pending.current.schedule) && <button type="button" className="btn btn-secondary" style={control} disabled={!!busy || loading} onClick={discard}>Discard unsaved podcast changes</button>}
+        </>}
       </section>
     );
   }

@@ -47,7 +47,7 @@ test('the Prep Plans tab is replaced by Workbooks', () => {
   for (const needle of [
     'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
     '>Open workbook<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
-    'Auto-build for saved and applied roles', 'window.confirm(',
+    'Workbook settings', 'window.confirm(',
   ]) assert.ok(h.includes(needle), needle);
 });
 
@@ -60,7 +60,7 @@ test('Intel no longer declares or receives the unused System Design callback', (
 });
 
 test('the Workbooks harness documents its positional hook order', () => {
-  assert.match(workbooksHarness.toString(), /\/\/ Hook order: state = list, candidates, settings, building, saving, error; effects = initial load, active polling\./);
+  assert.match(workbooksHarness.toString(), /\/\/ Hook order: state = list, candidates, building, error; effects = initial load, active polling\./);
 });
 
 function roleHarness(fetch) {
@@ -242,8 +242,8 @@ test('workbook UI guards deletion and renders untrusted content as React text', 
 function workbooksHarness(initialList, request, initialError = '') {
   const source = workbookSource().split('function Workbooks(')[1];
   const prefix = `function Workbooks(${source.slice(0, source.indexOf('\n  return ('))}`;
-  // Hook order: state = list, candidates, settings, building, saving, error; effects = initial load, active polling.
-  const states = [initialList, [], null, false, false, initialError];
+  // Hook order: state = list, candidates, building, error; effects = initial load, active polling.
+  const states = [initialList, [], false, initialError];
   const effects = [], timers = new Map();
   let slot = 0;
   const component = vm.runInNewContext(`${prefix}\nreturn { load, anyActive }; }\nWorkbooks`, {
@@ -279,9 +279,9 @@ test('the Workbooks list refreshes only for queued or running work, not deferred
 test('each Workbooks load immediately clears the previous error', async () => {
   const h = workbooksHarness([], async () => [], 'previous failure');
   h.model.load();
-  assert.equal(h.states[5], '');
+  assert.equal(h.states[3], '');
   await h.flush();
-  assert.equal(h.states[5], '');
+  assert.equal(h.states[3], '');
 });
 
 test('a failed Workbooks GET exposes the empty state alongside its error', async () => {
@@ -291,7 +291,7 @@ test('a failed Workbooks GET exposes the empty state alongside its error', async
   });
   h.model.load();
   await h.flush();
-  assert.equal(h.states[5], 'workbook list unavailable');
+  assert.equal(h.states[3], 'workbook list unavailable');
   assert.ok(Array.isArray(h.states[0]));
   assert.equal(h.states[0].length, 0);
 });

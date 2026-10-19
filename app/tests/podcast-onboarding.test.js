@@ -98,14 +98,12 @@ test('onboarding routes: auto-show, decline, key + schedule complete the setup',
   assert.strictEqual(o.show, false, 'configured means no auto-show even while pending');
 });
 
-test('the app mounts the onboarding wizard and the Setup card', () => {
+test('podcast configuration is mounted inside Setup without a global onboarding popup', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
-  const jsx = fs.readFileSync(path.join(__dirname, '..', 'public', 'daily-drop.jsx'), 'utf-8');
-  assert.match(html, /<script type="text\/babel" src="\/daily-drop.jsx"><\/script>/);
-  assert.match(html, /<window\.DailyDropOnboarding setPage=\{setPage\} \/>/);
-  assert.match(html, /<window\.DailyDropSetupCard\/>/);
-  assert.match(jsx, /window\.DailyDropOnboarding = DailyDropOnboarding/);
-  assert.match(jsx, /Not now/);
-  assert.match(jsx, /No thanks/);
-  assert.match(jsx, /Skip this step/);
+  const setup = fs.readFileSync(path.join(__dirname, '..', 'public', 'setup.jsx'), 'utf-8');
+  assert.match(html, /src="\/daily-drop.jsx"/);
+  assert.match(html, /src="\/setup.jsx"/);
+  assert.match(html, /<window\.JobQuestSetup/);
+  assert.doesNotMatch(html, /<window\.DailyDropOnboarding/);
+  assert.match(setup, /<window\.DailyDropSetupCard active=/);
 });

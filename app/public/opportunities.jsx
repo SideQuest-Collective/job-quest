@@ -116,7 +116,7 @@ window.jobQuestAccountSetupLinks = function jobQuestAccountSetupLinks(kind) {
   ] : [{ label: 'Choose Gmail account', url: 'https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fmail.google.com%2Fmail%2F' }];
 };
 
-window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpenRole, onConfigureIntel, active = true, configureRequest = 0 }) {
+window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpenRole, onConfigureIntel, active = true, configureRequest = 0, configureOnly = false }) {
   const { useEffect, useState } = React;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -150,7 +150,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
     } catch (cause) { setError(cause.message); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { if (active) load(); }, [active]);
   useEffect(() => {
     if (!active || !data || !configureRequest || configuredRequest.current === configureRequest) return;
     configuredRequest.current = configureRequest;
@@ -159,6 +159,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
   }, [active, data, configureRequest]);
 
   const openAccounts = () => {
+    if (!configureOnly) { window.dispatchEvent(new CustomEvent('jq:open-setup', {detail:{section:'accounts'}})); return; }
     setAccountsOpen(true);
     window.focusJobQuestOutreachSetup(accountPanel.current, accountInput.current);
   };
@@ -284,23 +285,25 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       .jq-opps .error { border-color:var(--rose); color:var(--rose); }
       @media(max-width:390px) { .jq-opps { padding:0 2px; } .jq-opps .panel { padding:13px; } .jq-opps .op-card { padding:12px 13px; } .jq-opps .actions button { flex:1 1 auto; } }
     `}</style>
-    <h2>Recruiter outreach</h2>
+    {!configureOnly && <><h2>Recruiter outreach</h2>
     <p className="intro">Review recruiter outreach and choose when to reply or book. Discover jobs opens your native job shortlist.</p>
     <div className="tabs" role="group" aria-label="Opportunity views">
       <button className={view === 'outreach' ? 'active' : ''} onClick={() => setView('outreach')}>Outreach</button>
       <button className={view === 'held' ? 'active' : ''} onClick={() => setView('held')}>Paused</button>
       {setPage && <button onClick={() => setPage('discover')}>Discover jobs</button>}
-      <button onClick={openAccounts} aria-controls="outreach-account-setup" aria-expanded={accountsOpen}>Accounts & sources</button>
+      <button onClick={openAccounts}>Accounts & sources</button>
+      <button className={catchUp ? 'active' : ''} onClick={() => { setView('outreach'); setCatchUp(!catchUp); }}>{catchUp ? 'Show recent order' : 'Review older outreach'}</button>
     </div>
+    </>}
     {error && <div role="alert" className="panel error">{error}</div>}
     {!data ? <div className="panel">Loading local opportunities…</div> : <>
-      {catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before replying. Due snoozes and reconnects return for review; explicit holds remain paused.</p>}
-      {data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
-      {data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
-      <details id="outreach-account-setup" ref={accountPanel} open={accountsOpen} onToggle={event => setAccountsOpen(event.currentTarget.open)} className="panel secondary-panel"><summary>Accounts & sources{data.sources.some(source => source.status === 'blocked') ? ` · ${data.sources.filter(source => source.status === 'blocked').length} blocked` : ''}</summary><div className="detail-body">
+      {!configureOnly && catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before replying. Due snoozes and reconnects return for review; explicit holds remain paused.</p>}
+      {!configureOnly && data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
+      {!configureOnly && data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
+      {configureOnly && <details id="outreach-account-setup" ref={accountPanel} open={configureOnly || accountsOpen} onToggle={event => setAccountsOpen(event.currentTarget.open)} className="panel secondary-panel"><summary>Accounts & sources{data.sources.some(source => source.status === 'blocked') ? ` · ${data.sources.filter(source => source.status === 'blocked').length} blocked` : ''}</summary><div className="detail-body">
         <div className="actions">
           <button onClick={() => load()}>Refresh local results</button>
-          <button className={catchUp ? 'active' : ''} onClick={() => { setView('outreach'); setCatchUp(!catchUp); }}>{catchUp ? 'Show recent order' : 'Review older outreach'}</button>
+
         </div>
         {data.generatedAt && <p className="muted">Brief generated {new Date(data.generatedAt).toLocaleString()}.</p>}
         {data.sources.length > 0 && <><h3>Source coverage</h3>
@@ -337,7 +340,8 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
         <h3>3. Run or schedule collection</h3>
         <p>Intel collection reviews available accounts and saves recruiter conversations here. If an existing review manages your inbox collection, it keeps that responsibility and native Intel skips a duplicate inbox scan. Unavailable sources stay visible in coverage.</p>
         {setPage && <button onClick={() => onConfigureIntel ? onConfigureIntel() : setPage('setup')}>Open Intel run settings</button>}
-      </div></details>
+      </div></details>}
+      {!configureOnly && <>
       {visible.length === 0 && <div className="panel" role="status">{data.briefState === 'ready' ? 'No results in this view from the latest local brief.' : 'Results unavailable until the local brief is connected.'}</div>}
       {visible.map(item => <article className="panel op-card" key={item.id}>
         <div className="card-head"><div><h3>{item.title} · {item.company}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
@@ -397,6 +401,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
         </>}
         </details>
       </article>)}
+      </>}
     </>}
   </div>;
 };

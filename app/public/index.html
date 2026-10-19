@@ -609,6 +609,7 @@
 <script type="text/babel" src="/dashboard-home.jsx"></script>
 <script type="text/babel" src="/resume-home.jsx"></script>
 <script type="text/babel" src="/daily-drop.jsx"></script>
+<script type="text/babel" src="/setup.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -662,7 +663,7 @@ const api = {
 /* ===== PAGE HASH ROUTING ===== */
 const PAGE_IDS = new Set([
   'dashboard', 'discover', 'tasks', 'quiz', 'resume', 'intel',
-  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup', 'dailydrop',
+  'workbooks', 'calendar', 'codelab', 'sysdesign', 'behavioral', 'trainer', 'practice', 'learn', 'opportunities', 'setup', 'setup-podcast', 'setup-accounts', 'setup-practice', 'setup-access', 'dailydrop',
 ]);
 
 function readPageHash() {
@@ -697,6 +698,12 @@ function App() {
   const [page, setPage] = usePageRouting();
   const visited = useRef(new Set()); visited.current.add(page);
   const [menuOpen, setMenuOpen] = useState(false);
+  const setupPage = page === 'setup' || page.startsWith('setup-');
+  useEffect(() => {
+    const openSetup = event => { const section = event.detail?.section; setPage(['podcast','accounts','practice','access'].includes(section) ? `setup-${section}` : 'setup'); setMenuOpen(false); };
+    window.addEventListener('jq:open-setup', openSetup);
+    return () => window.removeEventListener('jq:open-setup', openSetup);
+  }, [setPage]);
   const [outreachConfigureRequest, setOutreachConfigureRequest] = useState(0);
   const [intelConfigureRequest, setIntelConfigureRequest] = useState(0);
   const [connectionError, setConnectionError] = useState(null);
@@ -775,7 +782,6 @@ function App() {
     { id: 'tasks', icon: Icons.checkSquare, label: 'Daily Tasks', badge: taskCount || null },
     { id: 'quiz', icon: Icons.brain, label: 'Quiz', badge: quizCount || null },
     { id: 'divider1' },
-    { id: 'setup', icon: Icons.user, label: 'Setup' },
     { id: 'resume', icon: Icons.fileText, label: 'Resume' },
     { id: 'intel', icon: Icons.radar, label: 'Intel' },
     { id: 'workbooks', icon: Icons.clipboard, label: 'Workbooks' },
@@ -785,6 +791,8 @@ function App() {
     { id: 'sysdesign', icon: Icons.target, label: 'System Design' },
     { id: 'behavioral', icon: Icons.messageCircle, label: 'Behavioral' },
     { id: 'trainer', icon: Icons.zap, label: 'Trainer' },
+    { id: 'divider-setup', label: 'Settings' },
+    { id: 'setup', icon: Icons.user, label: 'Setup' },
   ];
 
   return (
@@ -792,8 +800,8 @@ function App() {
       <nav className={`sidebar ${menuOpen ? 'menu-open' : ''}`} aria-label="Main navigation">
         <div className="sidebar-brand"><h1><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}>Job Quest</a></h1><div className="subtitle">Your next step</div></div>
         <div className="nav-section">
-          {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider" /> : (
-            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
+          {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider">{n.label && <span className="nav-group-label">{n.label}</span>}</div> : (
+            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
               <n.icon className="nav-icon" />{n.label}
               {n.badge ? <span className="badge">{n.badge}</span> : null}
             </a>
@@ -803,7 +811,7 @@ function App() {
       </nav>
       <header className="mobile-header"><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}><strong>Job Quest</strong></a><div style={{display:'flex',gap:8}}><button className="btn btn-secondary refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button><button className="btn btn-secondary" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button></div></header>
       <div className={`main ${page === 'codelab' || page === 'intel' || page === 'sysdesign' || page === 'workbooks' || page === 'behavioral' || page === 'trainer' || page === 'resume' ? 'main-fullheight' : ''} ${page === 'resume' ? 'main-nopad' : ''} ${page === 'sysdesign' ? 'main-sysdesign' : ''}`}>
-        <div className="route-bar"><span>{page === 'learn' ? 'Practice · On the go' : navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
+        <div className="route-bar"><span>{setupPage ? 'Setup' : page === 'learn' ? 'Practice · On the go' : navItems.find(n => n.id === page)?.label}</span><button className="btn btn-secondary global-refresh refresh-icon" aria-label="Refresh" title="Refresh" onClick={() => window.location.reload()}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 7l-3-3"/></svg></button></div>
         {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
         {visited.current.has('dashboard') && <section className="page-surface" hidden={page !== 'dashboard'}><Dashboard nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></section>}
         {visited.current.has('discover') && <section className="page-surface" hidden={page !== 'discover'}><Discover allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></section>}
@@ -817,7 +825,7 @@ function App() {
         {visited.current.has('sysdesign') && <section className="page-surface" hidden={page !== 'sysdesign'}><SystemDesign launchTopic={sdLaunchTopic} onLaunchTopicHandled={() => setSdLaunchTopic(null)} /></section>}
         {visited.current.has('behavioral') && <section className="page-surface" hidden={page !== 'behavioral'}><Behavioral /></section>}
         {visited.current.has('dailydrop') && <section className="page-surface" hidden={page !== 'dailydrop'}><window.DailyDrop active={page === 'dailydrop'} /></section>}
-        {visited.current.has('trainer') && <section className="page-surface" hidden={page !== 'trainer'}><Trainer /></section>}
+        {visited.current.has('trainer') && <section className="page-surface" hidden={page !== 'trainer'}><Trainer setPage={setPage}/></section>}
         {(visited.current.has('practice') || visited.current.has('learn')) && <section className="page-surface" hidden={!['practice','learn'].includes(page)}>
           <nav className="practice-modes" aria-label="Practice mode" style={{display:'flex',gap:8,marginBottom:24,maxWidth:1050,marginLeft:'auto',marginRight:'auto'}}>
             <a className={`btn ${page==='practice'?'btn-primary':'btn-secondary'}`} href="#practice" aria-current={page==='practice'?'page':undefined} onClick={e=>{e.preventDefault();setPage('practice');}}>Focused</a>
@@ -826,11 +834,11 @@ function App() {
           {visited.current.has('practice') && <div hidden={page !== 'practice'}><window.Learning mode="practice" /></div>}
           {visited.current.has('learn') && <div hidden={page !== 'learn'}><window.Learning mode="learn" /></div>}
         </section>}
-        {visited.current.has('setup') && <section className="page-surface" hidden={page !== 'setup'}><LocalSetup active={page==='setup'} intelConfigureRequest={intelConfigureRequest} setPage={setPage} onConfigureOutreach={()=>{setOutreachConfigureRequest(n=>n+1);setPage('opportunities');}}/></section>}
+        {[...visited.current].some(id => id === 'setup' || id.startsWith('setup-')) && <section className="page-surface" hidden={!setupPage}><window.JobQuestSetup active={setupPage} section={page.startsWith('setup-') ? page.slice(6) : 'intel'} intelConfigureRequest={intelConfigureRequest} setPage={setPage}/></section>}
         {visited.current.has('opportunities') && <section className="page-surface" hidden={page !== 'opportunities'}><window.Opportunities onConfigureIntel={()=>{setIntelConfigureRequest(n=>n+1);setPage('setup');}} active={page==='opportunities'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole} /></section>}
 
       </div>
-      {window.DailyDropOnboarding && <window.DailyDropOnboarding setPage={setPage} />}
+
     </div>
   );
 }
@@ -1168,18 +1176,6 @@ function UnlinkedSessions() {
 }
 
 /* ===== DASHBOARD ===== */
-function LocalSetup({setPage,onConfigureOutreach,active,intelConfigureRequest}) {
- const [setup,setSetup]=useState(null),[error,setError]=useState('');
- useEffect(()=>{api.get('/api/local-setup').then(setSetup).catch(e=>setError(e.message));},[]);
- return <><div className="page-header"><h2>Set up your Job Quest</h2><p className="greeting-sub">Start locally. Add only the connections you want.</p></div>{error&&<p role="alert">{error}</p>}
- <section className="card"><h3>Use on this Mac</h3><p>Available at localhost:3847. Tailscale and phone access are optional. Local practice uses your selected AI provider when you request coaching.</p></section>
- <section className="card"><h3>Outreach accounts</h3><p>{setup?.outreachStorage==='native'?'Job Quest stores your outreach and reply drafts locally.':setup?.careerBriefConfigured?'An external career-review source is connected.':'Outreach is not available yet.'} Account access and scan coverage are shown separately.</p><button className="btn btn-secondary" onClick={onConfigureOutreach}>Configure accounts and sources</button></section>
- <section className="card"><h3>Optional private phone access</h3><p>{setup?.privateAuthenticated?'You are connected through your private Tailscale link.':setup?.privateConfigured?'Your private link is configured. Open it from your phone with Tailscale connected.':'Local-only mode. Nothing needs installing to use Job Quest on this Mac.'}</p><p>For phone access away from home, use Tailscale on both devices with the same personal account. This Mac must stay awake and online.</p>{setup?.privateConfigured && setup?.privateOrigin && <p><a className="btn btn-primary" href={setup.privateOrigin+'/#dashboard'}>Open private Job Quest</a></p>}<div className="action-row"><a href="https://tailscale.com/download/mac" target="_blank" rel="noopener noreferrer">Tailscale for Mac</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noopener noreferrer">Tailscale for iPhone</a></div></section>
- <window.IntelSetup active={active} configureRequest={intelConfigureRequest}/>
- <window.ContentReadiness/>
- <window.DailyDropSetupCard/>
- <details className="card"><summary>Local connection configuration</summary><p>Use Job Quest’s configure-local command to connect local review files or a private Tailscale origin. These optional settings stay in your private data folder and do not turn on network access by themselves.</p><code>~/.job-quest/bin/configure-local.cjs --help</code></details></>;
-}
 
 function Dashboard(props) { return <window.DashboardHome {...props} />; }
 
@@ -3366,16 +3362,13 @@ function WorkbookRoleSection({ roleKey }) {
 function Workbooks({ setPage }) {
   const [list, setList] = useState(null);
   const [candidates, setCandidates] = useState([]);
-  const [settings, setSettings] = useState(null);
   const [building, setBuilding] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(() => {
     setError('');
     wbRequest('/api/workbooks', 'GET').then(setList).catch(e => { setList([]); setError(e.message); });
     wbRequest('/api/workbooks/backfill', 'GET').then(r => setCandidates((r && r.candidates) || [])).catch(e => setError(e.message));
-    wbRequest('/api/settings', 'GET').then(setSettings).catch(e => setError(e.message));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -3386,16 +3379,6 @@ function Workbooks({ setPage }) {
     return () => clearInterval(timer);
   }, [anyActive, load]);
 
-  const autoBuild = !!(settings && settings.workbooks && settings.workbooks.autoBuild);
-  const toggleAutoBuild = async () => {
-    setSaving(true);
-    setError('');
-    try {
-      const next = await wbRequest('/api/settings', 'PUT', { workbooks: { autoBuild: !autoBuild } });
-      setSettings(next);
-    } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
-  };
   const buildAll = async () => {
     setBuilding(true);
     setError('');
@@ -3409,9 +3392,7 @@ function Workbooks({ setPage }) {
       <div className="codelab-toolbar anim-enter">
         <h2>Workbooks</h2>
         <div style={{ flex: 1 }} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginRight: 12, cursor: 'pointer' }}>
-          <input type="checkbox" checked={autoBuild} onChange={toggleAutoBuild} disabled={!settings || saving} /> Auto-build for saved and applied roles
-        </label>
+        <a className="btn btn-secondary" href="#setup-practice" onClick={e=>{e.preventDefault();setPage('setup-practice');}}>Workbook settings</a>
         <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} disabled={!candidates.length || building} onClick={buildAll}>
           Build for all saved/applied ({candidates.length})
         </button>
@@ -4347,7 +4328,7 @@ function Behavioral() {
   );
 }
 
-function Trainer() {
+function Trainer({setPage}) {
   const [questions, setQuestions] = useState([]);
   const [config, setConfig] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -4427,11 +4408,6 @@ function Trainer() {
     setGenerating(false);
   };
 
-  const togglePause = async () => {
-    const result = await api.post('/api/trainer/config', { enabled: !(config?.enabled) });
-    setConfig(result.config);
-  };
-
   const catColor = (c) => c === 'behavioral' ? 'var(--violet, #a78bfa)' : c === 'system-design' ? 'var(--cyan)' : 'var(--amber)';
   const selected = questions.find(q => q.id === selectedId);
   const answeredCount = questions.filter(q => q.status === 'answered').length;
@@ -4468,11 +4444,7 @@ function Trainer() {
           </div>
         </div>
         <div style={{display:'flex',gap:8}}>
-          {config && (
-            <button onClick={togglePause} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'6px 14px',color:config.enabled?'var(--text-secondary)':'var(--amber)',cursor:'pointer',fontSize:12,fontWeight:600}}>
-              {config.enabled ? 'Pause hourly' : 'Resume hourly'}
-            </button>
-          )}
+          <a className="btn btn-secondary" href="#setup-practice" onClick={e=>{e.preventDefault();setPage('setup-practice');}}>Trainer settings</a>
           <button onClick={askNow} disabled={generating} style={{background:'var(--amber-dim)',border:'1px solid var(--amber)',borderRadius:8,padding:'6px 14px',color:'var(--amber)',cursor:'pointer',fontSize:12,fontWeight:600,opacity:generating?0.5:1}}>
             {generating ? 'Generating...' : 'Ask me one now'}
           </button>
