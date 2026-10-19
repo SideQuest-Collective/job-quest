@@ -18,13 +18,13 @@ test('role filters give applications/interviews a shared in-progress home and di
  assert.equal(context.myRoleMatches(role,{...empty(),saved:[key]},{},'saved'),true);
  assert.equal(context.myRoleMatches(role,{...empty(),applied:[key]},{[key]:{stage:'discovered'}},'progress'),true);
 });
-function discoverHarness(){
- let cells=[],index=0,actions=empty(),fail=false;const requests=[];
- const ctx={useState(initial){const i=index++;if(!(i in cells))cells[i]=initial;return [cells[i],value=>cells[i]=typeof value==='function'?value(cells[i]):value];},useEffect(){},api:{post:async(url,value)=>{requests.push({url,value});if(fail)throw Error('Offline');}},Set};
+function discoverHarness({roles=[role],shared=false}={}){
+ const instances=new Map(),requests=[];let cells,index=0,actions=empty(),fail=false,decision={busy:false,lastAction:null};
+ const ctx={useState(initial){const i=index++,stateCells=cells;if(!(i in stateCells))stateCells[i]=initial;return [stateCells[i],value=>stateCells[i]=typeof value==='function'?value(stateCells[i]):value];},useEffect(){},api:{post:async(url,value)=>{requests.push({url,value});if(fail)throw Error('Offline');}},Set};
  vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('function nativeRoleStatus'),source.indexOf('function DiscoverySourceCoverage')),ctx);
  const code=source.slice(source.indexOf('function Discover('),source.indexOf('  return <div className="discover-review">'));
- vm.runInContext(code+' return {update,undo,unseen,dismissed,lastAction,error};}',ctx);
- return {render(){index=0;return ctx.Discover({allRoles:[role],roleActions:actions,roleTracker:{},setRoleActions:value=>actions=value});},get actions(){return actions;},setActions(value){actions=value;},setFail(value){fail=value;},requests};
+ vm.runInContext(code+' return {update,undo,unseen,dismissed,lastAction,error,selected,view,busy,setSelectedKey,setView};}',ctx);
+ return {render(name='card',{listMode=false}={}){if(!instances.has(name))instances.set(name,[]);cells=instances.get(name);index=0;return ctx.Discover({allRoles:roles,roleActions:actions,roleTracker:{},setRoleActions:value=>actions=value,listMode,decisionState:shared?{...decision,setBusy:value=>decision.busy=value,setLastAction:value=>decision.lastAction=value}:undefined});},get actions(){return actions;},setActions(value){actions=value;},setFail(value){fail=value;},requests};
 }
 test('like saves through the real role action API contract and undo preserves unrelated decisions',async()=>{
  const h=discoverHarness();await h.render().update(role,'like');assert.equal(h.actions.saved.includes(key),true);assert.equal(h.render().unseen.length,0);
@@ -42,4 +42,58 @@ test('exact discovery launch distinguishes same-title listings by URL and locati
  assert.equal(context.discoveryRoleId({...a}),context.discoveryRoleId(a));
  assert.match(source,/This job is no longer in New/);
  assert.match(source,/Review other new jobs/);
+});
+
+test('Intel Discover is a distinct valid hash while legacy hashes retain their destinations',()=>{
+ const routing={window:{location:{hash:'#intel-discover'}},Set};vm.createContext(routing);
+ vm.runInContext(source.slice(source.indexOf('const PAGE_IDS ='),source.indexOf('function usePageRouting')),routing);
+ assert.equal(routing.readPageHash(),'intel-discover');
+ for(const [hash,page] of [['#discover','discover'],['#intel','intel-roles'],['#opportunities','intel-outreach'],['#unknown',null]]){routing.window.location.hash=hash;assert.equal(routing.readPageHash(),page);}
+});
+
+test('list selects exact same-title listing and falls back when another view removes it',()=>{
+ const a={...role,url:'https://example.com/one',location:'New York'},b={...role,url:'https://example.com/two',location:'Remote'},other={company:'Other',role:'Designer'};
+ const h=discoverHarness({roles:[a,b,other],shared:true});
+ h.render('list',{listMode:true}).setSelectedKey(context.discoveryRoleId(b));
+ assert.equal(h.render('list',{listMode:true}).selected.url,b.url);
+ h.setActions({...empty(),saved:[key]});
+ assert.equal(h.render('list',{listMode:true}).selected.company,'Other');
+ h.setActions({...empty(),saved:[key,'Other|Designer']});
+ assert.equal(h.render('list',{listMode:true}).selected,undefined);
+});
+
+test('card and list share latest undo while preserving preceding and unrelated choices',async()=>{
+ const other={company:'Other',role:'Designer'},third='Third|Architect';
+ const h=discoverHarness({roles:[role,other],shared:true});
+ await h.render('card').update(role,'like');
+ assert.equal(h.render('list',{listMode:true}).lastAction.role,role);
+ assert.equal(h.render('list',{listMode:true}).unseen.length,1);
+ await h.render('list',{listMode:true}).update(other,'dismiss');
+ assert.equal(h.render('card').lastAction.role,other);
+ h.setActions({...h.actions,applied:[third]});
+ await h.render('card').undo();
+ assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);assert.deepEqual(h.actions.applied,[third]);
+ assert.equal(h.render('list',{listMode:true}).lastAction,null);
+ assert.equal(h.render('card').selected,other);
+});
+
+test('failed cross-view choice and undo preserve saved state and the last successful undo',async()=>{
+ const other={company:'Other',role:'Designer'},h=discoverHarness({roles:[role,other],shared:true});
+ await h.render('list',{listMode:true}).update(role,'like');
+ h.setFail(true);await h.render('card').update(other,'dismiss');
+ assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);
+ assert.equal(h.render('card').lastAction.role,role);assert.match(h.render('card').error,/Offline/);
+ await h.render('list',{listMode:true}).undo();
+ assert.deepEqual(Array.from(h.actions.saved),[key]);assert.equal(h.render('card').lastAction.role,role);assert.match(h.render('list',{listMode:true}).error,/Offline/);
+ h.setFail(false);await h.render('card').undo();
+ assert.equal(h.render('list',{listMode:true}).unseen.length,2);assert.equal(h.render('list',{listMode:true}).lastAction,null);
+});
+
+test('pending decision blocks a second write from the other Discover view',async()=>{
+ const other={company:'Other',role:'Designer'},h=discoverHarness({roles:[role,other],shared:true});
+ const first=h.render('list',{listMode:true}).update(role,'like');
+ assert.equal(h.render('card').busy,true);
+ await h.render('card').update(other,'dismiss');await first;
+ assert.equal(h.requests.length,1);assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);
+ assert.equal(h.render('list',{listMode:true}).busy,false);
 });
