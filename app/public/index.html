@@ -790,7 +790,7 @@ function App() {
     { id: 'quiz', icon: Icons.brain, label: 'Quiz', badge: quizCount || null },
     { id: 'divider1' },
     { id: 'discover', icon: Icons.compass, label: 'Discover', badge: newRoles.length || null },
-    { id: 'intel-outreach', icon: Icons.radar, label: 'Intel' },
+    { id: 'intel-roles', icon: Icons.radar, label: 'Intel' },
     { id: 'resume', icon: Icons.fileText, label: 'Resume' },
     { id: 'workbooks', icon: Icons.clipboard, label: 'Workbooks' },
     { id: 'calendar', icon: Icons.calendarIcon, label: 'Progress & calendar' },
@@ -809,7 +809,7 @@ function App() {
         <div className="sidebar-brand"><h1><a className="brand-home" href="#dashboard" onClick={(e) => { e.preventDefault(); setPage('dashboard'); setMenuOpen(false); }}>Job Quest</a></h1><div className="subtitle">Your next step</div></div>
         <div className="nav-section">
           {navItems.map(n => n.id.startsWith('divider') ? <div key={n.id} className="nav-divider">{n.label && <span className="nav-group-label">{n.label}</span>}</div> : (
-            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (intelPage && n.id === 'intel-outreach') || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (intelPage && n.id === 'intel-outreach') || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
+            <a key={n.id} href={`#${n.id}`} aria-current={page === n.id || (intelPage && n.id === 'intel-roles') || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'page' : undefined} className={`nav-item ${page === n.id || (intelPage && n.id === 'intel-roles') || (setupPage && n.id === 'setup') || (page === 'learn' && n.id === 'practice') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); if (n.id === 'sysdesign') setSdLaunchTopic(null); setPage(n.id); setMenuOpen(false); }}>
               <n.icon className="nav-icon" />{n.label}
               {n.badge ? <span className="badge">{n.badge}</span> : null}
             </a>
@@ -827,8 +827,8 @@ function App() {
         {visited.current.has('quiz') && <section className="page-surface" hidden={page !== 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></section>}
         {visited.current.has('resume') && <section className="page-surface" hidden={page !== 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} setPage={setPage} onOpenRole={openNativeRole} /></section>}
         {(visited.current.has('intel-outreach') || visited.current.has('intel-roles')) && <section className="page-surface intel-hub" hidden={!intelPage}>
-          <header className="intel-hub-header"><div><h2>Intel</h2><p>Conversations to follow up and roles you’re pursuing.</p></div><button className="btn btn-secondary" onClick={()=>setPage('setup')}>Intel setup</button></header>
-          <nav className="intel-hub-tabs" aria-label="Intel views">{[['intel-outreach','Outreach'],['intel-roles','My roles']].map(([id,label])=><a key={id} href={'#'+id} className={'btn '+(page===id?'btn-primary':'btn-secondary')} aria-current={page===id?'page':undefined} onClick={e=>{e.preventDefault();setPage(id);}}>{label}</a>)}</nav>
+          <header className="intel-hub-header"><div><h2>Intel</h2><p>Roles you’re pursuing and conversations to follow up.</p></div><button className="btn btn-secondary" onClick={()=>setPage('setup')}>Intel setup</button></header>
+          <nav className="intel-hub-tabs" aria-label="Intel views">{[['intel-roles','My roles'],['intel-outreach','Outreach']].map(([id,label])=><a key={id} href={'#'+id} className={'btn '+(page===id?'btn-primary':'btn-secondary')} aria-current={page===id?'page':undefined} onClick={e=>{e.preventDefault();setPage(id);}}>{label}</a>)}<a className="intel-discover-link" href="#discover" onClick={e=>{e.preventDefault();setPage('discover');}}>Discover jobs <Icons.compass aria-hidden="true" style={{width:15,height:15}}/></a></nav>
           {visited.current.has('intel-outreach') && <div hidden={page!=='intel-outreach'}><window.Opportunities embedded launchItem={outreachLaunch} onConfigureIntel={()=>{setIntelConfigureRequest(n=>n+1);setPage('setup');}} active={page==='intel-outreach'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole}/></div>}
           {visited.current.has('intel-roles') && <div hidden={page!=='intel-roles'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage}/></div>}
         </section>}

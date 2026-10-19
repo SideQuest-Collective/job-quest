@@ -122,7 +122,9 @@ button.intel-filter-tab {border:0;background:transparent;font:inherit;min-height
 /* Discover is decision-making; Intel groups ongoing work. */
 .intel-hub-header {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
 .intel-hub-header h2 {font-size:30px;margin:0 0 6px;}.intel-hub-header p {color:var(--text-secondary);margin:0;line-height:1.6;}
-.intel-hub-tabs {display:flex;gap:10px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:16px;}
+.intel-hub-tabs {display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:16px;}
+.intel-discover-link {display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;margin-left:auto;font-size:15px;text-underline-offset:3px;}
+@media(max-width:600px){.intel-discover-link{flex-basis:100%;justify-content:flex-start;margin-left:0;}}
 .intel-hub [hidden] {display:none!important;}
 .intel-hub .intel-filter-tabs {flex-wrap:wrap;}.intel-hub .intel-filter-tab {min-height:44px;font-size:14px;}
 .intel-hub .codelab-toolbar h3 {font-size:22px;}.intel-hub .codelab-toolbar p {font-size:15px;line-height:1.5;}
