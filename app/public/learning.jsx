@@ -108,12 +108,12 @@
         .learning-page pre{white-space:pre-wrap;font:inherit;font-size:15px;max-height:300px;overflow:auto}.learning-page audio{width:100%;margin-top:12px}.learning-page iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:8px}.learning-page .lp-error{border-left:4px solid var(--rose);padding:12px;background:var(--bg-card)}
         @media(max-width:420px){.learning-page .lp-card{padding:15px}.learning-page h2{font-size:24px}.learning-page .lp-row>*{max-width:100%}}
       `}</style>
-      <h2>{mode === 'learn' ? 'Listen or watch on the go' : 'Focused practice'}</h2>
-      <p>{mode === 'learn' ? 'Short listening and watching for a walk, commute or break. Save your place; a written reflection is optional.' : 'Sit down to code, write or rehearse. Continue saved work or explain a concept from memory.'}</p>
+      <div className="view-intro"><h3 className="sr-only">{mode === 'learn' ? 'Listen or watch on the go' : 'Focused practice'}</h3>
+      <p className="greeting-sub">{mode === 'learn' ? 'Short listening and watching for a walk, commute or break. Save your place; a written reflection is optional.' : 'Sit down to code, write or rehearse. Continue saved work or explain a concept from memory.'}</p></div>
       {error && <div role="alert" className="lp-error"><p>{error}</p><button onClick={reload} disabled={busy}>Reload saved data</button><p className="lp-note">Your open answer and source form stay here when you reload.</p></div>}
       {status && <p role="status">{status}</p>}
       {!data ? <p role="status">{error ? 'Learning is unavailable until the data loads.' : 'Loading your practice…'}</p> : <>
-        <div className="lp-row" role="group" aria-label="Available time">{[5, 15, 30].map((m) => <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m} minutes</button>)}</div>
+        <div className="lp-row view-filters" role="group" aria-label="Available time">{[5, 15, 30].map((m) => <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m} minutes</button>)}</div>
         <p className="lp-note">{mode === 'learn' ? `Choose a ${minutes}-minute segment, then save your place. The full resource may be longer.` : <>{minutes === 5 ? '1 min recall · 3 min answer · 1 min check' : minutes === 15 ? '2 min recall · 10 min practice · 3 min reflect' : '5 min plan · 20 min practice · 5 min review'}. A time budget is a stopping point, not a claim that the whole problem fits.</>}</p>
         {session && <section className="lp-card" aria-label="Current activity" ref={activityRef} tabIndex={-1}>
           <h3>{session.kind === 'media' ? 'Your listening or watching bookmark' : session.sourceId === practiceCheck.id ? 'A short planning or follow-up rep' : 'Recall before revealing'}</h3><p>{session.goal}</p><p className="lp-note">This activity: {session.minutes} minutes. Text is kept in this browser until saved to your library.</p>

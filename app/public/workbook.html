@@ -3,34 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Workbook</title>
+<title>Workbook · Job Quest</title>
+<link rel="stylesheet" href="/theme-tokens.css">
+<link rel="icon" type="image/svg+xml" href="/brand/job-quest-icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png">
+<script src="/theme.js"></script>
 <style>
-:root{
-  --bg:#f7f6f2; --panel:#ffffff; --panel2:#f0eee8; --ink:#1d1c1a; --ink2:#55524c; --ink3:#8a867e;
-  --line:#e2dfd7; --accent:#2c5fd4; --accent-ink:#ffffff; --accent-soft:#e6edfb;
-  --co0:#7a3fd0; --co0-soft:#f0e8fb; --co1:#0f6e62; --co1-soft:#e1f2ef; --both:#8a5a12; --both-soft:#f7eedd;
-  --good:#1f7a3a; --good-soft:#e2f3e6; --warn:#9a6300; --warn-soft:#fbf0d9; --bad:#b3261e; --bad-soft:#fbe3e1;
-  --code-bg:#f2f1ec; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04);
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
-  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#141413; --panel:#1d1c1b; --panel2:#262523; --ink:#ecebe7; --ink2:#b5b2aa; --ink3:#86837c;
-    --line:#34322f; --accent:#7ea2ff; --accent-ink:#0d0d0c; --accent-soft:#1f2940;
-    --co0:#b98cff; --co0-soft:#2d2140; --co1:#4fc4b2; --co1-soft:#153530; --both:#e0b064; --both-soft:#3a2d15;
-    --good:#6fd18a; --good-soft:#173322; --warn:#f0c060; --warn-soft:#3a2f14; --bad:#ff8a80; --bad-soft:#3f1d1b;
-    --code-bg:#232220; --shadow:none;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#141413; --panel:#1d1c1b; --panel2:#262523; --ink:#ecebe7; --ink2:#b5b2aa; --ink3:#86837c;
-  --line:#34322f; --accent:#7ea2ff; --accent-ink:#0d0d0c; --accent-soft:#1f2940;
-  --co0:#b98cff; --co0-soft:#2d2140; --co1:#4fc4b2; --co1-soft:#153530; --both:#e0b064; --both-soft:#3a2d15;
-  --good:#6fd18a; --good-soft:#173322; --warn:#f0c060; --warn-soft:#3a2f14; --bad:#ff8a80; --bad-soft:#3f1d1b;
-  --code-bg:#232220; --shadow:none;
-}
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
@@ -180,20 +159,23 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .card{box-shadow:none}
 }
 </style>
+<link rel="stylesheet" href="/workbook-theme.css">
 </head>
 <body>
-<header class="top">
-  <a class="back-jq" id="backJobQuest" href="/#workbooks">← Job Quest</a>
+<header class="top" id="workbookHeader">
+  <a class="back-jq" id="backJobQuest" href="/#workbooks"><img src="/brand/job-quest-mark.svg" width="34" height="25" alt="" style="vertical-align:middle;margin-right:6px">Job Quest</a>
   <button class="iconbtn" id="menuBtn" aria-label="Menu">☰</button>
   <div class="brand" id="brand">Workbook<small id="brandSub"></small></div>
   <div class="grow"></div>
   <input id="search" type="search" aria-label="Search workbook" placeholder="Search notes and questions  ( / )" autocomplete="off">
-  <button class="iconbtn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  <button class="iconbtn" id="themeBtn" title="Switch to light theme" aria-label="Switch to light theme">◐</button>
 </header>
 <div class="layout">
   <nav class="side" id="side"></nav>
   <main id="main"><div class="card" style="max-width:60ch"><h2 style="margin-top:0">Loading workbook…</h2><p>If this stays, open the page in a web browser with JavaScript turned on. Offline copies work with no internet.</p></div></main>
 </div>
+
+
 
 <!--WB-DIAGRAM-->
 <!--WB-DATA-->
@@ -201,6 +183,26 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script>
 (async function(){
 'use strict';
+/* ---------- shared appearance and header layout ---------- */
+  const header=document.getElementById('workbookHeader');
+  function measureHeader(){document.documentElement.style.setProperty('--wb-header-height',header.getBoundingClientRect().height+'px');}
+  measureHeader();
+  if(window.ResizeObserver)new window.ResizeObserver(measureHeader).observe(header);
+  else window.addEventListener('resize',measureHeader);
+  const button=document.getElementById('themeBtn');
+  function updateThemeButton(){
+    const theme=window.JobQuestTheme.get();
+    const label='Switch to '+(theme==='dark'?'light':'dark')+' theme';
+    button.setAttribute('aria-label',label);
+    button.title=label;
+    button.textContent=theme==='dark'?'☀':'◐';
+  }
+  if(window.JobQuestTheme){
+    button.addEventListener('click',function(){window.JobQuestTheme.toggle();});
+    window.JobQuestTheme.subscribe(updateThemeButton);
+    updateThemeButton();
+  }else button.hidden=true;
+
 /* ---------- tiny markdown ---------- */
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function inline(s){
@@ -284,10 +286,9 @@ COMPANIES.forEach(function(c){CO[c]=(META.companyNames&&META.companyNames[c])||c
 const HAS_BOTH=CHAPTERS.concat(QUESTIONS).some(function(x){return x.company==='both';});
 document.getElementById('brandSub').textContent=COMPANIES.map(function(c){return CO[c];}).join(' · ');
 /* ---------- state: progress lives on the server ---------- */
-const THEME_KEY='workbook.theme';
 const PENDING_KEY='workbook.'+(OFFLINE?(META.id||'offline')+'.offline':WB_ID+'.pending');
 const QTYPE={};QUESTIONS.forEach(function(q){QTYPE[q.id]=q.type||'open';});
-let S={read:{},ans:{},flag:{},draft:{},theme:null,last:null,legacyDone:false};
+let S={read:{},ans:{},flag:{},draft:{},last:null,legacyDone:false};
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}}
 const TO_SERVER={correct:'got',got:'got',partial:'partial',wrong:'missed',miss:'missed'};
@@ -486,11 +487,6 @@ else{
   backJobQuest.href=returnUrl;
   backJobQuest.onclick=async function(e){e.preventDefault();clearTimeout(saveTimer);await flush();if(canGoBack&&typeof history!=='undefined'&&history.length===enteredHistoryLength&&history.length>1)history.back();else location.href=returnUrl;};
 }
-S.theme=lsGet(THEME_KEY);
-if(S.theme)document.documentElement.setAttribute('data-theme',S.theme);
-document.getElementById('themeBtn').onclick=function(){
-  const cur=document.documentElement.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
-  S.theme=cur==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',S.theme);lsSet(THEME_KEY,S.theme);};
 /* ---------- helpers ---------- */
 const $main=document.getElementById('main'),$side=document.getElementById('side');
 function chip(c){const i=COMPANIES.indexOf(c);return '<span class="chip '+(c==='both'?'both':i>=0?'co'+(i%3):'')+'">'+esc(CO[c]||c)+'</span>';}

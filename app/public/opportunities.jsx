@@ -211,6 +211,9 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
   const [busy, setBusy] = useState(null);
   const [view, setView] = useState('outreach');
   const [catchUp, setCatchUp] = useState(false);
+  const [selectedIds, setSelectedIds] = useState({ outreach: null, held: null });
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detailFocus = React.useRef(null);
   const [drafts, setDrafts] = useState({});
   const [copied, setCopied] = useState({});
   const [until, setUntil] = useState({});
@@ -247,13 +250,30 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
 
   useEffect(() => { if (active) load(); }, [active, refreshKey]);
   const launchedItem = React.useRef(0);
-  useEffect(()=>{
-    if(!active||configureOnly||!data||!launchItem?.id||launchedItem.current===launchItem.request)return;
-    if(view!=='outreach'||catchUp){setView('outreach');setCatchUp(false);return;}
-    const card=document.getElementById('outreach-card-'+launchItem.id);
-    if(card){card.scrollIntoView({block:'start'});card.focus({preventScroll:true});launchedItem.current=launchItem.request;}
-  },[active,configureOnly,data,launchItem,view,catchUp]);
+  useEffect(() => {
+    if (!active || configureOnly || !data || !launchItem?.id || launchedItem.current === launchItem.request) return;
+    const item = data.opportunities.find(candidate => candidate.id === launchItem.id);
+    if (!item) return;
+    const targetView = window.filterJobQuestCards([item], 'held', false).length ? 'held' : 'outreach';
+    setView(targetView);
+    setCatchUp(false);
+    setSelectedIds(previous => ({ ...previous, [targetView]: item.id }));
+    setDetailOpen(true);
+    detailFocus.current = item.id;
+    launchedItem.current = launchItem.request;
+  }, [active, configureOnly, data, launchItem]);
 
+  // Focus only after an explicit selection or dashboard launch, never on refresh.
+  useEffect(() => {
+    if (!active || !detailOpen || !detailFocus.current) return;
+    const card = document.getElementById('outreach-card-' + detailFocus.current);
+    if (card) {
+      const target=window.matchMedia('(max-width: 700px)').matches ? document.getElementById('outreach-conversation-detail') : card;
+      (target || card).scrollIntoView({ block: 'start' });
+      card.focus({ preventScroll: true });
+      detailFocus.current = null;
+    }
+  }, [active, detailOpen, selectedIds, view, data]);
 
   const refreshAccessCheck = async (isCurrent = () => true) => {
     const sequence = ++accessSequence.current;
@@ -392,6 +412,19 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
 
   const items = data?.opportunities || [];
   const visible = window.filterJobQuestCards(items, view, catchUp);
+  const selected = visible.find(item => item.id === selectedIds[view]) || visible[0] || null;
+  useEffect(() => { const panel=document.getElementById('outreach-conversation-detail'); if(panel) panel.scrollTop=0; }, [selected?.id]);
+  const changeView = nextView => { setView(nextView); setDetailOpen(false); };
+  const selectItem = item => {
+    setSelectedIds(previous => ({ ...previous, [view]: item.id }));
+    setDetailOpen(true);
+    // At phone widths the list becomes hidden, so move focus into the detail.
+    if (window.matchMedia('(max-width: 700px)').matches) detailFocus.current = item.id;
+  };
+  const returnToList = () => {
+    setDetailOpen(false);
+    requestAnimationFrame(() => document.getElementById('outreach-row-' + selected?.id)?.focus());
+  };
 
   return <div className="jq-opps">
     <style>{`
@@ -432,13 +465,17 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       .jq-opps .error { border-color:var(--rose); color:var(--rose); }
       @media(max-width:390px) { .jq-opps { padding:0 2px; } .jq-opps .panel { padding:13px; } .jq-opps .op-card { padding:12px 13px; } .jq-opps .actions button { flex:1 1 auto; } }
     `}</style>
-    {!configureOnly && <>{embedded?<h3>Recruiter outreach</h3>:<h2>Recruiter outreach</h2>}
-    <p className="intro">Intel verifies conversations before recommending a reply or follow-up.</p>
-    <div className="tabs" role="group" aria-label="Opportunity views">
-      <button className={view === 'outreach' ? 'active' : ''} onClick={() => setView('outreach')}>Outreach</button>
-      <button className={view === 'held' ? 'active' : ''} onClick={() => setView('held')}>Paused</button>
-      <button onClick={openAccounts}>Outreach sources</button>
-      <button className={catchUp ? 'active' : ''} onClick={() => { setView('outreach'); setCatchUp(!catchUp); }}>{catchUp ? 'Show recent order' : 'Review older outreach'}</button>
+    {!configureOnly && <>
+    <header className={embedded ? 'view-intro' : 'page-header'}>
+      {embedded ? <h3 className="sr-only">Recruiter outreach</h3> : <h2>Recruiter outreach</h2>}
+      <p className={embedded ? 'intro' : 'greeting-sub'}>Review recruiter conversations and your next reply.</p>
+    </header>
+    <div className="view-toolbar">
+      <div className="view-filters" role="group" aria-label="Outreach filters">
+        <button type="button" aria-pressed={view === 'outreach' && !catchUp} onClick={() => { changeView('outreach'); setCatchUp(false); }}>Current</button>
+        <button type="button" aria-pressed={view === 'outreach' && catchUp} onClick={() => { changeView('outreach'); setCatchUp(true); }}>Catch up</button>
+        <button type="button" aria-pressed={view === 'held'} onClick={() => changeView('held')}>Paused</button>
+      </div>
     </div>
     </>}
     {error && <div role="alert" className="panel error">{error}</div>}
@@ -487,13 +524,33 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
         {data.sources.length>0&&<details className="op-details account-all-coverage"><summary>All saved source reports</summary>{data.generatedAt&&<p>Latest report saved {new Date(data.generatedAt).toLocaleString()}.</p>}{data.sources.map((source,index)=><p key={`${source.name}-${index}`}><strong>{source.name}</strong> · {source.status}<br/><span>{source.detail}</span></p>)}{data.coverage.backfill?.detail&&<p>Pending backfill: {data.coverage.backfill.detail}</p>}{data.coverage.invitations?.detail&&<p>Invitations: {data.coverage.invitations.detail}</p>}</details>}
       </section>}
       {!configureOnly && <>
-      {view === 'outreach' && visible.some(item => item.kind === 'recruiter' && window.jobQuestConversationReview(item).outcome === 'unverified') && <p className="reply-help">Intel verifies up to three conversations per run. Pending items stay here for an upcoming review.</p>}
+
       {visible.length === 0 && <div className="panel" role="status">{data.briefState === 'ready' ? 'No results in this view from the latest local brief.' : 'Results unavailable until the local brief is connected.'}</div>}
-      {visible.map(item => {
+      {visible.length > 0 && <div className={'intel-split outreach-split' + (detailOpen ? ' outreach-detail-open' : '')}>
+        <div className="intel-left outreach-list-panel">
+          <div className="intel-left-header outreach-list-header"><strong>{visible.length} {view === 'held' ? 'paused conversations' : 'conversations'}</strong><p>Select a conversation to review its draft and next steps.</p></div>
+          <div className="intel-role-list outreach-role-list" role="group" aria-label={view === 'held' ? 'Paused conversations' : 'Outreach conversations'}>
+            {visible.map(item => {
+              const review = window.jobQuestConversationReview(item);
+              const dirty = (drafts[item.id] ?? item.draftReply ?? '') !== (item.draftReply || '');
+              return <button type="button" key={item.id} id={'outreach-row-' + item.id} className={'intel-role-item outreach-role-item' + (selected?.id === item.id ? ' active' : '')} aria-pressed={selected?.id === item.id} aria-controls="outreach-conversation-detail" onClick={() => selectItem(item)}>
+                <span className="iri-company outreach-row-company">{item.company || 'Recruiter conversation'}</span>
+                <span className="iri-title outreach-row-role">{item.role || item.title}</span>
+                <span className={'iri-meta outreach-row-status outreach-status-' + review.outcome}>{review.label}</span>
+                {item.location && <span className="outreach-row-meta">{item.location}</span>}
+                {dirty && <span className="outreach-row-unsaved">Unsaved draft</span>}
+                {busy === item.id && <span className="outreach-row-saving" role="status">Saving…</span>}
+              </button>;
+            })}
+          </div>
+        </div>
+        <div id="outreach-conversation-detail" className="intel-right outreach-detail-panel" role="region" aria-label="Conversation details">
+          <button type="button" className="outreach-back" onClick={returnToList}>← Back to {view === 'held' ? 'paused conversations' : 'outreach'}</button>
+      {[selected].filter(Boolean).map(item => {
         const review = item.kind === 'recruiter' ? window.jobQuestConversationReview(item) : null;
         const replyReady = review?.outcome === 'needs_reply';
-        return <article className="panel op-card" key={item.id} id={'outreach-card-'+item.id} tabIndex={-1}>
-        <div className="card-head"><div><h3>{item.title} · {item.company}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
+        return <article className="op-card outreach-detail" aria-labelledby={'outreach-heading-' + item.id} key={item.id} id={'outreach-card-'+item.id} tabIndex={-1}>
+        <div className="card-head"><div><p className="outreach-detail-company">{item.company}</p><h3 id={'outreach-heading-' + item.id}>{item.role || item.title}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
           {(item.kind === 'job' ? item.availability : item.status && !['ready_for_review'].includes(item.status)) && <span className="status">{item.kind === 'job' ? item.availability : item.status.replaceAll('_', ' ')}</span>}
         </div>
         {review && <div className="conversation-review">
@@ -519,7 +576,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
             <button disabled={!(drafts[item.id] ?? item.draftReply ?? '').trim()} onClick={() => copyDraft(item)}>Copy reply</button>
           </div>
           {copied[item.id] !== undefined && copied[item.id] === (drafts[item.id] ?? item.draftReply) && <p className="reply-feedback" role="status">Reply copied. Paste it into the conversation and send there.</p>}
-          {(drafts[item.id] ?? item.draftReply) !== item.draftReply && <p className="reply-help">Unsaved changes · save to continue this draft on another device.</p>}
+          {(drafts[item.id] ?? item.draftReply) !== item.draftReply && <p className="reply-help">Unsaved changes · save before changing this conversation’s status or reminders.</p>}
         </div>}
         <details className="op-details"><summary>{item.kind === 'recruiter' ? 'More details & reminders' : 'More role details'}</summary>
           {item.queueOnly && <p className="muted">Queue history · review the original conversation for current status.</p>}
@@ -552,8 +609,12 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
         </details>
         {item.kind === 'recruiter' && (item.sourceAccounts?.length > 0 || item.sourceAccount) && <p className="reply-help source-footer">Source: {(item.sourceAccounts?.length ? item.sourceAccounts : [item.sourceAccount]).join(' · ')}</p>}
       </article>; })}
+        </div>
+      </div>}
+      {view === 'outreach' && visible.some(item => item.kind === 'recruiter' && window.jobQuestConversationReview(item).outcome === 'unverified') && <p className="reply-help source-footer">Intel verifies up to three conversations per run. Pending items stay here for an upcoming review.</p>}
       </>}
     </>}
+    {!configureOnly && <footer className="view-sources source-footer"><span>Intel checks conversations before recommending a reply.</span><button type="button" onClick={openAccounts}>Manage outreach sources</button></footer>}
   </div>;
 };
 

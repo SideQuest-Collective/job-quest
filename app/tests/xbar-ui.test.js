@@ -9,7 +9,7 @@ const app = html.slice(html.indexOf('function App()'), html.indexOf('/* ===== IN
 const mountedPages = [...new Set([...app.matchAll(/visited\.current\.has\('([^']+)'\)/g)].map(m => m[1]))].sort();
 
 function routing(hash = '') {
-  const block = html.match(/\/\* ===== PAGE HASH ROUTING ===== \*\/([\s\S]*?)\nfunction App\(/);
+  const block = html.match(/\/\* ===== PAGE HASH ROUTING ===== \*\/([\s\S]*?)\nfunction ThemeToggle\(/);
   assert.ok(block, 'dashboard must define page hash routing');
   const listeners = new Map(), pushes = [], replacements = [], slots = [], effects = [];
   let cursor = 0;
@@ -66,7 +66,7 @@ function routing(hash = '') {
 
 test('routing accepts mounted page IDs, setup pages and explicit legacy aliases', () => {
   assert.match(app, /const \[page, setPage\] = usePageRouting\(\)/);
-  const block = html.match(/\/\* ===== PAGE HASH ROUTING ===== \*\/([\s\S]*?)\nfunction App\(/);
+  const block = html.match(/\/\* ===== PAGE HASH ROUTING ===== \*\/([\s\S]*?)\nfunction ThemeToggle\(/);
   const pageIds = vm.runInNewContext(`${block[1]}\nArray.from(PAGE_IDS)`);
   const setupPages = ['setup', 'setup-podcast', 'setup-accounts', 'setup-practice', 'setup-access'];
   const aliases = { intel: 'intel-roles', opportunities: 'intel-outreach' };

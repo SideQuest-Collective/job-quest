@@ -9,7 +9,7 @@ const html = () => fs.readFileSync(path.join(__dirname, '..', 'public', 'index.h
 test('dashboard preserves native practice continuation and review context', () => {
   const home = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard-home.jsx'), 'utf8');
   assert.match(home,/fetch\('\/api\/profile'\)/);
-  assert.match(home,/continuation\.href/);
+  assert.match(home,/href=\{continuation\?\.href\|\|'#tasks'\}/);
   assert.match(home,/reviewSource\?\.mode==='external'/);
 });
 
@@ -28,8 +28,8 @@ test('the role page shows a workbook card and every JSON prep-plan trace is gone
 test('the Prep Plans tab is replaced by Workbooks', () => {
   const h = html();
   assert.doesNotMatch(h, /function PrepPlans|<PrepPlans|id: 'prepplans'/);
-  assert.match(h, /\{ id: 'workbooks', icon: Icons\.clipboard, label: 'Workbooks' \}/);
-  assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*hidden=\{page !== 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
+  assert.match(h, /\{ id: 'workbooks', label: 'Workbooks'/);
+  assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*<PageSurface[^\n]*active=\{page === 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
   assert.match(h, /page === 'workbooks' \|\| page === 'behavioral'/);
   for (const needle of [
     'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
@@ -146,6 +146,7 @@ function cardHarness(wb, responses) {
   let requests = 0, changes = 0, nextTimer = 0;
   const get = async () => { requests++; return responses.shift(); };
   const card = vm.runInNewContext(`${prefix}\nreturn { active, canExpand, canRetry, progressLine, run, reviewWarning: typeof reviewWarning === "undefined" ? undefined : reviewWarning, jobError: typeof jobError === "undefined" ? undefined : jobError }; }\nWorkbookCard`, {
+    usePageVisible: () => true,
     useState: value => [value, next => stateWrites.push(next)],
     useRef: value => ({ current: value }),
     useEffect: effect => effects.push(effect),
@@ -234,6 +235,7 @@ function workbooksHarness(initialList, request, initialError = '') {
   const effects = [], timers = new Map();
   let slot = 0;
   const component = vm.runInNewContext(`${prefix}\nreturn { load, anyActive }; }\nWorkbooks`, {
+    usePageVisible: () => true,
     useState: () => { const i = slot++; return [states[i], value => { states[i] = value; }]; },
     useCallback: fn => fn,
     useEffect: fn => effects.push(fn),

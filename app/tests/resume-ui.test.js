@@ -37,8 +37,8 @@ test('failed tailored list GET exposes an error without an empty state or losing
   assert.ok(source, 'tailored record hook exists');
   const states = [];
   let cursor = 0, response;
-  const hook = new Function('useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', `${source[0]}\nreturn useTailoredRecord;`)(
-    (initial) => {
+  const hook = new Function('usePageVisible', 'useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', `${source[0]}\nreturn useTailoredRecord;`)(
+    () => true, (initial) => {
       const index = cursor++;
       if (!(index in states)) states[index] = initial;
       return [states[index], (value) => { states[index] = value; }];
@@ -246,8 +246,8 @@ test('tailored records poll active work and refresh other subscribers after muta
     const effects = [], timers = [], cleared = [], updates = [];
     const window = new EventTarget();
     let requests = 0;
-    const hook = new Function('useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', 'setInterval', 'clearInterval', 'window', `${source[0]}\nreturn useTailoredRecord;`)(
-      (initial) => [initial === null ? [{ id: 'r1', roleKeys: ['Initech|Engineer'], status }] : initial, (v) => updates.push(v)],
+    const hook = new Function('usePageVisible', 'useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', 'setInterval', 'clearInterval', 'window', `${source[0]}\nreturn useTailoredRecord;`)(
+      () => true, (initial) => [initial === null ? [{ id: 'r1', roleKeys: ['Initech|Engineer'], status }] : initial, (v) => updates.push(v)],
       (fn) => fn, (fn) => effects.push(fn),
       { async get(url) { assert.equal(url, '/api/resume/tailored'); requests++; return []; } }, ['queued', 'running'],
       (fn, ms) => { assert.equal(ms, 3000); timers.push(fn); return 42; }, (id) => cleared.push(id), window,

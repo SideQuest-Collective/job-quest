@@ -141,19 +141,22 @@ test('Intel first-mount effects honor a valid role launch instead of the first l
   const code = html.slice(start, html.indexOf('  const selected =', start));
   const first = 'First Company|Backend Engineer', requested = 'Requested Company|Platform Engineer';
   function mount(launchRole, selectedKey = null) {
-    const effects = [], selections = [], filters = [];
+    const effects = [], selections = [], filters = [], views = [];
     vm.runInNewContext(code, {
       launchRole, selectedKey, filter:'all', useRef:value=>({current:value}), roleMap:{[first]:{},[requested]:{}}, allRoles:[{},{}], filtered:[{key:first},{key:requested}],
       setSelectedKey:value=>selections.push(value), setFilter:value=>filters.push(value),
+      detail:{showDetail:()=>views.push('detail'),showList:()=>views.push('list')},
       useEffect:fn=>effects.push(fn),
     });
     // React runs both mount effects from the same render where selectedKey is null.
     for (const effect of effects) effect();
-    return {key:selections.at(-1),filters};
+    return {key:selections.at(-1),filters,views};
   }
   assert.equal(mount({key:requested,request:1}).key,requested);
   assert.deepEqual(mount({key:requested,request:1}).filters,['all']);
+  assert.deepEqual(mount({key:requested,request:1}).views,['detail']);
   assert.equal(mount(null).key,first);
   assert.equal(mount({key:'Missing|Role',request:2}).key,first);
   assert.equal(mount({key:requested,request:3},first).key,requested);
+  assert.deepEqual(mount({filter:'saved',request:4}),{key:null,filters:['saved'],views:['list']});
 });

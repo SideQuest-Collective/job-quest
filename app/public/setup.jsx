@@ -56,7 +56,7 @@
     const accountsRequest=useRef(0),previousSection=useRef(null);if(active&&section==='accounts'&&previousSection.current!=='accounts')accountsRequest.current++;if(active)previousSection.current=section;
     const currentSection=section==='accounts'?'intel':section;
     const visited=useRef(new Set());if(active)visited.current.add(currentSection);
-    return <div className="setup-page"><header className="page-header"><h1>Setup</h1><p className="greeting-sub">Connections, schedules and preferences in one place.</p></header><nav className="setup-sections" aria-label="Setup sections">{sections.map(([id,label])=><a key={id} href={`#${route(id)}`} aria-current={id===currentSection?'page':undefined} onClick={e=>{e.preventDefault();setPage(route(id));}}>{label}</a>)}</nav>
+    return <div className="setup-page"><header className="page-header"><h1>Setup</h1><p className="greeting-sub">Connections, schedules and preferences in one place.</p></header><nav className="setup-sections section-tabs" aria-label="Setup sections">{sections.map(([id,label])=><a key={id} href={`#${route(id)}`} aria-current={id===currentSection?'page':undefined} onClick={e=>{e.preventDefault();setPage(route(id));}}>{label}</a>)}</nav>
       {visited.current.has('intel')&&<div hidden={currentSection!=='intel'}><window.IntelSetup active={active&&currentSection==='intel'} configureRequest={intelConfigureRequest} sourceConfigureRequest={accountsRequest.current} setPage={setPage}/></div>}
       {visited.current.has('podcast')&&<div hidden={section!=='podcast'}><window.DailyDropSetupCard active={active&&section==='podcast'}/></div>}
       {visited.current.has('practice')&&<div hidden={section!=='practice'}><PracticePreferences active={active&&section==='practice'}/></div>}

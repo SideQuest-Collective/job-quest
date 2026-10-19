@@ -256,10 +256,10 @@
           <div className="greeting-sub">Interview lessons on the concepts your upcoming interviews are most likely to ask, ranked across your roles' workbooks.</div>
           <button className="btn btn-secondary" style={{ minHeight: 44, marginTop: 12 }} onClick={openPodcastSetup}>Podcast settings</button>
         </div>
-        <nav style={{ display: 'flex', gap: 8, marginBottom: 20 }} aria-label="Daily Drop view">
-          <button className={`btn ${tab === 'today' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('today')}>Episode</button>
-          <button className={`btn ${tab === 'topics' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('topics')}>Topics</button>
-          <button className={`btn ${tab === 'master' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('master')}>Master cheat sheet</button>
+        <nav className="section-tabs" aria-label="Daily Drop view">
+          <button type="button" aria-pressed={tab==='today'} onClick={() => setTab('today')}>Episode</button>
+          <button type="button" aria-pressed={tab==='topics'} onClick={() => setTab('topics')}>Topics</button>
+          <button type="button" aria-pressed={tab==='master'} onClick={() => setTab('master')}>Master cheat sheet</button>
         </nav>
         {err && <div role="alert" className="card" style={{ color: 'var(--rose)' }}>{err}</div>}
         {state && tab === 'today' && <Today state={state} reload={reload} />}
