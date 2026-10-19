@@ -1,7 +1,7 @@
 /* global React */
 // Loaded as a Babel script beside index.html; deliberately reuses native practice URLs.
 (() => {
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useRef } = React;
   const request = async (url, body) => {
     const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
     const value = await res.json();
@@ -28,13 +28,14 @@
     return (r.planContext?.title || r.title).replace(/^(?:Optional\s+(?:(?:short|planning|5-minute)\s+)?rep:\s*)+/i,'');
   }
   function Learning({ mode = 'practice' }) {
+    const activityRef=useRef(null);
     const cacheKey = `jq-learning-draft-${mode}`;
     const domId = (id) => `${mode}-${id}`;
     const [data, setData] = useState(null), [error, setError] = useState(''), [status, setStatus] = useState('');
     const [busy, setBusy] = useState(false), [minutes, setMinutes] = useState(() => { try { const n=Number(sessionStorage.getItem('jq-practice-minutes')); return [5,15,30].includes(n) ? n : 5; } catch { return 5; } }), [sourceId, setSourceId] = useState(base.id);
     const [feedback, setFeedback] = useState({}), [feedbackError, setFeedbackError] = useState('');
     const [session, setSession] = useState(() => { try { return JSON.parse(sessionStorage.getItem(cacheKey)) || null; } catch { return null; } });
-    const [sourceForm, setSourceForm] = useState({ ...blankSource }), [confirmRefresh, setConfirmRefresh] = useState(false), [player, setPlayer] = useState(false);
+    const [sourceForm, setSourceForm] = useState({ ...blankSource }), [confirmRefresh, setConfirmRefresh] = useState(false), [player, setPlayer] = useState(false), [mediaKind,setMediaKind] = useState('all');
     const reload = async () => { try { const next = await request('/api/learning'); setData(next); setConfirmRefresh(false); setError(''); } catch (e) { setError(e.message); } };
     useEffect(() => { reload(); }, []);
     useEffect(() => { const update = (e) => { const n=Number(e.detail?.minutes ?? e.detail); if ([5,15,30].includes(n)) setMinutes(n); }; window.addEventListener('jq-practice-budget',update); return () => window.removeEventListener('jq-practice-budget',update); }, []);
@@ -50,6 +51,7 @@
       return ()=>{active=false;clearTimeout(timer);};
     }, [feedback]);
     useEffect(() => { try { if (session) sessionStorage.setItem(cacheKey, JSON.stringify(session)); else sessionStorage.removeItem(cacheKey); } catch {} }, [session, cacheKey]);
+    useEffect(()=>{if(session?.id&&activityRef.current){activityRef.current.scrollIntoView({block:'start'});activityRef.current.focus({preventScroll:true});}},[session?.id]);
     const save = async (url, value, message) => {
       setBusy(true); setError(''); setStatus('');
       try { const next = await request(url, { revision: data.revision, ...value }); setData((old) => ({ ...old, ...next })); setStatus(message); return next; }
@@ -106,21 +108,24 @@
         .learning-page pre{white-space:pre-wrap;font:inherit;font-size:15px;max-height:300px;overflow:auto}.learning-page audio{width:100%;margin-top:12px}.learning-page iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:8px}.learning-page .lp-error{border-left:4px solid var(--rose);padding:12px;background:var(--bg-card)}
         @media(max-width:420px){.learning-page .lp-card{padding:15px}.learning-page h2{font-size:24px}.learning-page .lp-row>*{max-width:100%}}
       `}</style>
-      <h2>{mode === 'learn' ? 'Learn on the go' : 'A little practice, right now'}</h2>
-      <p>{mode === 'learn' ? 'Choose a resource, keep your place, and turn one idea into an answer.' : 'Choose your time. Continue unfinished work or try a short recall exercise.'}</p>
+      <div className="view-intro"><h3 className="sr-only">{mode === 'learn' ? 'Listen or watch on the go' : 'Focused practice'}</h3>
+      <p className="greeting-sub">{mode === 'learn' ? 'Short listening and watching for a walk, commute or break. Save your place; a written reflection is optional.' : 'Sit down to code, write or rehearse. Continue saved work or explain a concept from memory.'}</p></div>
       {error && <div role="alert" className="lp-error"><p>{error}</p><button onClick={reload} disabled={busy}>Reload saved data</button><p className="lp-note">Your open answer and source form stay here when you reload.</p></div>}
       {status && <p role="status">{status}</p>}
       {!data ? <p role="status">{error ? 'Learning is unavailable until the data loads.' : 'Loading your practice…'}</p> : <>
-        <div className="lp-row" role="group" aria-label="Available time">{[5, 15, 30].map((m) => <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m} minutes</button>)}</div>
-        <p className="lp-note">{minutes === 5 ? '1 min recall · 3 min answer · 1 min check' : minutes === 15 ? '2 min recall · 10 min practice or listen · 3 min reflect' : '5 min plan · 20 min practice or listen · 5 min review'}. A time budget is a stopping point, not a claim that the whole problem fits.</p>
-        {session && <section className="lp-card" aria-label="Current activity">
-          <h3>{session.kind === 'media' ? 'Listen or watch, then reflect' : session.sourceId === practiceCheck.id ? 'A short planning or follow-up rep' : 'Recall before revealing'}</h3><p>{session.goal}</p><p className="lp-note">This activity: {session.minutes} minutes. Text is kept in this browser until saved to your library.</p>
-          {session.planContext && <div><p className="lp-note">For: {session.planContext.title}{session.planContext.feedbackAttemptId ? ' · follow-up to a reviewed answer' : ''}</p>{session.planContext.href && <a className="lp-link" href={session.planContext.href}>Open full practice →</a>}<p className="lp-note">This reflection is an optional preparation step. Full practice remains available before reading or watching anything here.</p></div>}
+        <div className="lp-row view-filters" role="group" aria-label="Available time">{[5, 15, 30].map((m) => <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m} minutes</button>)}</div>
+        <p className="lp-note">{mode === 'learn' ? `Choose a ${minutes}-minute segment, then save your place. The full resource may be longer.` : <>{minutes === 5 ? '1 min recall · 3 min answer · 1 min check' : minutes === 15 ? '2 min recall · 10 min practice · 3 min reflect' : '5 min plan · 20 min practice · 5 min review'}. A time budget is a stopping point, not a claim that the whole problem fits.</>}</p>
+        {session && <section className="lp-card" aria-label="Current activity" ref={activityRef} tabIndex={-1}>
+          <h3>{session.kind === 'media' ? 'Your listening or watching bookmark' : session.sourceId === practiceCheck.id ? 'A short planning or follow-up rep' : 'Recall before revealing'}</h3><p>{session.goal}</p><p className="lp-note">This activity: {session.minutes} minutes. Text is kept in this browser until saved to your library.</p>
+          {session.planContext && session.kind==='media' && <details><summary>Related focused practice</summary><p>{session.planContext.title}</p>{session.planContext.href&&<a className="lp-link" href={session.planContext.href}>Open focused practice</a>}</details>}
+          {session.planContext && session.kind!=='media' && <div><p className="lp-note">For: {session.planContext.title}{session.planContext.feedbackAttemptId ? ' · follow-up to a reviewed answer' : ''}</p>{session.planContext.href && <a className="lp-link" href={session.planContext.href}>Open full practice →</a>}<p className="lp-note">This reflection is an optional preparation step. Full practice remains available before reading or watching anything here.</p></div>}
           {media && <><a className="lp-link" href={media.url} target="_blank" rel="noopener noreferrer">Open {media.publisher} resource ↗</a>
             {media.youtubeId && <div style={{marginTop:12}}>{player ? <><iframe title={media.title} src={`https://www.youtube-nocookie.com/embed/${media.youtubeId}?start=${Math.floor(session.positionSeconds || 0)}`} allow="encrypted-media; picture-in-picture" allowFullScreen /><p className="lp-note">If the video is blocked or unavailable, use Open resource above. Your draft stays here.</p></> : <button onClick={() => setPlayer(true)}>Load video here</button>}</div>}
             {media.audioUrl && <audio key={session.id} aria-label={media.title} controls preload="none" src={media.audioUrl} onLoadedMetadata={(e)=>{e.currentTarget.currentTime=session.positionSeconds || 0;}} onTimeUpdate={(e)=>{const at=Math.floor(e.currentTarget.currentTime);if(Math.abs(at-session.positionSeconds)>=5)setSession((old)=>({...old,positionSeconds:at}));}} onPause={(e)=>{const at=Math.floor(e.currentTarget.currentTime);setSession((old)=>({...old,positionSeconds:at}));}} onError={()=>setError('The audio could not load. Open the publisher resource above, then save your position here.')} />}
-            <label htmlFor={domId('lp-position')}>Bookmark position (seconds)</label><input id={domId('lp-position')} type="number" min="0" max="86400" value={session.positionSeconds} onChange={(e) => setSession({...session, positionSeconds: Number(e.target.value)})}/><p className="lp-note">{media.audioUrl ? 'The local player updates this bookmark. Save draft & position to keep it in your library.' : 'Set your stopping point and save. Playback on external sites does not update this bookmark automatically.'}</p>
+            <label htmlFor={domId('lp-position')}>Bookmark position (seconds)</label><input id={domId('lp-position')} type="number" min="0" max="86400" value={session.positionSeconds} onChange={(e) => setSession({...session, positionSeconds: Number(e.target.value)})}/><p className="lp-note">{media.audioUrl ? 'The local player updates this bookmark. Save bookmark to keep your place.' : 'Set your stopping point and save. Playback on external sites does not update this bookmark automatically.'}</p>
           </>}
+          {session.kind==='media' && <button disabled={busy} onClick={()=>storeSession(false)}>Save bookmark</button>}
+          <details open={session.kind !== 'media'}><summary>{session.kind==='media'?'Optional: reflect on one idea':'Your answer'}</summary>
           <label htmlFor={domId('lp-answer')}>{session.prompt}</label><textarea id={domId('lp-answer')} value={session.response} onChange={(e) => setSession({...session, response:e.target.value})} placeholder="Write what you can explain without the reference…"/>
           {session.sourceOrigin === 'linked' && <p className="lp-note">Using the shared interview reference. Saving checks its current hash; the saved attempt keeps this exact snapshot.</p>}
           {session.kind === 'retrieval' && <><button style={{marginTop:12}} onClick={() => setSession({...session, revealed:true})}>Reveal reference</button>{session.revealed && <pre>{session.referenceContent || 'This saved draft has no reference snapshot. Reopen its source before relying on it.'}</pre>}</>}
@@ -129,6 +134,8 @@
           {session.revealed && <p className="lp-note">Reference revealed; this context will stay attached to the answer.</p>}
           <div className="lp-row"><button disabled={busy} onClick={() => storeSession(false)}>Save draft &amp; position</button><button className="lp-primary" disabled={busy || !session.response.trim()} onClick={() => storeSession(true)}>Save answer</button><button disabled={busy} onClick={() => { if (window.confirm('Close this editor? Any unsaved changes will be discarded. Saved drafts remain in your library.')) setSession(null); }}>Close</button></div>
           <p className="lp-note">Save your answer first, then request AI feedback in Saved answers. Reviews use the same coach as native practice and retain help/reveal context.</p>
+          </details>
+          {session.kind==='media' && <button style={{marginTop:12}} disabled={busy} onClick={()=>{if(window.confirm('Close this bookmark? Save first to keep your latest position.'))setSession(null);}}>Close bookmark</button>}
         </section>}
         {mode === 'practice' && <>
           <section className="lp-card" aria-label="Native practice"><h3>{groups.native.some(c => c.saved) ? 'Continue saved work' : 'Continue your practice'}</h3>
@@ -142,9 +149,17 @@
           {groups.planning.length > 0 && <details className="lp-card"><summary>Optional planning before practice</summary><p className="lp-note">Clarify a goal and an example before the full task. These planning questions do not test whether you can solve it.</p><div className="lp-grid">{groups.planning.map(r => <article key={r.id}><h3>{planningTitle(r)}</h3><p>{r.reason}</p><div className="lp-row">{r.planContext?.href && <a className="lp-link" href={r.planContext.href}>Open full practice first →</a>}<button disabled={busy} onClick={() => startSuggestion(r)}>Plan for {minutes} minutes</button></div></article>)}</div></details>}
           {data.warnings.map((w) => <p role="status" key={w}>{w}</p>)}
         </>}
-        {data.sessions.some((s) => s.status === 'draft') && <section className="lp-card"><h3>Resume a saved learning rep</h3>{data.sessions.filter((s) => s.status === 'draft').slice().reverse().slice(0,5).map((s) => <div key={s.id} style={{marginBottom:12}}><p>{s.goal}</p><button disabled={busy} onClick={() => resume(s)}>Resume {s.minutes}-minute {s.kind === 'media' ? 'reflection' : 'recall'}</button></div>)}</section>}
+        {data.sessions.some((s) => s.status === 'draft' && (mode === 'learn' ? s.kind === 'media' : s.kind !== 'media')) && <section className="lp-card"><h3>{mode==='learn'?'Continue listening or watching':'Resume a saved recall'}</h3>{data.sessions.filter((s) => s.status === 'draft' && (mode === 'learn' ? s.kind === 'media' : s.kind !== 'media')).slice().reverse().slice(0,5).map((s) => <div key={s.id} style={{marginBottom:12}}><p>{s.goal}</p><button disabled={busy} onClick={() => resume(s)}>Resume {s.minutes}-minute {s.kind === 'media' ? 'bookmark' : 'recall'}</button></div>)}</section>}
         {(data.recommendationWarnings || []).map((w) => <p role="status" key={w}>{w}</p>)}
-        {(mode === 'learn' || data.media.some(m => m.matched)) && <section className="lp-card"><h3>{mode === 'learn' ? 'Learn, then apply' : 'A resource for your next practice'}</h3><div className="lp-grid">{data.media.filter(m => mode === 'learn' || m.matched).map((m) => <article key={m.id}><div className="lp-note">{m.kind === 'audio' ? 'Listen' : 'Watch'} · {m.publisher}</div><h3>{m.title}</h3><p>{m.goal}</p><p className="lp-note">{m.planContext.reason}</p><button className="lp-primary" disabled={busy} onClick={() => start(m,'media')}>Start {minutes}-minute learning rep</button><p className="lp-note">Use part of your budget for a segment, then write the reflection. Playback does not mark this goal complete.</p><a className="lp-link" href={m.planContext.href}>Follow up: {m.planContext.title} →</a><p className="lp-note"><a href={m.url} target="_blank" rel="noopener noreferrer">Source ↗</a> · Link checked {m.checkedAt}</p></article>)}</div></section>}
+        {mode === 'learn' && <section className="lp-card" aria-label="Audio and video"><h3>Choose something to listen to or watch</h3>
+          <div className="lp-row" role="group" aria-label="Resource format">{[['all','All'],['audio','Listen'],['video','Watch']].map(([kind,label])=><button key={kind} aria-pressed={mediaKind===kind} onClick={()=>setMediaKind(kind)}>{label}</button>)}</div>
+          <div className="lp-grid" style={{marginTop:20}}>{data.media.filter(m=>mediaKind==='all'||m.kind===mediaKind).map(m=><article key={m.id}>
+            <div className="lp-note">{m.kind==='audio'?'Audio':'Video'} · {m.publisher}</div><h3>{m.title}</h3><p>{m.goal}</p>
+            <div className="lp-row"><a className="lp-link lp-primary" href={m.url} target="_blank" rel="noopener noreferrer">{m.kind==='audio'?'Listen':'Watch'} at source</a><button disabled={busy} onClick={()=>start(m,'media')}>Bookmark or play here</button></div>
+            <details><summary>Use this in focused practice</summary><p>{m.planContext.reason}</p><a className="lp-link" href={m.planContext.href}>{m.planContext.title}</a></details><p className="lp-note">Source checked {m.checkedAt}. Save a stopping point when you want to continue later.</p>
+          </article>)}</div>{!data.media.some(m=>mediaKind==='all'||m.kind===mediaKind)&&<p>No resources in this format yet. Check content readiness in Setup.</p>}
+        </section>}
+        {window.ContentReadiness && <window.ContentReadiness compact/>}
         <details className="lp-card"><summary>Shared reference library · {linkedSources.length} linked · {data.sources.length} saved</summary><p>Keep concepts, resumes, stories and company preparation distinct. References create no practice credit. Shared concepts read the same owned source as interview preparation; saved learning snapshots stay separate. Nothing here changes an active interview selection.</p>
           <h3>Shared with interview preparation</h3><button disabled={busy} onClick={reload}>Refresh linked references</button>
           {(data.linkedWarnings || []).map((w,i)=><p role="status" key={i}>{w}</p>)}

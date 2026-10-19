@@ -64,6 +64,7 @@ app.use('/api/role-tracker', express.json({ limit: '50mb', strict: false }));
 app.use(express.json({ limit: '50mb' }));
 
 const runtimeState = ensureRuntime({ write: true });
+require('./lib/runtime-diagnostics').registerRuntimeDiagnostics(app, { getRuntime: () => runtimeState });
 const runtimeDisplayName = runtimeState.runtimeDisplayName;
 const runtimeCommandLabel = runtimeState.runtimeCommand;
 const installScheduleCommand = `${expandHome(runtimeState.binDir)}/install-schedule.sh "3 7 * * 1-5"`;
@@ -76,9 +77,16 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+const {getPaths: outreachPaths, ensureNativeStore} = require('./lib/outreach/store');
+const outreachStorage = outreachPaths(DATA_DIR, {briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE});
+if (outreachStorage.native) ensureNativeStore(DATA_DIR);
+process.env.JOB_QUEST_CAREER_BRIEF = outreachStorage.briefPath;
+process.env.JOB_QUEST_REPLY_QUEUE = outreachStorage.queuePath;
+
 // --- Shared job queue (workbooks, resume tailoring) ---
 const jobHandlers = {};
-const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers });
+// Resume tailoring takes minutes; workbook builds take about an hour. Run resumes first.
+const jobQueue = createQueue({ dataDir: DATA_DIR, handlers: jobHandlers, priority: ['resume', 'workbook-guide', 'workbook-restructure'] });
 const roleEvents = createRoleEventBus();
 const feedbackService = createFeedbackService({ dataDir: DATA_DIR, queue: jobQueue, handlers: jobHandlers });
 const feedbackRoute = fn => (req, res) => { try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save or load feedback. Your existing data has been preserved.' }); } };
@@ -90,7 +98,7 @@ app.get('/api/feedback/:id', feedbackRoute((req, res) => {
 }));
 app.post('/api/feedback/:id/retry', feedbackRoute((req, res) => res.status(202).json(feedbackService.retry(req.params.id))));
 
-app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,schedule:localSetup.schedule || 'not_selected'}));
+app.get('/api/local-setup', (req,res) => res.json({localAvailable:true,privateConfigured:!!(process.env.JOB_QUEST_ALLOWED_ORIGINS && process.env.JOB_QUEST_TAILSCALE_USER),privateOrigin:process.env.JOB_QUEST_ALLOWED_ORIGINS || null,privateAuthenticated:!!req.headers['tailscale-user-login'],careerBriefConfigured:!!process.env.JOB_QUEST_CAREER_BRIEF,replyQueueConfigured:!!process.env.JOB_QUEST_REPLY_QUEUE,outreachStorage:outreachStorage.native?'native':'external',schedule:localSetup.schedule || 'not_selected'}));
 
 app.get('/api/jobs', (req, res) => res.json(jobQueue.list()));
 app.get('/api/settings', (req, res) => res.json(readSettings(DATA_DIR)));
@@ -106,6 +114,8 @@ registerInterviewRoutes(app, { dataDir: DATA_DIR, interviewHome: INTERVIEW_HOME 
 
 // --- Workbooks (handler registered before jobQueue.start() at the bottom of this file) ---
 jobHandlers.workbook = createWorkbookHandler({ dataDir: DATA_DIR });
+jobHandlers['workbook-guide'] = require('./lib/workbook/guide').createGuideHandler({ dataDir: DATA_DIR });
+jobHandlers['workbook-restructure'] = require('./lib/workbook/restructure').createRestructureHandler({ dataDir: DATA_DIR });
 const workbookAutoBuild = createAutoBuild({ dataDir: DATA_DIR, queue: jobQueue });
 roleEvents.on('saved', (roleKey) => workbookAutoBuild.onRoleEvent('saved', roleKey));
 roleEvents.on('applied', (roleKey) => workbookAutoBuild.onRoleEvent('applied', roleKey));
@@ -743,7 +753,11 @@ app.get('/api/activity', (req, res) => {
 const problemStore = createProblemStore(DATA_DIR);
 require('./lib/codelab/drafts').registerDraftRoutes(app, {dataDir:DATA_DIR,getProblems:()=>problemStore.read()});
 require('./lib/opportunities/routes').registerOpportunityRoutes(app, { dataDir: DATA_DIR, briefPath: process.env.JOB_QUEST_CAREER_BRIEF, queuePath: process.env.JOB_QUEST_REPLY_QUEUE });
+require('./lib/opportunities/access-check').registerAccessCheckRoutes(app, {dataDir:DATA_DIR});
 require('./lib/learning/routes').registerLearningRoutes(app, {dataDir: DATA_DIR, getProblems: () => problemStore.read()});
+require('./lib/podcast/routes').registerPodcastRoutes(app, { dataDir: DATA_DIR, binDir: expandHome(runtimeState.binDir) });
+require('./lib/intel-control/routes').registerIntelControls(app,{dataDir:DATA_DIR,binDir:expandHome(runtimeState.binDir),getRuntime:()=>ensureRuntime({write:false,requireRunner:true,requireRegistration:true})});
+try { const readiness=require('./lib/learning/readiness').assessContentReadiness(DATA_DIR); console.log(`[Job Quest] Content readiness: ${readiness.status}. See Setup for details.`); } catch { console.warn('[Job Quest] Content readiness could not be checked. Saved data was preserved.'); }
 app.get('/api/problems', (req, res) => {
   try { res.json(problemStore.read()); } catch (err) { res.status(500).json({ error: `could not read problems: ${err.message}` }); }
 });
@@ -892,6 +906,7 @@ Continue mentoring. Be concise and encouraging. Format with markdown.`;
 });
 
 // --- System Design Mock Interview ---
+const { sdTopicState, sdFeedbackGiven, buildSdWrapUpPrompt, completeSdConversation } = require('./lib/sd-interview');
 const sdConversations = {};
 const SD_CONV_DIR = path.join(DATA_DIR, 'sd-conversations');
 
@@ -921,15 +936,33 @@ function getSdConversationFile(topicId) {
   return path.join(SD_CONV_DIR, `${safeTopicId}.json`);
 }
 
+function readSdConversation(topicId) {
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile || !fs.existsSync(convFile)) return null;
+  try { return JSON.parse(fs.readFileSync(convFile, 'utf-8')); } catch { return null; }
+}
+
+// Ticks off today's matching system-design task once a session is substantive (8+ messages).
+function autoCompleteSdDailyTask(topic, conv) {
+  if (conv.messages.length < 8) return;
+  const topicTitle = topic.title.toLowerCase();
+  autoCompleteDailyTask(task => {
+    if (task.category !== 'system-design') return false;
+    // Match by checking if the topic keywords appear in the task text
+    const taskText = task.text.toLowerCase();
+    // Extract key subject from topic title (e.g., "Design a Rate Limiter" → "rate limiter")
+    const subject = topicTitle.replace(/^design\s+(a|an)\s+/i, '');
+    return taskText.includes(subject);
+  });
+}
+
 function getSdTopic(topicId) {
   return SD_TOPICS.find(t => t.id === topicId) || getWorkbookSdTopics(DATA_DIR).find(t => t.id === topicId);
 }
 
 app.get('/api/sd-topics', (req, res) => {
   const topics = [...SD_TOPICS, ...getWorkbookSdTopics(DATA_DIR)].map(t => {
-    const convFile = getSdConversationFile(t.id);
-    const hasConversation = fs.existsSync(convFile);
-    return { ...t, hasConversation };
+    return { ...t, ...sdTopicState(readSdConversation(t.id)) };
   });
   res.json(topics);
 });
@@ -959,6 +992,7 @@ app.post('/api/sd-conversation/:topicId', (req, res) => {
   if (fs.existsSync(convFile)) {
     conv = JSON.parse(fs.readFileSync(convFile, 'utf-8'));
   }
+  if (conv.completedAt) return res.status(409).json({ error: 'This interview is complete. Restart it to practice again.', messages: conv.messages });
 
   const isFirstMessage = conv.messages.length === 0;
 
@@ -1037,20 +1071,58 @@ Continue the interview. Remember:
       conv.messages.push({ role: 'assistant', content: result, timestamp: new Date().toISOString() });
       fs.writeFileSync(convFile, JSON.stringify(conv, null, 2));
       logActivity('sd_interview', { topicId, exchanges: conv.messages.length });
-      // Auto-complete matching daily system-design task after substantive session (8+ exchanges)
-      if (conv.messages.length >= 8) {
-        const topicTitle = topic.title.toLowerCase();
-        autoCompleteDailyTask(task => {
-          if (task.category !== 'system-design') return false;
-          // Match by checking if the topic keywords appear in the task text
-          const taskText = task.text.toLowerCase();
-          // Extract key subject from topic title (e.g., "Design a Rate Limiter" → "rate limiter")
-          const subject = topicTitle.replace(/^design\s+(a|an)\s+/i, '');
-          return taskText.includes(subject);
-        });
-      }
+      autoCompleteSdDailyTask(topic, conv);
       res.json({ response: result, messages: conv.messages });
     }
+  });
+});
+
+// Ends an interview. The interviewer gives final scored feedback first, unless it already did
+// (natural end) or the caller asks to skip it (runtime unavailable). Saved messages are kept.
+app.post('/api/sd-conversation/:topicId/complete', (req, res) => {
+  const { topicId } = req.params;
+  const topic = getSdTopic(topicId);
+  if (!topic) return res.status(404).json({ error: 'Topic not found' });
+  const convFile = getSdConversationFile(topicId);
+  if (!convFile) return res.status(400).json({ error: 'Invalid topic id' });
+  const conv = readSdConversation(topicId);
+  if (!conv || !Array.isArray(conv.messages) || conv.messages.length === 0) return res.status(409).json({ error: 'Start the interview before ending it.' });
+  if (conv.completedAt) return res.json(conv);
+
+  const finish = (feedback) => {
+    // Re-read so a message saved while the feedback was running is not lost.
+    const latest = readSdConversation(topicId) || conv;
+    if (!latest.completedAt) {
+      completeSdConversation(latest, { feedback });
+      fs.writeFileSync(convFile, JSON.stringify(latest, null, 2));
+      logActivity('sd_interview_completed', { topicId, exchanges: latest.messages.length, score: latest.score, endedEarly: latest.endedEarly });
+      autoCompleteSdDailyTask(topic, latest);
+    }
+    res.json(latest);
+  };
+  if (req.body?.skipFeedback || sdFeedbackGiven(conv)) return finish(null);
+
+  const prepContext = topic.source === 'workbook' ? `
+This is a workbook question for ${topic.sourceRole || 'a role'}${topic.sourceCompany ? ` at ${topic.sourceCompany}` : ''}.
+Evaluation criteria: ${(topic.evaluationCriteria || []).join(', ') || 'Assess requirements, architecture, data model, scalability, tradeoffs, and communication.'}
+` : '';
+  const tmpPrompt = path.join(os.tmpdir(), `sd_wrapup_${Date.now()}.txt`);
+  fs.writeFileSync(tmpPrompt, buildSdWrapUpPrompt(topic, conv, prepContext));
+  const scriptPath = path.join(__dirname, 'scripts', 'code-review.sh');
+  const nvmBin = path.join(os.homedir(), '.nvm/versions/node/v22.12.0/bin');
+  const { exec: execAsync } = require('child_process');
+  execAsync(`cat "${tmpPrompt}" | bash "${scriptPath}"`, {
+    encoding: 'utf-8',
+    timeout: 120000,
+    maxBuffer: 2 * 1024 * 1024,
+    env: { ...process.env, HOME: os.homedir(), PATH: `${nvmBin}:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}` },
+  }, (err, stdout, stderr) => {
+    try { fs.unlinkSync(tmpPrompt); } catch {}
+    const feedback = (stdout || '').trim();
+    if (err || !feedback) {
+      return res.status(502).json({ error: `Could not get final feedback from ${runtimeDisplayName}. You can try again or end without feedback.\n\n` + (stderr || err?.message || '').slice(0, 200), canSkipFeedback: true });
+    }
+    finish(feedback);
   });
 });
 

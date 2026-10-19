@@ -52,3 +52,11 @@ For the authorized local UI, discovery, outreach, learning, feedback and private
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Routine phone interaction checks
+
+For UI changes, check responsiveness alongside visual consistency on desktop and at 390px. Navigate through Dashboard, Discover, Intel and Practice, then revisit them; exercise menus, tabs, filters and the changed primary controls. Ready content should appear promptly without entrance animations or delayed tap feedback. Investigate any perceptible pause, especially delays around half a second or longer.
+
+When navigation, shared state or polling changes, verify that hidden pages avoid unnecessary renders and requests, returning pages refresh current data, drafts survive navigation, and legitimate background jobs continue. Run the relevant lifecycle regression tests and repeat the affected flow against the installed local app. Restore viewport overrides and stop temporary preview servers afterward.
+
+For phone performance reports, separate browser rendering, API response time and the private Tailscale connection. Check the actual phone through its existing private URL when available; otherwise state that real-device latency is unverified and request a refreshed-phone check after completing local verification. A desktop viewport or fast ping alone does not establish phone responsiveness. Do not change network exposure as part of these checks.

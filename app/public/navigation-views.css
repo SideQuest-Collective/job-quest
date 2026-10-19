@@ -1,0 +1,54 @@
+/* One hierarchy: section links, view filters, then the working content. */
+body .page-header {margin:0 0 18px;}
+body .page-header :is(h1,h2) {margin:0;font:600 30px/1.2 var(--font-display);letter-spacing:-.8px;color:var(--text);}
+body .page-header .greeting-sub {margin:6px 0 0;font-size:15px;line-height:1.5;color:var(--text-secondary);}
+body .page-header-actions {margin-top:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 18px;}
+body .page-header-actions > :first-child {min-width:0;}
+body .page-header-actions > :is(.actions,.action-row) {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0;}
+body .section-tabs {
+  display:flex;align-items:center;flex-wrap:wrap;gap:2px 20px;
+  padding:0;margin:0 0 18px;border:0;border-bottom:1px solid var(--border);
+}
+body .section-tabs > :is(a,button,.btn) {
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:46px;min-width:0;padding:10px 2px;margin:0;
+  border:0;border-bottom:3px solid transparent;border-radius:6px 6px 0 0;
+  background:transparent;color:var(--text-secondary);font:500 15px/1.4 var(--font-display);
+  text-decoration:none;box-shadow:none;cursor:pointer;
+}
+body .section-tabs > :is(a,button,.btn):hover {color:var(--text);background:var(--surface);transform:none;box-shadow:none;}
+body .section-tabs > :is([aria-current="page"],[aria-pressed="true"]) {color:var(--accent);border-bottom-color:var(--accent);background:transparent;}
+body .section-tabs > :is(a,button,.btn):focus-visible {outline:2px solid var(--focus);outline-offset:3px;}
+body :is(.intel-hub,.discover-review,.jq-opps,.learning-page) .view-intro {margin:0 0 14px;padding:0;}
+body :is(.intel-hub,.discover-review,.jq-opps,.learning-page) .view-intro p {margin:0;color:var(--text-secondary);font-size:15px;line-height:1.5;}
+body .view-toolbar {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;margin:0 0 16px;}
+body .app .view-filters {
+  display:inline-flex;align-items:center;flex-wrap:wrap;flex:0 1 auto;white-space:normal;overflow:visible;gap:4px;padding:4px;width:fit-content;max-width:100%;margin:0;
+  border:1px solid var(--border);border-radius:12px;background:var(--rail);
+}
+body .app .view-filters > button {
+  display:inline-flex;align-items:center;justify-content:center;flex:0 1 auto;
+  min-height:44px;min-width:0;margin:0;padding:8px 12px;border:1px solid transparent;
+  border-radius:8px;background:transparent;color:var(--text-secondary);
+  font:500 14px/1.35 var(--font-display);letter-spacing:0;text-transform:none;cursor:pointer;box-shadow:none;
+}
+body .app .view-filters > button:hover {background:var(--surface);color:var(--text);transform:none;}
+body .app .view-filters > button[aria-pressed="true"] {background:var(--accent-soft);border-color:var(--jq-selected-border);color:var(--accent);box-shadow:none;}
+body .app .view-filters > button:focus-visible {outline:2px solid var(--focus);outline-offset:2px;}
+body .view-sources {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-top:18px;}
+body .view-sources > button {min-height:44px;font-size:14px;flex-shrink:0;}
+body .list-detail-workspace .workspace-back {display:none;}
+@media(max-width:700px) {
+  body .page-header :is(h1,h2) {font-size:26px;letter-spacing:-.6px;}
+  body .page-header-actions {align-items:flex-start;gap:10px;}
+  body .section-tabs {gap:2px 16px;}
+  body .view-toolbar {align-items:flex-start;gap:10px;}
+  body .app .view-filters {max-width:100%;}
+  body .app .view-filters > button {padding:8px 10px;}
+  body .list-detail-workspace > .intel-left {max-height:none;border-bottom:0;}
+  body .list-detail-workspace > .intel-left .intel-role-list {overflow:visible;}
+  body .list-detail-workspace > .intel-right {display:none;}
+  body .list-detail-workspace.is-detail-open > .intel-left {display:none;}
+  body .list-detail-workspace.is-detail-open > .intel-right {display:block;}
+  body .list-detail-workspace .workspace-back {display:inline-flex;margin-bottom:16px;}
+}

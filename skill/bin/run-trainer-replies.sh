@@ -270,6 +270,14 @@ log "New reply received ($(echo "$ANSWER" | wc -c | tr -d ' ') chars)."
 
 NORMALIZED="$(echo "$ANSWER" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]' | tr -d '.!')"
 
+# --- keyword: fuzzy <topic> (Daily Drop replay) ---
+if [[ "$(echo "$ANSWER" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//')" == fuzzy* ]]; then
+  FUZZY_REPLY="$(node "$REPO_ROOT/app/scripts/daily-podcast.js" fuzzy --data-dir "$JOB_QUEST_DATA_DIR" --text "$ANSWER" 2>>"$LOG_FILE")" || FUZZY_REPLY="🎧 Couldn't save that. Use the Still fuzzy button in Daily Drop."
+  log "Daily Drop fuzzy reply handled."
+  send_imessage "$FUZZY_REPLY"
+  exit 0
+fi
+
 # --- keyword: skip ---
 if [ "$NORMALIZED" = "skip" ] || [ "$NORMALIZED" = "pass" ]; then
   SKIPPED="$(python3 - "$QUESTIONS_FILE" <<'PY'

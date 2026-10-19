@@ -76,21 +76,11 @@ test('Discover and Intel use shared native status without inferring an applicati
   assert.deepEqual(fn(key, { applied: [] }, { [key]: { stage: 'phone-screen' } }), { applied: false, stage: 'phone-screen', pipelineStarted: true });
   assert.deepEqual(fn(key, { applied: [] }, { [key]: { status: 'awaiting_recruiter' } }), { applied: false, stage: 'discovered', pipelineStarted: false });
 });
-test('actual Discover confirmation waits for durable save and leaves the dialog open with a retryable error on failure', async () => {
-  const start = html.indexOf('function Discover(');
-  const discover = html.slice(start, html.indexOf('/* ===== APPLY MODAL ===== */', start));
-  const handler = discover.match(/  const confirmApply = async \(\) => \{[\s\S]*?\n  \};/)[0];
-  for (const failed of [false, true]) {
-    let busy = false, error = '', actions, closed = false, finish;
-    const request = new Promise((resolve, reject) => { finish = failed ? reject : resolve; });
-    const confirm = new Function('actionBusy','applyRole','roleActions','setActionBusy','setActionError','api','setRoleActions','setApplyRole', `${handler}\nreturn confirmApply;`)(false, { company: 'Example', role: 'Backend' }, { saved: ['Example|Backend'], skipped: ['Other|SWE'], applied: [] }, value => { busy = value; }, value => { error = value; }, { post() { return request; } }, value => { actions = value; }, value => { closed = value === null; });
-    const pending = confirm(); assert.equal(busy, true); assert.equal(actions, undefined); assert.equal(closed, false);
-    finish(failed ? Error('Offline') : { success: true }); await pending;
-    assert.equal(busy, false);
-    assert.equal(closed, !failed);
-    if (failed) { assert.equal(error, 'Offline'); assert.equal(actions, undefined); }
-    else assert.deepEqual(actions, { saved: [], skipped: ['Other|SWE'], applied: ['Example|Backend'] });
-  }
+test('Discover decisions do not claim applications; submission stays explicit in My roles',()=>{
+  const discover=html.slice(html.indexOf('function Discover('),html.indexOf('/* ===== APPLY MODAL'));
+  assert.doesNotMatch(discover,/confirmedApply|next\.applied|updated\.applied/);
+  assert.match(html,/I submitted this application/);
+  assert.match(html,/if \(newStage === 'applied'\) entry.applicationSubmitted = true/);
 });
 
 test('Intel retains failed edits, retries explicitly and serializes overlapping saves', async () => {
@@ -129,10 +119,9 @@ test('Intel retains failed edits, retries explicitly and serializes overlapping 
   assert.match(html,/Role changes are unsaved\./);
 });
 
-test('Discover saved and applied cards launch their exact native role context', () => {
-  const discover = html.slice(html.indexOf('function Discover('), html.indexOf('/* ===== APPLY MODAL ===== */', html.indexOf('function Discover(')));
-  assert.equal((discover.match(/onOpenRole\(r\)/g) || []).length, 2);
-  assert.match(html, /<Discover onOpenRole=\{openNativeRole\}/);
+test('Discover Saved shortcut requests the saved filter in My roles',()=>{
+  assert.match(html,/setRoleLaunch\(\{filter:'saved',request:Date.now\(\)\}\)/);
+  assert.match(html,/<Discover\b[^>]*onOpenSaved=\{openSavedRoles\}/);
 });
 
 test('interview ingestion preserves explicit legacy applied history without inferring submission from phone-screen alone', () => {
@@ -148,23 +137,26 @@ test('interview ingestion preserves explicit legacy applied history without infe
 
 
 test('Intel first-mount effects honor a valid role launch instead of the first list row', () => {
-  const start = html.indexOf('  // A source-linked recruiter card opens', html.indexOf('function Intel('));
+  const start = html.indexOf('  // Consume each requested destination once', html.indexOf('function Intel('));
   const code = html.slice(start, html.indexOf('  const selected =', start));
   const first = 'First Company|Backend Engineer', requested = 'Requested Company|Platform Engineer';
   function mount(launchRole, selectedKey = null) {
-    const effects = [], selections = [], filters = [];
+    const effects = [], selections = [], filters = [], views = [];
     vm.runInNewContext(code, {
-      launchRole, selectedKey, roleMap:{[first]:{},[requested]:{}}, allRoles:[{},{}], filtered:[{key:first},{key:requested}],
+      launchRole, selectedKey, filter:'all', useRef:value=>({current:value}), roleMap:{[first]:{},[requested]:{}}, allRoles:[{},{}], filtered:[{key:first},{key:requested}],
       setSelectedKey:value=>selections.push(value), setFilter:value=>filters.push(value),
+      detail:{showDetail:()=>views.push('detail'),showList:()=>views.push('list')},
       useEffect:fn=>effects.push(fn),
     });
     // React runs both mount effects from the same render where selectedKey is null.
     for (const effect of effects) effect();
-    return {key:selections.at(-1),filters};
+    return {key:selections.at(-1),filters,views};
   }
   assert.equal(mount({key:requested,request:1}).key,requested);
   assert.deepEqual(mount({key:requested,request:1}).filters,['all']);
+  assert.deepEqual(mount({key:requested,request:1}).views,['detail']);
   assert.equal(mount(null).key,first);
   assert.equal(mount({key:'Missing|Role',request:2}).key,first);
   assert.equal(mount({key:requested,request:3},first).key,requested);
+  assert.deepEqual(mount({filter:'saved',request:4}),{key:null,filters:['saved'],views:['list']});
 });

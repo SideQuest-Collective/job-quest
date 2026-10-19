@@ -6,23 +6,10 @@ const path = require('node:path');
 
 const html = () => fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf-8');
 
-test('dashboard preserves native continuation and filters sourced highlights by actual role state', () => {
-  const vm = require('node:vm');
+test('dashboard preserves native practice continuation and review context', () => {
   const home = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard-home.jsx'), 'utf8');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'opportunities.jsx'), 'utf8');
-  const window = {};
-  vm.runInNewContext(source.split('window.Opportunities =')[0] + home.split('window.DashboardHome =')[0], {window, URL, Date});
-  const role = {company:'Example', role:'Backend Engineer', url:'https://example.org/jobs/1'};
-  const job = {id:'job',kind:'job',company:role.company,title:role.role,sourceLinks:[role.url],checkedAt:'2026-10-09'};
-  const contact = {id:'contact',kind:'recruiter',company:'Other',title:'Engineer',checkedAt:'2026-10-09'};
-  const due = {...contact,id:'due',status:'snoozed',nextReminderAt:'2000-01-01T00:00:00Z'};
-  const paused = {...contact,id:'paused',status:'hold_preference'};
-  assert.deepEqual(Array.from(window.dashboardHighlights([job,contact,due,paused],[role]).map(v=>v.id)),['contact','due','job']);
-  assert.deepEqual(Array.from(window.dashboardHighlights([job,contact],[role],{applied:['Example|Backend Engineer']}).map(v=>v.id)),['contact']);
-  assert.deepEqual(Array.from(window.dashboardHighlights([job],[role],{skipped:['Example|Backend Engineer']}).map(v=>v.id)),[]);
-  assert.deepEqual(Array.from(window.dashboardHighlights([job],[role],{}, {'Example|Backend Engineer':{stage:'phone-screen'}}).map(v=>v.id)),[]);
   assert.match(home,/fetch\('\/api\/profile'\)/);
-  assert.match(home,/continuation\.href/);
+  assert.match(home,/href=\{continuation\?\.href\|\|'#tasks'\}/);
   assert.match(home,/reviewSource\?\.mode==='external'/);
 });
 
@@ -41,13 +28,13 @@ test('the role page shows a workbook card and every JSON prep-plan trace is gone
 test('the Prep Plans tab is replaced by Workbooks', () => {
   const h = html();
   assert.doesNotMatch(h, /function PrepPlans|<PrepPlans|id: 'prepplans'/);
-  assert.match(h, /\{ id: 'workbooks', icon: Icons\.clipboard, label: 'Workbooks' \}/);
-  assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*hidden=\{page !== 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
+  assert.match(h, /\{ id: 'workbooks', label: 'Workbooks'/);
+  assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*<PageSurface[^\n]*active=\{page === 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
   assert.match(h, /page === 'workbooks' \|\| page === 'behavioral'/);
   for (const needle of [
     'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
     '>Open workbook<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
-    'Auto-build for saved and applied roles', 'window.confirm(',
+    'Workbook settings', 'window.confirm(',
   ]) assert.ok(h.includes(needle), needle);
 });
 
@@ -60,7 +47,7 @@ test('Intel no longer declares or receives the unused System Design callback', (
 });
 
 test('the Workbooks harness documents its positional hook order', () => {
-  assert.match(workbooksHarness.toString(), /\/\/ Hook order: state = list, candidates, settings, building, saving, error; effects = initial load, active polling\./);
+  assert.match(workbooksHarness.toString(), /\/\/ Hook order: state = list, candidates, building, error; effects = initial load, active polling\./);
 });
 
 function roleHarness(fetch) {
@@ -159,6 +146,7 @@ function cardHarness(wb, responses) {
   let requests = 0, changes = 0, nextTimer = 0;
   const get = async () => { requests++; return responses.shift(); };
   const card = vm.runInNewContext(`${prefix}\nreturn { active, canExpand, canRetry, progressLine, run, reviewWarning: typeof reviewWarning === "undefined" ? undefined : reviewWarning, jobError: typeof jobError === "undefined" ? undefined : jobError }; }\nWorkbookCard`, {
+    usePageVisible: () => true,
     useState: value => [value, next => stateWrites.push(next)],
     useRef: value => ({ current: value }),
     useEffect: effect => effects.push(effect),
@@ -242,11 +230,12 @@ test('workbook UI guards deletion and renders untrusted content as React text', 
 function workbooksHarness(initialList, request, initialError = '') {
   const source = workbookSource().split('function Workbooks(')[1];
   const prefix = `function Workbooks(${source.slice(0, source.indexOf('\n  return ('))}`;
-  // Hook order: state = list, candidates, settings, building, saving, error; effects = initial load, active polling.
-  const states = [initialList, [], null, false, false, initialError];
+  // Hook order: state = list, candidates, building, error; effects = initial load, active polling.
+  const states = [initialList, [], false, initialError];
   const effects = [], timers = new Map();
   let slot = 0;
   const component = vm.runInNewContext(`${prefix}\nreturn { load, anyActive }; }\nWorkbooks`, {
+    usePageVisible: () => true,
     useState: () => { const i = slot++; return [states[i], value => { states[i] = value; }]; },
     useCallback: fn => fn,
     useEffect: fn => effects.push(fn),
@@ -279,9 +268,9 @@ test('the Workbooks list refreshes only for queued or running work, not deferred
 test('each Workbooks load immediately clears the previous error', async () => {
   const h = workbooksHarness([], async () => [], 'previous failure');
   h.model.load();
-  assert.equal(h.states[5], '');
+  assert.equal(h.states[3], '');
   await h.flush();
-  assert.equal(h.states[5], '');
+  assert.equal(h.states[3], '');
 });
 
 test('a failed Workbooks GET exposes the empty state alongside its error', async () => {
@@ -291,7 +280,7 @@ test('a failed Workbooks GET exposes the empty state alongside its error', async
   });
   h.model.load();
   await h.flush();
-  assert.equal(h.states[5], 'workbook list unavailable');
+  assert.equal(h.states[3], 'workbook list unavailable');
   assert.ok(Array.isArray(h.states[0]));
   assert.equal(h.states[0].length, 0);
 });
