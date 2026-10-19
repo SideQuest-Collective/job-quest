@@ -300,17 +300,17 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
       {!configureOnly && catchUp && view === 'outreach' && <p className="muted">Older conversations need a fresh source check before replying. Due snoozes and reconnects return for review; explicit holds remain paused.</p>}
       {!configureOnly && data.briefState !== 'ready' && <div className="panel" role="status">Career review brief: {data.briefState.replace('_', ' ')}. Queue history may still appear; its source status needs rechecking.</div>}
       {!configureOnly && data.queueState !== 'ready' && <div className="panel" role="status">Recruiter queue: {data.queueState.replace('_', ' ')}. Draft and reminder changes are unavailable.</div>}
-      {configureOnly && <details id="outreach-account-setup" ref={accountPanel} open={configureOnly || accountsOpen} onToggle={event => setAccountsOpen(event.currentTarget.open)} className="panel secondary-panel"><summary>Accounts & sources{data.sources.some(source => source.status === 'blocked') ? ` · ${data.sources.filter(source => source.status === 'blocked').length} blocked` : ''}</summary><div className="detail-body">
+      {configureOnly && <details id="outreach-account-setup" ref={accountPanel} open={configureOnly || accountsOpen} onToggle={event => setAccountsOpen(event.currentTarget.open)} className="panel secondary-panel"><summary>Accounts & sources</summary><div className="detail-body">
         <div className="actions">
           <button onClick={() => load()}>Refresh local results</button>
 
         </div>
         {data.generatedAt && <p className="muted">Brief generated {new Date(data.generatedAt).toLocaleString()}.</p>}
-        {data.sources.length > 0 && <><h3>Source coverage</h3>
+        {data.sources.length > 0 && <details className="op-details"><summary>Latest source coverage</summary>
           {data.sources.map((source, index) => <p key={`${source.name}-${index}`}><strong>{source.name}</strong> · {source.status} · {source.checkedAt ? new Date(source.checkedAt).toLocaleString() : 'time unknown'}<br /><span className="muted">{source.detail}</span></p>)}
           {data.coverage.backfill?.detail && <p>Pending backfill: {data.coverage.backfill.detail}</p>}
           {data.coverage.invitations?.detail && <p>Invitations: {data.coverage.invitations.detail}</p>}
-        </>}
+        </details>}
         <h3>1. Choose accounts to review</h3>
         <p className="muted">Selecting an account records your preference. Access and scanning must be verified separately. LinkedIn email notifications cover only messages that generated email; they do not cover the full LinkedIn inbox or invitations.</p>
         {data.accounts.map(account => {

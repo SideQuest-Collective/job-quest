@@ -59,7 +59,7 @@ test('a delayed verification cannot bless settings changed while it was running'
 test('legacy key verdicts require one explicit check and do not leak internal hashes', (t) => {
   const { dataDir } = harness(t);
   store.writeApiKey(dataDir, 'test-key');
-  store.writeJson(store.keyStatusFile ? store.keyStatusFile(dataDir) : path.join(dataDir, 'podcast/key-status.json'), { keyHash: store.shortHash('test-key'), verified: true, code: 'ok' });
+  store.writeJson(path.join(dataDir, 'podcast/key-status.json'), { keyHash: store.shortHash('test-key'), verified: true, code: 'ok' });
   assert.equal(store.readKeyStatus(dataDir).code, 'recording-changed');
   store.writeKeyStatus(dataDir, 'test-key', { verified: true, code: 'ok' });
   assert.equal(store.readKeyStatus(dataDir).verified, true);

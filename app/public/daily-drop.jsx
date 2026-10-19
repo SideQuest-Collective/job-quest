@@ -26,7 +26,7 @@
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 14, color: 'var(--text-secondary)', flex: 1, minWidth: 240 }}>
           {missing.length > 0 && <div>Daily Drop still needs its {missing.join(' and ')}.</div>}
-          {problem && <div role="alert" style={{ color: 'var(--rose)', marginTop: missing.length ? 6 : 0 }}>{problem.code === 'unchecked' ? "The saved Gemini key hasn't been tested yet. Check it in Setup → Podcast." : "The saved Gemini key can't record audio yet. Fix it in Setup → Podcast."}</div>}
+          {problem && <div role="alert" style={{ color: 'var(--rose)', marginTop: missing.length ? 6 : 0 }}>{['unchecked', 'recording-changed'].includes(problem.code) ? "The saved Gemini key hasn't been tested yet. Check it in Setup → Podcast." : "The saved Gemini key can't record audio yet. Fix it in Setup → Podcast."}</div>}
         </div>
         <button className="btn btn-primary" onClick={openPodcastSetup}>Open podcast setup</button>
       </div>
@@ -52,11 +52,11 @@
     const remove = () => { if (window.confirm('Remove the saved Gemini key? Episodes stop until a new one is added.')) run(async () => { await req('/api/podcast/key', 'DELETE'); setNote('Key removed.'); }); };
     const when = key.checkedAt ? new Date(key.checkedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
     return (
-      <div className="card" aria-label="Voices">
-        <div className="card-title" style={{ fontWeight: 600, marginBottom: 8 }}>Voices</div>
+      <div className="card" aria-label="Gemini audio">
+        <div className="card-title" style={{ fontWeight: 600, marginBottom: 8 }}>Gemini audio</div>
         {!state.hasKey && <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 0 }}>No Gemini key saved. The hosts need one to record. Create it at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>; a short test recording checks it before anything else runs.</p>}
         {state.hasKey && key.verified && <p role="status" style={{ fontSize: 14, color: 'var(--emerald)', marginTop: 0 }}>Connected. Key {key.hint}{key.source === 'env' ? ' from GEMINI_API_KEY' : ''}{when ? `, checked ${when}` : ''}.</p>}
-        {state.hasKey && !key.verified && <p role="alert" style={{ fontSize: 14, color: 'var(--rose)', marginTop: 0, lineHeight: 1.5 }}>Key {key.hint} can't record audio. {key.message} {key.remediation}</p>}
+        {state.hasKey && !key.verified && <p role="alert" style={{ fontSize: 14, color: 'var(--rose)', marginTop: 0, lineHeight: 1.5 }}>Key {key.hint} {['unchecked', 'recording-changed'].includes(key.code) ? 'needs a recording check.' : "can't record audio."} {key.message} {key.remediation}</p>}
         {editing && <label style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>New Gemini API key<input type="password" disabled={locked} autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Paste key" style={field} /></label>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {editing

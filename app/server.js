@@ -64,6 +64,7 @@ app.use('/api/role-tracker', express.json({ limit: '50mb', strict: false }));
 app.use(express.json({ limit: '50mb' }));
 
 const runtimeState = ensureRuntime({ write: true });
+require('./lib/runtime-diagnostics').registerRuntimeDiagnostics(app, { getRuntime: () => runtimeState });
 const runtimeDisplayName = runtimeState.runtimeDisplayName;
 const runtimeCommandLabel = runtimeState.runtimeCommand;
 const installScheduleCommand = `${expandHome(runtimeState.binDir)}/install-schedule.sh "3 7 * * 1-5"`;
