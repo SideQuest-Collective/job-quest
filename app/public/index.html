@@ -1248,7 +1248,6 @@ function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleAc
   return <div className="discover-review">
     <header className="page-header"><h2>Discover</h2><p className="greeting-sub">Like a job to save it. Dismiss one to move on. Track your choices in Intel.</p></header>
     <div className="discover-review-controls"><div className="discover-tabs"><button className={'discover-tab '+(view==='new'?'active':'')} aria-pressed={view==='new'} onClick={()=>setView('new')}>New ({unseen.length})</button><button className={'discover-tab '+(view==='dismissed'?'active':'')} aria-pressed={view==='dismissed'} onClick={()=>setView('dismissed')}>Dismissed</button></div><button className="btn btn-secondary" onClick={()=>onOpenSaved?onOpenSaved():setPage('intel-roles')}>My saved roles</button></div>
-    <DiscoverySourceCoverage reports={allIntel}/>
     {error&&<p role="alert">{error}</p>}
     {lastAction&&<p role="status" className="discover-undo">{lastAction.action==='like'?'Saved':'Dismissed'} {lastAction.role.company} · {lastAction.role.role}. <button className="btn btn-secondary" disabled={busy} onClick={undo}>Undo</button></p>}
     {view==='new'&&(selected?<div className="discover-container">
@@ -1256,13 +1255,14 @@ function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleAc
         <div className="discover-company">{selected.company}</div><h3 className="discover-role">{selected.role}</h3>
         <p className="discover-meta">{[selected.level,selected.location].filter(Boolean).join(' · ')}</p>
         {selected.fit&&<div className="discover-fit"><h4 className="discover-fit-label">Why this fits you</h4><p className="discover-fit-text">{selected.fit}</p></div>}
-        {selected.employerVerification&&<p className="secondary-copy">Source check: {selected.employerVerification}</p>}
         {selected.url&&<a href={selected.url} target="_blank" rel="noopener noreferrer">View posting</a>}
       </article>
       <div className="discover-actions"><button className="discover-btn skip" disabled={busy} aria-label="Dismiss role" title="Dismiss role" onClick={()=>update(selected,'dismiss')}><Icons.x/></button><button className="discover-btn save" disabled={busy} aria-label="Like and save role" title="Like and save role" onClick={()=>update(selected,'like')}><Icons.heart/></button></div>
       <p className="discover-counter">Dismiss or like · {unseen.length} left to review</p>
     </div>:<div className="discover-empty"><h3>{selectedKey?'This job is no longer in New':'You’re caught up'}</h3><p>{selectedKey?'It may have been saved, dismissed or moved into progress.':'No undecided jobs in your saved discoveries.'} Review saved roles or revisit dismissed jobs.</p>{selectedKey&&<button className="btn btn-secondary" onClick={()=>setSelectedKey(null)}>Review other new jobs</button>}<button className="btn btn-secondary" onClick={()=>setPage('intel-roles')}>Open my roles</button></div>)}
     {view==='dismissed'&&<div className="saved-list">{dismissed.length?dismissed.map((role,index)=><article className="role-card" key={role.company+'|'+role.role+'|'+index}><div className="role-info"><h3>{role.company} · {role.role}</h3><p>{role.location}</p></div><button className="btn btn-secondary" disabled={busy} onClick={()=>update(role,'restore')}>Return to New</button></article>):<p>No dismissed jobs.</p>}</div>}
+    {view==='new' && selected?.employerVerification && <p className="source-footer">Source check: {selected.employerVerification}</p>}
+    <DiscoverySourceCoverage reports={allIntel}/>
   </div>;
 }
 
@@ -2675,7 +2675,7 @@ function Tasks({ todayTasks, allTasks, refresh, setPage, codeLabInitialProblemRe
   };
   return <>
     <div className="page-header"><h2>Your practice plan</h2><p className="greeting-sub">{viewing?.date === today ? 'Today' : viewing?.date ? `Continue the plan from ${viewing.date}` : 'No plan loaded'}</p></div>
-    {allTasks.length > 1 && <label className="plan-date">Plan date <select value={viewDate || todayTasks?.date || ''} onChange={e => setViewDate(e.target.value)}>{allTasks.map(t => <option key={t.date} value={t.date}>{t.date}{t.date === today ? ' · Today' : ''}</option>)}</select></label>}
+    {allTasks.length > 1 && <label className="plan-date"><span>Plan date</span><select value={viewDate || todayTasks?.date || ''} onChange={e => setViewDate(e.target.value)}>{allTasks.map(t => <option key={t.date} value={t.date}>{t.date}{t.date === today ? ' · Today' : ''}</option>)}</select></label>}
     {error && <p role="alert">{error}</p>}
     {viewing?.tasks?.length ? <>
       <p className="plan-count">{viewing.tasks.filter(t => t.completed).length} of {viewing.tasks.length} marked complete. Completion and reviewed answers are separate.</p>
@@ -3064,7 +3064,6 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 <div className="mc-section">
                   <div className="mc-section-title"><Icons.zap style={{width:14,height:14,color:'var(--emerald)'}} /> Why This Fits You</div>
                   <div className="mc-fit">{selected.fit}</div>
-                  {typeof selected.employerVerification === 'string' && selected.employerVerification && <p style={{marginTop:10,color:'var(--text-muted)'}}>Source check: {selected.employerVerification}</p>}
                 </div>
               )}
 
@@ -3132,6 +3131,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                 {selected.url && stage === 'discovered' && <button className="btn btn-primary" style={{fontSize:13,display:'flex',alignItems:'center',gap:6}} onClick={() => { if (window.confirm('Have you submitted this application? Opening a posting does not count.')) setStage('applied'); }}><Icons.send style={{width:14,height:14}} /> I submitted this application</button>}
                 <AcceptedResumeLink roleKey={selectedKey} stage={stage} />
               </div>
+              {typeof selected.employerVerification === 'string' && selected.employerVerification && <p className="source-footer">Source check: {selected.employerVerification}</p>}
             </>
           ) : (
             <div className="intel-right-empty">Select a role to view details</div>

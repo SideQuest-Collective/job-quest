@@ -496,7 +496,6 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
         <div className="card-head"><div><h3>{item.title} · {item.company}</h3><small>{item.location}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleDateString()}` : ' · source needs review'}</small></div>
           {(item.kind === 'job' ? item.availability : item.status && !['ready_for_review'].includes(item.status)) && <span className="status">{item.kind === 'job' ? item.availability : item.status.replaceAll('_', ' ')}</span>}
         </div>
-        {item.kind === 'recruiter' && (item.sourceAccounts?.length > 0 || item.sourceAccount) && <p className="reply-help">Source: {(item.sourceAccounts?.length ? item.sourceAccounts : [item.sourceAccount]).join(' · ')}</p>}
         {review && <div className="conversation-review">
           <p className="reply-help"><strong>{review.label}</strong> · {review.reason}{review.checkedAt && ` Checked ${new Date(review.checkedAt).toLocaleString()}.`}</p>
         </div>}
@@ -551,6 +550,7 @@ window.Opportunities = function Opportunities({ setPage, nativeRoles = [], onOpe
           </div>
         </>}
         </details>
+        {item.kind === 'recruiter' && (item.sourceAccounts?.length > 0 || item.sourceAccount) && <p className="reply-help source-footer">Source: {(item.sourceAccounts?.length ? item.sourceAccounts : [item.sourceAccount]).join(' · ')}</p>}
       </article>; })}
       </>}
     </>}
