@@ -102,6 +102,25 @@ INDUSTRIES="$(read_profile_list industries)"
 VALUES="$(read_profile_list values)"
 DEAL_BREAKERS="$(read_profile_list dealBreakers)"
 WEAK_SPOTS="$(read_profile_list interviewWeakSpots)"
+# Companies already shown in Intel or on the tracker. Without this list each run
+# drifts back to the same few job boards and re-lists their openings.
+SEEN_COMPANIES="$(python3 - "$JOB_QUEST_DATA_DIR" <<'PYSEEN' || true
+import glob, json, os, sys
+data = sys.argv[1]
+names = set()
+for f in glob.glob(os.path.join(data, 'intel', '*.json')):
+    try:
+        roles = json.load(open(f)).get('roles') or []
+    except Exception:
+        continue
+    names.update(r.get('company', '').strip() for r in roles if isinstance(r, dict))
+try:
+    names.update(k.split('|')[0].strip() for k in json.load(open(os.path.join(data, 'role-tracker.json'))))
+except Exception:
+    pass
+print(', '.join(sorted((n for n in names if n), key=str.lower)))
+PYSEEN
+)"
 TODAY="$(date +%Y-%m-%d)"
 
 # Account selection authorizes only bounded read-only collection, never new access.
@@ -195,6 +214,10 @@ You are ${NAME}'s automated daily job hunt intelligence agent. Today is ${TODAY}
 
 ## Deduplication
 Read every JSON file in ${JOB_QUEST_DATA_DIR}/intel/ first. Match existing roles using canonical posting URL plus normalized company and title. Keep the same role identity when a listing changes; report material changes in availability or requirements rather than presenting a duplicate as new. Preserve saved/applied/skipped role state.
+
+## Variety
+Companies already shown or tracked: ${SEEN_COMPANIES:-none yet}.
+At least 12 of today's roles must come from companies not in that list; include an already-listed company only for a role posted in the last 7 days. List at most 2 roles per company. Mix established tech companies (large public or late-stage, for example Google, Spotify, Shopify, Stripe, MongoDB, Bloomberg) with high-growth startups, at least 5 of each, and reach beyond the same few Ashby and Greenhouse boards.
 
 ## Preserve existing work
 Read existing dated tasks and quizzes before planning. Never overwrite, delete, or modify any existing intel, task, or quiz file, any role action/tracker state, coding progress, or saved practice. Suggest unfinished work in today's new tasks where helpful; do not mark older work complete. Keep all existing coding problems unchanged and append new problems only through add-problems.js. If any listed output file already exists, stop and report that it was preserved instead of replacing it.
