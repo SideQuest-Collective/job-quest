@@ -287,6 +287,17 @@ test('applied hooks dedupe every roleKey and do not backfill existing roles', as
   });
 });
 
+test('saving a role queues its resume before its workbook', async () => {
+  // An idle queue starts the first job at once, so this order decides whether
+  // the resume waits behind an hour-long workbook build.
+  const dir = tmpDir();
+  await withServer(dir, async (base) => {
+    await fetch(`${base}/api/role-actions`, post({ saved: ['Order Co|Engineer'], skipped: [], applied: [] }));
+    const jobs = await (await fetch(`${base}/api/jobs`)).json();
+    assert.deepEqual(jobs.map((j) => j.kind), ['resume', 'workbook']);
+  });
+});
+
 test('auto-tailor has its own default cap of 5 and defers excess jobs', async () => {
   const dir = tmpDir();
   const roles = Array.from({ length: 6 }, (_, i) => `Company ${i}|Engineer`);

@@ -116,8 +116,6 @@ jobHandlers.workbook = createWorkbookHandler({ dataDir: DATA_DIR });
 jobHandlers['workbook-guide'] = require('./lib/workbook/guide').createGuideHandler({ dataDir: DATA_DIR });
 jobHandlers['workbook-restructure'] = require('./lib/workbook/restructure').createRestructureHandler({ dataDir: DATA_DIR });
 const workbookAutoBuild = createAutoBuild({ dataDir: DATA_DIR, queue: jobQueue });
-roleEvents.on('saved', (roleKey) => workbookAutoBuild.onRoleEvent('saved', roleKey));
-roleEvents.on('applied', (roleKey) => workbookAutoBuild.onRoleEvent('applied', roleKey));
 registerWorkbookRoutes(app, { dataDir: DATA_DIR, queue: jobQueue, autoBuild: workbookAutoBuild, publicDir: path.join(__dirname, 'public') });
 
 // Validate workbook IDs before static middleware can normalize or redirect them.
@@ -1622,6 +1620,10 @@ const resumeService = createResumeService({ dataDir: DATA_DIR, queue: jobQueue }
 jobHandlers.resume = (job, ctx) => resumeService.runJob(job, ctx);
 roleEvents.on('saved', (roleKey) => resumeService.autoTailor(roleKey, 'auto-saved'));
 roleEvents.on('applied', (roleKey) => resumeService.autoTailor(roleKey, 'auto-applied'));
+// Workbook listeners go after the resume ones: an idle queue starts the first
+// job at once, and a resume should not wait behind an hour-long workbook build.
+roleEvents.on('saved', (roleKey) => workbookAutoBuild.onRoleEvent('saved', roleKey));
+roleEvents.on('applied', (roleKey) => workbookAutoBuild.onRoleEvent('applied', roleKey));
 
 function sendResumeError(res, err) {
   if (err && err.validation) return res.status(400).json({ error: 'invalid master resume', errors: err.validation });
