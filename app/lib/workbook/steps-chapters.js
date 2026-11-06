@@ -165,7 +165,12 @@ async function review(env) {
     });
     let reason = null;
     const problems = checkDraft(env, rec, plan);
-    if (problems.length) {
+    // An unfinished review (step cap, timeout, crash) keeps the chapter as written.
+    if (!r.ok) {
+      reason = r.timedOut ? 'the review timed out'
+        : /max turns/i.test(`${r.stdout || ''}${r.stderr || ''}`) ? 'the review ran out of steps'
+          : `the editor exited with code ${r.code}`;
+    } else if (problems.length) {
       reason = problems[0];
     } else {
       const v = await verifyDraft(env, rec);

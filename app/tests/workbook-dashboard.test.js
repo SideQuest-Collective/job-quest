@@ -45,9 +45,9 @@ test('the Prep Plans tab is replaced by Workbooks', () => {
   assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*hidden=\{page !== 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
   assert.match(h, /page === 'workbooks' \|\| page === 'behavioral'/);
   for (const needle of [
-    'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
+    'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all accepted resumes (',
     '>Open workbook<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
-    'Auto-build for saved and applied roles', 'window.confirm(',
+    'Auto-build when a tailored resume is accepted', 'window.confirm(',
   ]) assert.ok(h.includes(needle), needle);
 });
 
