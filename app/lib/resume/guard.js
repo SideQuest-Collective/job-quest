@@ -1,6 +1,6 @@
 // app/lib/resume/guard.js
 const { buildLexicon, matchesAny, termRegex } = require('./lexicon');
-const { masterBulletIndex, allMasterText } = require('./master');
+const { masterBulletIndex, eligibleMaster, allMasterText } = require('./master');
 
 const WORDS = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -119,7 +119,8 @@ function checkTailored(master, tailored, { lexicon = buildLexicon(master), keywo
 
   const idx = masterBulletIndex(master);
   const skillsText = (master.skills || []).flatMap((g) => g.items || []).join('\n');
-  const union = allMasterText(master);
+  // Bullets marked tailor: false cannot back a headline or summary claim either.
+  const union = allMasterText(eligibleMaster(master));
 
   const checkNumbers = (text, allowedText, path, rule) => {
     const allowed = new Set(numericTokens(allowedText));
@@ -150,6 +151,7 @@ function checkTailored(master, tailored, { lexicon = buildLexicon(master), keywo
     if (!b || typeof b !== 'object') return;
     const src = typeof b.src === 'string' ? idx.get(b.src) : undefined;
     if (!src) { push(`${path}.src`, 1, b.src ? `unknown source bullet "${b.src}"` : 'missing src'); return; }
+    if (src.excluded) { push(`${path}.src`, 1, `${b.src} is marked tailor: false in the master and must not be used`); return; }
     const inScope = scope.kind === 'exp'
       ? src.kind === 'exp' && src.roleId === scope.roleId
       : src.kind === 'proj' && src.projectId === scope.projectId;

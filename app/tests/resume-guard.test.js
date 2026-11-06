@@ -216,6 +216,21 @@ test('legitimate rephrasing passes (number words, dropped plus signs, reordered 
   assert.equal(r.pass, true, JSON.stringify(r.violations));
 });
 
+test('rule 1: a bullet marked tailor: false is rejected, and cannot back a summary number', () => {
+  const m = loadMaster();
+  m.experience[0].roles[0].bullets[4].tailor = false;
+  const t = identityTailored(loadMaster());
+  const r = checkTailored(m, t);
+  assert.deepEqual(rules(r), [1]);
+  assert.match(r.violations[0].detail, /exp\.sr\.5 is marked tailor: false/);
+  t.experience[0].roles[0].bullets.splice(4, 1);
+  assert.equal(checkTailored(m, t).pass, true);
+  m.summary = 'Backend engineer.';
+  m.experience[0].roles[0].bullets[4].text = 'Mentor 4 engineers and wrote 7 design guides.';
+  t.summary = 'Backend engineer who wrote 7 design guides.';
+  assert.ok(checkTailored(m, t).violations.some((v) => v.path === 'summary' && /7/.test(v.detail)));
+});
+
 test('rule 1: missing or unknown src', () => {
   const t = identityTailored(master);
   delete t.experience[0].roles[0].bullets[0].src;

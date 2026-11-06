@@ -31,6 +31,11 @@ test('master save and exports retain extra sections, employer locations and both
   assert.ok(allMasterText(saved).includes(m.additionalSections[0].body));
   assert.ok(validateMaster({ ...m, additionalSections: [{ title: 'A', body: 42 }] }).errors.includes('additionalSections[0].body: must be a string'));
   assert.ok(validateMaster({ ...m, additionalSections: 'bad' }).errors.includes('additionalSections: must be an array'));
+  const group = { name: 'Acme Labs', role: 'Founder', url: 'github.com/acme-labs', start: '2025-11', end: null, intro: 'Builds side projects.' };
+  assert.deepEqual(validateMaster({ ...m, projectsGroup: group }).errors, []);
+  assert.ok(validateMaster({ ...m, projectsGroup: { ...group, name: '' } }).errors.includes('projectsGroup.name: must be non-empty text'));
+  assert.ok(validateMaster({ ...m, projectsGroup: { ...group, start: 'Nov 2025' } }).errors.includes('projectsGroup.start: must be YYYY-MM'));
+  assert.ok(allMasterText({ ...m, projectsGroup: group }).includes('Builds side projects.'));
 });
 
 test('legacy masters still validate and education without start does not invent a date', () => {

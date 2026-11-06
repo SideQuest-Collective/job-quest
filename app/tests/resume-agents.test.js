@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { renderPrompt, extractJson, verifyKeywords, keywordCountsOk } = require('../lib/resume/agents');
 
-const tailorVars = { company: 'A', role: 'R', round: '1', jd: 'J', keywords: '{}', master: '{}', profile: 'P', previous: '', retryNote: '', tells: 'leverag, robust' };
+const tailorVars = { company: 'A', role: 'R', round: '1', jd: 'J', keywords: '{}', master: '{}', base: 'B', profile: 'P', previous: '', retryNote: '', tells: 'leverag, robust' };
 
 test('renderPrompt fills every placeholder and refuses missing values', () => {
   const p = renderPrompt('jd-analyst', { company: 'Acme', role: 'Senior SWE', jd: 'JD TEXT {{not a placeholder}}', retryNote: '' });
@@ -21,6 +21,19 @@ test('the tailor prompt carries the integrity rules and the tells list', () => {
     'Do not output employers, titles, teams, dates', 'Include every employer and every role', 'leverag, robust', 'round 1',
   ]) assert.ok(p.includes(phrase), phrase);
   assert.ok(!/\{\{\w+\}\}/.test(p));
+});
+
+test('the tailor prompt limits edits to the light-touch set and shows the base', () => {
+  const p = renderPrompt('tailor', { ...tailorVars, base: 'BASE SELECTION' });
+  for (const phrase of [
+    '## The base resume (start from this)\nBASE SELECTION', 'Keep the title before the `|` exactly',
+    "Never use the job's title as the headline", "rewrite only the first sentence and the last sentence",
+    'Bullet order within each role', 'At most 2 add-ins', 'Skill group order',
+    "copied word for word", 'Leave out a bullet marked [keep]', 'a spend management system whose decisions',
+    "Job Quest's resume tailoring", 'the interview copilot', 'Fidelity, 30 of 100 points', 'Keywords, 15 points',
+    'delete a year in parentheses', 'about 450 to 650 words',
+  ]) assert.ok(p.includes(phrase), phrase);
+  assert.ok(!p.includes('Put the job title in the headline'));
 });
 
 test('extractJson: last fenced block wins; falls back to braces; reports garbage', () => {
