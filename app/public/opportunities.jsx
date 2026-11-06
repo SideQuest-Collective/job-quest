@@ -1,32 +1,8 @@
 /* Loaded as a Babel script by the Job Quest shell. */
+// Collapses the same role across Intel reports by shared role identity (see /role-identity.js):
+// the newest entry's data wins and `keys` lists every Company|Title key the role was known by.
 window.dedupeJobQuestRoles = function dedupeJobQuestRoles(reports) {
-  const normalized = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const canonical = value => {
-    try {
-      const url = new URL(value);
-      if (url.protocol !== 'https:' || url.username || url.password) return null;
-      url.hash = '';
-      url.pathname = url.pathname.replace(/\/+$/, '') || '/';
-      for (const key of [...url.searchParams.keys()]) {
-        if (/^(utm_|gh_src$|source$|ref$|trk$|tracking)/i.test(key)) url.searchParams.delete(key);
-      }
-      url.searchParams.sort();
-      return url.href;
-    } catch { return null; }
-  };
-  const seen = new Set(), roles = [];
-  for (const report of reports || []) {
-    for (const role of report.roles || []) {
-      const title = normalized(role.role);
-      const company = normalized(role.company);
-      const url = canonical(role.url);
-      const key = `${company}|${title}|${url || normalized(role.location)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      roles.push({ ...role, url: url ? role.url : null, intelDate: report.date });
-    }
-  }
-  return roles;
+  return window.JobQuestRoleIdentity.dedupeRoles(reports);
 };
 
 window.mergeJobQuestDrafts = function mergeJobQuestDrafts(previous, previousServer, freshItems) {
