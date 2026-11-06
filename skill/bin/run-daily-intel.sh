@@ -34,7 +34,7 @@ release_run_lock() {
 LAST_RUN_FILE="$LOG_DIR/daily-intel-last-run.json"
 RUN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RUN_RECORDED=0
-PROMPT_FILE=""; STDOUT_FILE=""; STDERR_FILE=""; OUTREACH_CANDIDATE=""; TASKS_CANDIDATE=""
+PROMPT_FILE=""; STDOUT_FILE=""; STDERR_FILE=""; OUTREACH_CANDIDATE=""; TASKS_CANDIDATE=""; HANDLED_FILE=""
 # One status file per run (scheduled, dashboard or manual) so the dashboard can show what happened.
 record_run() {
   RUN_RECORDED=1
@@ -52,7 +52,7 @@ PYRUN
 cleanup_run() {
   local code=$?
   if [ "$RUN_RECORDED" -eq 0 ]; then record_run failed "Runner stopped unexpectedly (exit $code). Check daily-intel.log."; fi
-  rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE" "$OUTREACH_CANDIDATE" "$TASKS_CANDIDATE"
+  rm -f "$PROMPT_FILE" "$STDOUT_FILE" "$STDERR_FILE" "$OUTREACH_CANDIDATE" "$TASKS_CANDIDATE" "$HANDLED_FILE"
   release_run_lock
 }
 trap cleanup_run EXIT
@@ -113,7 +113,51 @@ INDUSTRIES="$(read_profile_list industries)"
 VALUES="$(read_profile_list values)"
 DEAL_BREAKERS="$(read_profile_list dealBreakers)"
 WEAK_SPOTS="$(read_profile_list interviewWeakSpots)"
+# Companies already shown in Intel or on the tracker. Without this list each run
+# drifts back to the same few job boards and re-lists their openings.
+SEEN_COMPANIES="$(python3 - "$JOB_QUEST_DATA_DIR" <<'PYSEEN' || true
+import glob, json, os, sys
+data = sys.argv[1]
+names = set()
+for f in glob.glob(os.path.join(data, 'intel', '*.json')):
+    try:
+        roles = json.load(open(f)).get('roles') or []
+    except Exception:
+        continue
+    names.update(r.get('company', '').strip() for r in roles if isinstance(r, dict))
+try:
+    names.update(k.split('|')[0].strip() for k in json.load(open(os.path.join(data, 'role-tracker.json'))))
+except Exception:
+    pass
+print(', '.join(sorted((n for n in names if n), key=str.lower)))
+PYSEEN
+)"
 TODAY="$(date +%Y-%m-%d)"
+
+# Roles the user already skipped, saved, applied to or tracked (the handled-roles ledger plus current state).
+# The agent is told not to report them; the runner also filters today's report after the run.
+HANDLED_HELPER="$JOB_QUEST_APP_ROOT/app/lib/jobs/handled-roles-cli.js"
+HANDLED_COUNT=0
+if [ -f "$HANDLED_HELPER" ]; then
+  HANDLED_FILE="$(mktemp "$LOG_DIR/handled-roles.XXXXXX")"
+  if HANDLED_COUNT="$(node "$HANDLED_HELPER" list "$JOB_QUEST_DATA_DIR" "$HANDLED_FILE" 2>>"$LOG_FILE")"; then
+    log "Handled roles listed for the agent: $HANDLED_COUNT"
+  else
+    log "WARNING: handled roles could not be listed; discovery continues without that list."
+    HANDLED_COUNT=0
+  fi
+else
+  log "WARNING: handled-roles helper missing at $HANDLED_HELPER; discovery continues without that list."
+fi
+filter_handled_roles() {
+  [ -f "$HANDLED_HELPER" ] && [ -f "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" ] || return 0
+  local result
+  if result="$(node "$HANDLED_HELPER" filter "$JOB_QUEST_DATA_DIR" "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" 2>&1)"; then
+    log "Handled-role filter on intel/$TODAY.json: $result"
+  else
+    log "WARNING: handled-role filter failed; intel/$TODAY.json left as written: $result"
+  fi
+}
 
 # Account selection authorizes only bounded read-only collection, never new access.
 ACCOUNTS="$JOB_QUEST_DATA_DIR/opportunity-accounts.json"
@@ -216,6 +260,17 @@ Run only the activity sections included below. Active work: job discovery=${GENE
 
 ## Deduplication
 Read every JSON file in ${JOB_QUEST_DATA_DIR}/intel/ first. Match existing roles using canonical posting URL plus normalized company and title. Keep the same role identity when a listing changes; report material changes in availability or requirements rather than presenting a duplicate as new. Preserve saved/applied/skipped role state.
+EOF
+if [ "${HANDLED_COUNT:-0}" -gt 0 ] 2>/dev/null; then
+cat >> "$PROMPT_FILE" <<EOF
+${NAME} has already handled (skipped, saved, applied to or tracked) the ${HANDLED_COUNT} roles listed in ${HANDLED_FILE}, one per line as "Company | Title | URL". Read that file and do not report any of those roles again: the same posting under another URL form (for example /application or /apply, ?gh_jid=, an embedded Greenhouse form, or a LinkedIn slug), a lightly reworded title ("Sr." for "Senior", "Full-Stack" for "Fullstack", an added location suffix), or a company-name variant counts as the same role. The runner removes any that still appear.
+EOF
+fi
+cat >> "$PROMPT_FILE" <<EOF
+
+## Variety
+Companies already shown or tracked: ${SEEN_COMPANIES:-none yet}.
+At least 12 of today's roles must come from companies not in that list; include an already-listed company only for a role posted in the last 7 days. List at most 2 roles per company. Mix established tech companies (large public or late-stage, for example Google, Spotify, Shopify, Stripe, MongoDB, Bloomberg) with high-growth startups, at least 5 of each, and reach beyond the same few Ashby and Greenhouse boards.
 
 ## Preserve existing work
 Read existing dated tasks and quizzes before planning. Never overwrite, delete, or modify any existing intel, task, or quiz file, any role action/tracker state, coding progress, or saved practice. Suggest unfinished work in today's new tasks where helpful; do not mark older work complete. Keep all existing coding problems unchanged and append new problems only through add-problems.js. If any listed output file already exists, stop and report that it was preserved instead of replacing it.
@@ -316,6 +371,7 @@ if [ "$EXIT_CODE" -eq 0 ]; then
   FAILURE_REASON=""
   PRACTICE_FAILED=0
   if [ "$GENERATE_JOBS" -eq 1 ]; then
+    filter_handled_roles
     # Exit 0 alone is not proof: the agent must have written today's intel.
     if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$JOB_QUEST_DATA_DIR/intel/$TODAY.json" 2>/dev/null; then
       FAILURE_REASON="The agent finished but intel/$TODAY.json is missing or not valid JSON. Agent said: $SUMMARY"

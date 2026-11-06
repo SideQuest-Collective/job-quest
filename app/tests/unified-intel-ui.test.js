@@ -18,22 +18,53 @@ test('role filters give applications/interviews a shared in-progress home and di
  assert.equal(context.myRoleMatches(role,{...empty(),saved:[key]},{},'saved'),true);
  assert.equal(context.myRoleMatches(role,{...empty(),applied:[key]},{[key]:{stage:'discovered'}},'progress'),true);
 });
-function discoverHarness({roles=[role],shared=false}={}){
- const instances=new Map(),requests=[];let cells,index=0,actions=empty(),fail=false,decision={busy:false,lastAction:null};
- const ctx={useState(initial){const i=index++,stateCells=cells;if(!(i in stateCells))stateCells[i]=initial;return [stateCells[i],value=>stateCells[i]=typeof value==='function'?value(stateCells[i]):value];},useEffect(){},api:{post:async(url,value)=>{requests.push({url,value});if(fail)throw Error('Offline');}},Set};
+// Discover runs against the real per-role event handler (lib/jobs/role-state) on a temp data dir,
+// with the response shaped like POST /api/role-actions/event.
+const os=require('node:os'),roleState=require('../lib/jobs/role-state'),roleHistoryLib=require('../lib/jobs/role-history');
+const identityContext={window:{},URL};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../lib/jobs/role-identity.js'),'utf8'),identityContext);
+const harnessDirs=new Set();test.after(()=>harnessDirs.forEach(dir=>fs.rmSync(dir,{recursive:true,force:true})));
+function discoverHarness({roles=[role],shared=false,dir=fs.mkdtempSync(path.join(os.tmpdir(),'jq-discover-ui-'))}={}){
+ harnessDirs.add(dir);
+ const instances=new Map(),requests=[];let cells,index=0,fail=false,decision={busy:false};
+ let actions=roleState.readRoleActions(dir),tracker={},history=roleHistoryLib.summarize(roleState.ensureRoleHistory(dir,actions,tracker,new Date().toISOString()));
+ const respond=result=>({actions:roleState.actionsWithApplications(result.actions,result.tracker),undone:roleHistoryLib.publicEvent(result.undone),trackerChange:result.event?{key:result.event.key,entry:result.tracker[result.event.key]??null}:null,history:roleHistoryLib.summarize(result.history)});
+ const api={post:async(url,value)=>{requests.push({url,value});if(fail)throw Error('Offline');if(url!=='/api/role-actions/event')throw Error('unexpected '+url);const result=roleState.applyRoleEvent(dir,value,tracker,new Date().toISOString());tracker=result.tracker;return respond(result);},
+  get:async url=>{requests.push({url});if(url!=='/api/role-history')throw Error('unexpected '+url);return roleHistoryLib.summarize(roleHistoryLib.readHistory(dir));}};
+ const ctx={useState(initial){const i=index++,stateCells=cells;if(!(i in stateCells))stateCells[i]=initial;return [stateCells[i],value=>stateCells[i]=typeof value==='function'?value(stateCells[i]):value];},useEffect(){},api,Set,window:identityContext.window};
  vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('function nativeRoleStatus'),source.indexOf('function DiscoverySourceCoverage')),ctx);
  const code=source.slice(source.indexOf('function Discover('),source.indexOf('  return <div className="discover-review">'));
- vm.runInContext(code+' return {update,undo,unseen,dismissed,lastAction,error,selected,view,busy,setSelectedKey,setView};}',ctx);
- return {render(name='card',{listMode=false}={}){if(!instances.has(name))instances.set(name,[]);cells=instances.get(name);index=0;return ctx.Discover({allRoles:roles,roleActions:actions,roleTracker:{},setRoleActions:value=>actions=value,listMode,decisionState:shared?{...decision,setBusy:value=>decision.busy=value,setLastAction:value=>decision.lastAction=value}:undefined});},get actions(){return actions;},setActions(value){actions=value;},setFail(value){fail=value;},requests};
+ vm.runInContext(code+' return {update,undo,unseen,dismissed,undoTarget,error,selected,view,busy,setSelectedKey,setView};}',ctx);
+ const flush=()=>new Promise(setImmediate);
+ return {dir,render(name='card',{listMode=false}={}){if(!instances.has(name))instances.set(name,[]);cells=instances.get(name);index=0;return ctx.Discover({allRoles:roles,roleActions:actions,roleTracker:tracker,roleHistory:history,setRoleActions:value=>actions=value,setRoleTracker:fn=>tracker=typeof fn==='function'?fn(tracker):fn,setRoleHistory:value=>history=value,listMode,decisionState:shared?{...decision,setBusy:value=>decision.busy=value}:undefined});},
+  get actions(){return actions;},get history(){return history;},
+  // Another tab or Intel changed role state on the server; the next refresh brings it in.
+  setActions(value){roleState.writeRoleState(dir,value,tracker);actions=roleState.actionsWithApplications(value,tracker);},
+  setFail(value){fail=value;},requests,flush};
 }
-test('like saves through the real role action API contract and undo preserves unrelated decisions',async()=>{
+test('like saves through the per-role event API and undo preserves unrelated decisions',async()=>{
  const h=discoverHarness();await h.render().update(role,'like');assert.equal(h.actions.saved.includes(key),true);assert.equal(h.render().unseen.length,0);
- h.setActions({...h.actions,saved:[...h.actions.saved,'Other|Role']});await h.render().undo();assert.deepEqual(h.actions.saved,['Other|Role']);assert.equal(h.render().unseen.length,1);assert.equal(h.requests[0].url,'/api/role-actions');
+ assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0])),{url:'/api/role-actions/event',value:{action:'save',key,keys:[key],url:null}});
+ assert.equal(h.render().undoTarget.action,'save');
+ h.setActions({...h.actions,saved:[...h.actions.saved,'Other|Role']});await h.render().undo();assert.deepEqual(Array.from(h.actions.saved),['Other|Role']);assert.equal(h.render().unseen.length,1);
+ assert.equal(h.requests.some(r=>r.url==='/api/role-actions'),false,'never a full-state write');
 });
-test('dismiss and restore reuse existing skipped state, and failed writes preserve the decision',async()=>{
- const h=discoverHarness();await h.render().update(role,'dismiss');assert.equal(h.render().dismissed.length,1);
- h.setFail(true);await h.render().update(role,'restore');assert.equal(h.render().dismissed.length,1);assert.match(h.render().error,/Offline/);
- h.setFail(false);await h.render().update(role,'restore');assert.equal(h.render().unseen.length,1);assert.equal(h.render().dismissed.length,0);
+test('dismiss and restore go through the ledger, and failed writes preserve the decision',async()=>{
+ const h=discoverHarness();await h.render().update(role,'dismiss');assert.equal(h.render().dismissed.length,1);assert.equal(h.render().unseen.length,0);
+ h.setFail(true);await h.render().update(h.render().dismissed[0],'restore');assert.equal(h.render().dismissed.length,1);assert.match(h.render().error,/Offline/);
+ h.setFail(false);await h.render().update(h.render().dismissed[0],'restore');assert.equal(h.render().unseen.length,1);assert.equal(h.render().dismissed.length,0);
+ assert.equal(h.history.handled.some(entry=>entry.key===key),false,'the retired skip no longer hides the role');
+ assert.equal(h.render().undoTarget,null,'the restored skip is not offered for undo');
+});
+test('a role handled only in the ledger stays out of New even after it leaves Saved',async()=>{
+ const h=discoverHarness();await h.render().update(role,'like');
+ h.setActions({saved:[],skipped:[],applied:[]});
+ assert.equal(h.render().unseen.length,0,'removed from Saved elsewhere, still handled');
+});
+test('undo target comes from the server and survives a reload',async()=>{
+ const first=discoverHarness();await first.render().update(role,'dismiss');
+ const reloaded=discoverHarness({dir:first.dir});
+ assert.equal(reloaded.render().undoTarget.key,key);assert.equal(reloaded.render().undoTarget.action,'skip');
+ await reloaded.render().undo();assert.equal(reloaded.render().unseen.length,1);assert.equal(reloaded.render().undoTarget,null);
 });
 
 test('exact discovery launch distinguishes same-title listings by URL and location',()=>{
@@ -62,19 +93,22 @@ test('list selects exact same-title listing and falls back when another view rem
  assert.equal(h.render('list',{listMode:true}).selected,undefined);
 });
 
-test('card and list share latest undo while preserving preceding and unrelated choices',async()=>{
+test('card and list share one ledger undo that walks back several actions and preserves unrelated choices',async()=>{
  const other={company:'Other',role:'Designer'},third='Third|Architect';
  const h=discoverHarness({roles:[role,other],shared:true});
  await h.render('card').update(role,'like');
- assert.equal(h.render('list',{listMode:true}).lastAction.role,role);
+ assert.equal(h.render('list',{listMode:true}).undoTarget.key,key);
  assert.equal(h.render('list',{listMode:true}).unseen.length,1);
  await h.render('list',{listMode:true}).update(other,'dismiss');
- assert.equal(h.render('card').lastAction.role,other);
+ assert.equal(h.render('card').undoTarget.key,'Other|Designer');
  h.setActions({...h.actions,applied:[third]});
  await h.render('card').undo();
- assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);assert.deepEqual(h.actions.applied,[third]);
- assert.equal(h.render('list',{listMode:true}).lastAction,null);
- assert.equal(h.render('card').selected,other);
+ assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);assert.deepEqual(Array.from(h.actions.applied),[third]);
+ assert.equal(h.render('card').selected,other,'the restored role is shown again');
+ assert.equal(h.render('list',{listMode:true}).undoTarget.key,key,'the next undo walks back the earlier save');
+ await h.render('list',{listMode:true}).undo();
+ assert.deepEqual(Array.from(h.actions.saved),[]);assert.deepEqual(Array.from(h.actions.applied),[third]);
+ assert.equal(h.render('card').unseen.length,2);assert.equal(h.render('card').undoTarget,null);
 });
 
 test('failed cross-view choice and undo preserve saved state and the last successful undo',async()=>{
@@ -82,11 +116,11 @@ test('failed cross-view choice and undo preserve saved state and the last succes
  await h.render('list',{listMode:true}).update(role,'like');
  h.setFail(true);await h.render('card').update(other,'dismiss');
  assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);
- assert.equal(h.render('card').lastAction.role,role);assert.match(h.render('card').error,/Offline/);
+ assert.equal(h.render('card').undoTarget.key,key);assert.match(h.render('card').error,/Offline/);
  await h.render('list',{listMode:true}).undo();
- assert.deepEqual(Array.from(h.actions.saved),[key]);assert.equal(h.render('card').lastAction.role,role);assert.match(h.render('list',{listMode:true}).error,/Offline/);
+ assert.deepEqual(Array.from(h.actions.saved),[key]);assert.equal(h.render('card').undoTarget.key,key);assert.match(h.render('list',{listMode:true}).error,/Offline/);
  h.setFail(false);await h.render('card').undo();
- assert.equal(h.render('list',{listMode:true}).unseen.length,2);assert.equal(h.render('list',{listMode:true}).lastAction,null);
+ assert.equal(h.render('list',{listMode:true}).unseen.length,2);assert.equal(h.render('list',{listMode:true}).undoTarget,null);
 });
 
 test('pending decision blocks a second write from the other Discover view',async()=>{
@@ -96,4 +130,11 @@ test('pending decision blocks a second write from the other Discover view',async
  await h.render('card').update(other,'dismiss');await first;
  assert.equal(h.requests.length,1);assert.deepEqual(Array.from(h.actions.saved),[key]);assert.deepEqual(Array.from(h.actions.skipped),[]);
  assert.equal(h.render('list',{listMode:true}).busy,false);
+});
+
+test('App, dashboard and both Discover views use the identity- and ledger-based New list',()=>{
+ assert.match(source,/const newRoles = React\.useMemo\(\(\) => unseenNativeRoles\(allRoles, roleActions, roleTracker, roleHistory\)/);
+ assert.match(source,/<Dashboard [^>]*undecidedRoles=\{newRoles\}/);
+ assert.match(source,/const unseen=unseenNativeRoles\(allRoles,roleActions,roleTracker,roleHistory\);/);
+ assert.equal((source.match(/<Discover [^>]*roleHistory=\{roleHistory\}/g)||[]).length,2);
 });

@@ -124,6 +124,15 @@ test('Discover Saved shortcut requests the saved filter in My roles',()=>{
   assert.match(html,/<Discover\b[^>]*onOpenSaved=\{openSavedRoles\}/);
 });
 
+test('saved and applied roles launch their exact native role context and offer on-demand tailoring', () => {
+  // Saved and applied roles are listed in My roles (Intel); each row opens its exact alias key.
+  const intel = html.slice(html.indexOf('function Intel('), html.indexOf('/* ===== WORKBOOKS ===== */'));
+  assert.match(intel, /<RoleTailorAction roleKey=\{r\.key\} records=\{tailoredRecords\} onReview=\{\(\) => \{setSelectedKey\(r\.key\);detail\.showDetail\(\);\}\} \/>/);
+  assert.equal((intel.match(/useTailoredRecords\(\)/g) || []).length, 1);
+  assert.match(html, /<Discover\b[^>]*onOpenRole=\{openNativeRole\}/);
+  assert.match(html, /const openNativeRole = useCallback\(role => \{\n    setRoleLaunch\(\{ key: role\.roleKey \|\| `\$\{role\.company\}\|\$\{role\.role\}`/);
+});
+
 test('interview ingestion preserves explicit legacy applied history without inferring submission from phone-screen alone', () => {
   const legacy = {stage:'applied',notes:'Preserved'};
   assert.deepEqual(tracker.applyStage(legacy, 'recruiter', false), {from:'applied',to:'phone-screen'});

@@ -32,9 +32,10 @@ test('settings endpoints round-trip', async () => {
   await withServer(dir, async (base) => {
     const s = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(s.workbooks.autoDailyCap, 3);
-    await fetch(`${base}/api/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ resume: { autoTailor: false } }) });
+    await fetch(`${base}/api/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workbooks: { autoBuild: false } }) });
     const s2 = await (await fetch(`${base}/api/settings`)).json();
-    assert.equal(s2.resume.autoTailor, false);
+    assert.equal(s2.workbooks.autoBuild, false);
+    assert.equal(s2.resume, undefined, 'there is no auto-tailor setting to report');
   });
 });
 

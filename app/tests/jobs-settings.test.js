@@ -12,9 +12,8 @@ test('readSettings returns defaults when file is missing', () => {
   const s = readSettings(tmp());
   assert.deepEqual(s, DEFAULT_SETTINGS);
   assert.equal(s.workbooks.autoDailyCap, 3);
-  assert.equal(s.resume.autoDailyCap, 5);
   assert.equal(s.workbooks.autoBuild, true);
-  assert.equal(s.resume.autoTailor, true);
+  assert.equal(s.resume, undefined, 'resume tailoring has no automatic settings');
 });
 
 test('writeSettings deep-merges and persists', () => {
@@ -23,7 +22,15 @@ test('writeSettings deep-merges and persists', () => {
   const s = readSettings(dir);
   assert.equal(s.workbooks.autoBuild, false);
   assert.equal(s.workbooks.autoDailyCap, 3);
-  assert.equal(s.resume.autoTailor, true);
+  assert.equal(s.resume, undefined);
+});
+
+test('a legacy resume.autoTailor setting is dropped on read and not rewritten', () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ workbooks: { autoBuild: false }, resume: { autoTailor: true, autoDailyCap: 9 } }));
+  assert.deepEqual(readSettings(dir), { workbooks: { autoBuild: false, autoDailyCap: 3 } });
+  writeSettings(dir, { workbooks: { autoDailyCap: 4 } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')), { workbooks: { autoBuild: false, autoDailyCap: 4 } });
 });
 
 test('readSettings tolerates a corrupt file', () => {

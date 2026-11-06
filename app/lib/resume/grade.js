@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const { formatRange } = require('./master');
 const { REFS_DIR, matchesAny, countMatches } = require('./lexicon');
+const { F_MAX, summaryCore, summarySentences, checkFidelity } = require('./fidelity');
+
+// Category maximums. Fidelity to the master outweighs keyword hits, and F needs the tailored JSON.
+const MAX = { K: 15, P: 18, S: 12, H: 15, C: 10, F: F_MAX };
 
 let pdfjs = null;
 function loadPdfjs() {
@@ -85,7 +89,7 @@ function scoreKeywords(normText, keywords) {
   const stuffed = [...req, ...pref].filter((k) => countMatches(normText, variants(k)) > 3).map((k) => k.term);
   const reqRatio = req.length ? requiredHit.length / req.length : 1;
   const prefRatio = pref.length ? preferredHit.length / pref.length : 1;
-  const K = Math.max(0, 30 * (0.8 * reqRatio + 0.2 * prefRatio) - 2 * stuffed.length);
+  const K = Math.max(0, MAX.K * (0.8 * reqRatio + 0.2 * prefRatio) - 2 * stuffed.length);
   return {
     K: round1(K),
     keywords: {
@@ -134,17 +138,13 @@ function checkParseability(ex, { master } = {}) {
   const loc = String(c.location || '').replace(/\s+/g, ' ').trim().toLowerCase();
   if (!loc || !flat.toLowerCase().includes(loc)) missing.push('location');
   add('contact', missing.length === 0, missing.length ? `missing ${missing.join(', ')}` : '');
-  return { P: round1(checks.filter((x) => x.pass).length * 5), checks };
+  return { P: round1(checks.filter((x) => x.pass).length * 3), checks };
 }
 
-function checkStructure(ex, { keywords } = {}) {
+// The job title is not rewarded: re-titling the headline per role is what F/headline-title penalizes.
+function checkStructure(ex) {
   const { checks, add } = checker('S');
   for (const h of ['summary', 'experience', 'skills', 'education']) add(`heading-${h}`, headingIndex(ex.lines, h) >= 0);
-  const title = String((keywords && keywords.title) || '').trim();
-  const words = title.split(/\s+/).filter(Boolean);
-  const lastTwo = words.slice(-2).join(' ').toLowerCase();
-  const flat = String(ex.text).replace(/\s+/g, ' ').toLowerCase();
-  add('target-title', !!title && (flat.includes(title.toLowerCase()) || (!!lastTwo && flat.includes(lastTwo))), title);
   return { S: round1(checks.filter((x) => x.pass).length * 3), checks };
 }
 
@@ -231,7 +231,10 @@ function countSub(haystack, needle) {
   return n;
 }
 
-function computeTells(ex, tellWords) {
+const squash = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// `keep` lists summary sentences copied from the master; their colons and ranges are the master's, not the tailor's.
+function computeTells(ex, tellWords, { keep = [] } = {}) {
   const text = String(ex.text);
   const low = text.toLowerCase().replace(/\s+/g, ' ').replace(/- /g, '-');
   const tells = [];
@@ -246,7 +249,8 @@ function computeTells(ex, tellWords) {
   if (colonBullets) tells.push(`${colonBullets} bullets use colon setups`);
   const semi = countSub(text, ';');
   if (semi) tells.push(`${semi} semicolons`);
-  const summary = summaryOf(ex.lines);
+  const kept = new Set(keep.map(squash));
+  const summary = summarySentences(summaryOf(ex.lines)).filter((s) => !kept.has(squash(s))).join(' ');
   if (summary) {
     const tri = (summary.match(/\w[^,.:]*, [^,.:]+,? and [^,.:]+/g) || []).length;
     if (tri > 1) tells.push(`${tri} triad lists in summary`);
@@ -272,20 +276,23 @@ function checkContent(ex, tells) {
   return { C: round1(Math.max(0, C)), checks, words };
 }
 
-function scoreExtracted(ex, { keywords, master, tellWords = loadTellWords() } = {}) {
+function scoreExtracted(ex, { keywords, master, tailored = null, jd = '', tellWords = loadTellWords() } = {}) {
   const kw = keywords || { title: '', required: [], preferred: [] };
   const k = scoreKeywords(normalizeForMatch(ex.text), kw);
   const p = checkParseability(ex, { master });
-  const s = checkStructure(ex, { keywords: kw });
+  const s = checkStructure(ex);
   const h = checkHistory(ex, { master });
-  const tells = computeTells(ex, tellWords);
+  const tells = computeTells(ex, tellWords, { keep: master ? summaryCore(master.summary) : [] });
   const c = checkContent(ex, tells);
-  const categories = { K: k.K, P: p.P, S: s.S, H: h.H, C: c.C };
+  // Without the tailored JSON, fidelity cannot be measured: F is null and the total is out of 70.
+  const f = tailored && master ? checkFidelity({ master, tailored, jd, keywords: kw }) : null;
+  const categories = { K: k.K, P: p.P, S: s.S, H: h.H, C: c.C, F: f ? f.F : null };
   return {
-    total: Math.round(categories.K + categories.P + categories.S + categories.H + categories.C),
+    total: Math.round(categories.K + categories.P + categories.S + categories.H + categories.C + (f ? f.F : 0)),
     categories,
     keywords: k.keywords,
-    checks: [...p.checks, ...s.checks, ...h.checks, ...c.checks],
+    fidelity: f ? f.fidelity : null,
+    checks: [...p.checks, ...s.checks, ...h.checks, ...c.checks, ...(f ? f.checks : [])],
     tells,
     words: c.words,
     pages: ex.pages,
@@ -297,7 +304,7 @@ async function gradePdf(pdfPath, opts) {
 }
 
 module.exports = {
-  buildLines, extractPdf, round1, normalizeForMatch, scoreKeywords,
+  MAX, buildLines, extractPdf, round1, normalizeForMatch, scoreKeywords,
   headingIndex, countWords, checkParseability, checkStructure, checkHistory,
   loadTellWords, bulletsOf, summaryOf, computeTells, checkContent, scoreExtracted, gradePdf,
 };

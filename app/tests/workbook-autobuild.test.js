@@ -32,23 +32,30 @@ test('manual enqueue creates a workbook and one create job; repeats return the e
   assert.equal(auto.enqueueWorkbook('no pipe').status, 'invalid');
 });
 
-test('the same role saved twice, then applied, makes exactly one workbook', async () => {
+function acceptResume(dir, id, roleKeys, extra = {}) {
+  const d = path.join(dir, 'resume', 'tailored', id);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'meta.json'), JSON.stringify({ id, roleKeys, accepted: true, ...extra }));
+}
+
+test('saving or applying builds nothing; accepting a resume twice makes exactly one workbook', async () => {
   const dir = tmp();
   const { queue, auto } = rig(dir);
-  const statuses = [auto.onRoleEvent('saved', 'Acme|Eng'), auto.onRoleEvent('saved', 'Acme|Eng'), auto.onRoleEvent('applied', 'Acme|Eng')].map((r) => r.status);
-  assert.deepEqual(statuses, ['queued', 'exists', 'exists']);
+  assert.deepEqual([auto.onRoleEvent('saved', 'Acme|Eng').status, auto.onRoleEvent('applied', 'Acme|Eng').status], ['ignored', 'ignored']);
+  assert.equal(store.listWorkbooks(dir).length, 0);
+  const statuses = [auto.onRoleEvent('accepted', 'Acme|Eng'), auto.onRoleEvent('accepted', 'Acme|Eng')].map((r) => r.status);
+  assert.deepEqual(statuses, ['queued', 'exists']);
   assert.equal(store.listWorkbooks(dir).length, 1);
-  assert.equal(store.listWorkbooks(dir)[0].trigger, 'auto-saved');
+  assert.equal(store.listWorkbooks(dir)[0].trigger, 'auto-accepted');
   await queue.drain();
   assert.equal(queue.list().length, 1);
 });
 
-test('applied-first is tagged auto-applied; the off switch blocks auto builds but not manual ones', () => {
+test('the off switch blocks auto builds but not manual ones', () => {
   const dir = tmp();
   const { auto } = rig(dir);
-  assert.equal(auto.onRoleEvent('applied', 'Beta|Eng').workbook.trigger, 'auto-applied');
   writeSettings(dir, { workbooks: { autoBuild: false } });
-  assert.equal(auto.onRoleEvent('saved', 'Gamma|Eng').status, 'disabled');
+  assert.equal(auto.onRoleEvent('accepted', 'Gamma|Eng').status, 'disabled');
   assert.equal(store.findByRoleKey(dir, 'Gamma|Eng'), null);
   assert.equal(auto.enqueueWorkbook('Gamma|Eng').status, 'queued');
 });
@@ -57,7 +64,7 @@ test('the daily cap defers extra auto builds and promotes them the next day, in 
   const c = clock('2026-10-05T12:00:00');
   const dir = tmp();
   const { queue, auto, ran } = rig(dir, c.now);
-  const statuses = ['A|x', 'B|x', 'C|x', 'D|x', 'E|x'].map((k) => auto.onRoleEvent('saved', k).status);
+  const statuses = ['A|x', 'B|x', 'C|x', 'D|x', 'E|x'].map((k) => auto.onRoleEvent('accepted', k).status);
   assert.deepEqual(statuses, ['queued', 'queued', 'queued', 'deferred', 'deferred']);
   assert.equal(store.findByRoleKey(dir, 'D|x').status, 'deferred');
   assert.equal(store.findByRoleKey(dir, 'E|x').status, 'deferred');
@@ -72,27 +79,33 @@ test('the daily cap defers extra auto builds and promotes them the next day, in 
 
 test('an interview-only workbook is generated into in place, not treated as existing', async () => {
   const dir = tmp();
-  fs.writeFileSync(path.join(dir, 'role-actions.json'), JSON.stringify({ saved: ['Acme|Eng'], skipped: [], applied: [] }));
+  acceptResume(dir, 'acme-eng', ['Acme|Eng']);
   const { queue, auto } = rig(dir);
   const m = store.createMinimal(dir, { roleKey: 'Acme|Eng', company: 'Acme', role: 'Eng', source: 'interview' });
   store.appendChapterQuestions(dir, m.id, { questions: [{ id: 'iv-1', markup: '@@q id=iv-1 company=acme topic="Interviews" type=open diff=2 chapter=asked-in-interviews\nQ?\n@@rubric\n- r\n@@answer\na' }] });
   assert.deepEqual(auto.backfillCandidates(), ['Acme|Eng']);
-  const r = auto.onRoleEvent('saved', 'Acme|Eng');
+  const r = auto.onRoleEvent('accepted', 'Acme|Eng');
   assert.deepEqual([r.status, r.workbook.id], ['queued', m.id]);
   const after = store.readMeta(dir, m.id);
-  assert.deepEqual([after.source, after.status, after.trigger], ['generated', 'queued', 'auto-saved']);
+  assert.deepEqual([after.source, after.status, after.trigger], ['generated', 'queued', 'auto-accepted']);
   assert.equal(store.listWorkbooks(dir).length, 1);
   assert.ok(fs.existsSync(path.join(store.wbDir(dir, m.id), 'content', '99-asked-in-interviews.md')));
-  assert.equal(auto.onRoleEvent('applied', 'Acme|Eng').status, 'exists');
+  assert.equal(auto.onRoleEvent('accepted', 'Acme|Eng').status, 'exists');
   assert.deepEqual(auto.backfillCandidates(), []);
   await queue.drain();
   assert.deepEqual(queue.list().map((j) => j.payload.workbookId), [m.id]);
 });
 
-test('backfill covers saved and applied roles lacking a workbook, capped, even with auto-build off', () => {
+test('backfill covers roles with an accepted resume lacking a workbook, capped, even with auto-build off', () => {
   const dir = tmp();
-  fs.writeFileSync(path.join(dir, 'role-actions.json'), JSON.stringify({ saved: ['A|x', 'B|x'], skipped: ['Z|x'], applied: ['C|x', 'A|x'] }));
-  fs.writeFileSync(path.join(dir, 'role-tracker.json'), JSON.stringify({ 'D|x': { stage: 'applied' }, 'E|x': { stage: 'researching' } }));
+  fs.writeFileSync(path.join(dir, 'role-actions.json'), JSON.stringify({ saved: ['A|x', 'B|x', 'S|x'], skipped: [], applied: ['C|x', 'P|x'] }));
+  fs.writeFileSync(path.join(dir, 'role-tracker.json'), JSON.stringify({ 'D|x': { stage: 'applied' }, 'R|x': { stage: 'rejected' } }));
+  acceptResume(dir, 'a', ['A|x']);
+  acceptResume(dir, 'b', ['B|x']);
+  acceptResume(dir, 'c', ['C|x', 'A|x']);
+  acceptResume(dir, 'd', ['D|x']);
+  acceptResume(dir, 'p', ['P|x'], { accepted: false, rejected: true });
+  acceptResume(dir, 'r', ['R|x']);
   writeSettings(dir, { workbooks: { autoBuild: false, autoDailyCap: 2 } });
   const { auto } = rig(dir);
   auto.enqueueWorkbook('B|x');

@@ -611,6 +611,7 @@
 </head>
 <body>
 <div id="root"></div>
+<script src="/role-identity.js"></script>
 <script type="text/babel" src="/opportunities.jsx"></script>
 <script type="text/babel" src="/learning.jsx"></script>
 <script type="text/babel" src="/intel-setup.jsx"></script>
@@ -781,18 +782,20 @@ function App() {
   const [resume, setResume] = useState(null);
   const [roleActions, setRoleActions] = useState({ saved: [], skipped: [], applied: [] });
   const [roleTracker, setRoleTracker] = useState({});
+  const [roleHistory, setRoleHistory] = useState(null);
   const roleTrackerPendingRef = useRef(false);
   const [jobStatus, setJobStatus] = useState(null);
   const [roleLaunch, setRoleLaunch] = useState(null);
   const openSavedRoles = useCallback(() => {setRoleLaunch({filter:'saved',request:Date.now()});setPage('intel-roles');}, [setPage]);
   const [discoverLaunch, setDiscoverLaunch] = useState(null);
-  const [discoveryLastAction,setDiscoveryLastAction]=useState(null),[discoveryBusy,setDiscoveryBusy]=useState(false);
-  const discoveryDecisions=React.useMemo(()=>({lastAction:discoveryLastAction,busy:discoveryBusy,setLastAction:setDiscoveryLastAction,setBusy:setDiscoveryBusy}),[discoveryLastAction,discoveryBusy]);
+  // Card and list views share one busy flag; the undo target comes from the server ledger (roleHistory.undo).
+  const [discoveryBusy,setDiscoveryBusy]=useState(false);
+  const discoveryDecisions=React.useMemo(()=>({busy:discoveryBusy,setBusy:setDiscoveryBusy}),[discoveryBusy]);
   const [outreachLaunch, setOutreachLaunch] = useState(null);
   const reviewJob = useCallback(role => { setDiscoverLaunch({identity:discoveryRoleId(role),request:Date.now()}); setPage('discover'); }, [setPage]);
   const openOutreach = useCallback(item => { setOutreachLaunch({id:item.id,request:Date.now()}); setPage('intel-outreach'); }, [setPage]);
   const openNativeRole = useCallback(role => {
-    setRoleLaunch({ key: `${role.company}|${role.role}`, request: Date.now() });
+    setRoleLaunch({ key: role.roleKey || `${role.company}|${role.role}`, request: Date.now() });
     setPage('intel');
   }, [setPage]);
   const [sdLaunchTopic, setSdLaunchTopic] = useState(null);
@@ -809,6 +812,7 @@ function App() {
     api.get('/api/tasks').then(value=>setChangedJson(setAllTasks,value)).catch(() => {});
     api.get('/api/resume').then(value=>setChangedJson(setResume,value)).catch(() => {});
     api.get('/api/role-actions').then(value=>setChangedJson(setRoleActions,value)).catch(() => {});
+    api.get('/api/role-history').then(value=>setChangedJson(setRoleHistory,value)).catch(() => {});
     api.get('/api/role-tracker').then(value => { if (!roleTrackerPendingRef.current) setChangedJson(setRoleTracker,value); }).catch(() => {});
     api.get('/api/job-status').then(value=>setChangedJson(setJobStatus,value)).catch(() => {});
   }, []);
@@ -842,10 +846,7 @@ function App() {
   const allRoles = React.useMemo(() => window.dedupeJobQuestRoles(allIntel), [allIntel]);
   const taskCount = todayTasks?.tasks?.filter(t => !t.completed).length || 0;
   const quizCount = todayQuiz?.questions?.length || 0;
-  const newRoles = React.useMemo(() => allRoles.filter(r => {
-    const key = `${r.company}|${r.role}`;
-    return undecidedRole(r,roleActions,roleTracker);
-  }), [allRoles, roleActions, roleTracker]);
+  const newRoles = React.useMemo(() => unseenNativeRoles(allRoles, roleActions, roleTracker, roleHistory), [allRoles, roleActions, roleTracker, roleHistory]);
 
   const practiceTools = [
     { id: 'practice', label: 'Focused', group: 'Start here' },
@@ -911,8 +912,8 @@ function App() {
           </details>
         </div>}
         {connectionError && <div role="alert" className="connection-error">{connectionError} <button onClick={refresh}>Try again</button></div>}
-        {visited.current.has('dashboard') && <PageSurface className="page-surface" active={page === 'dashboard'}><Dashboard onReviewJob={reviewJob} onOpenOutreach={openOutreach} nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} jobStatus={jobStatus} /></PageSurface>}
-        {visited.current.has('discover') && <PageSurface className="page-surface" active={page === 'discover'}><Discover decisionState={discoveryDecisions} onOpenSaved={openSavedRoles} launchRole={discoverLaunch} allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} resume={resume} setPage={setPage} /></PageSurface>}
+        {visited.current.has('dashboard') && <PageSurface className="page-surface" active={page === 'dashboard'}><Dashboard onReviewJob={reviewJob} onOpenOutreach={openOutreach} nativeRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} onOpenRole={openNativeRole} progress={progress} todayTasks={todayTasks} todayQuiz={todayQuiz} latestIntel={allIntel[0]} setPage={setPage} newRolesCount={newRoles.length} undecidedRoles={newRoles} jobStatus={jobStatus} /></PageSurface>}
+        {visited.current.has('discover') && <PageSurface className="page-surface" active={page === 'discover'}><Discover decisionState={discoveryDecisions} onOpenSaved={openSavedRoles} launchRole={discoverLaunch} allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setRoleActions={setRoleActions} roleHistory={roleHistory} setRoleHistory={setRoleHistory} resume={resume} setPage={setPage} /></PageSurface>}
         {visited.current.has('tasks') && <PageSurface className="page-surface" active={page === 'tasks'}><Tasks todayTasks={todayTasks} allTasks={allTasks} refresh={refresh} setPage={setPage} codeLabInitialProblemRef={codeLabInitialProblemRef} /></PageSurface>}
         {visited.current.has('quiz') && <PageSurface className="page-surface" active={page === 'quiz'}><Quiz todayQuiz={todayQuiz} allQuizzes={allQuizzes} progress={progress} refresh={refresh} /></PageSurface>}
         {visited.current.has('resume') && <PageSurface className="page-surface" active={page === 'resume'}><Resume resume={resume} setResume={setResume} active={page === 'resume'} setPage={setPage} onOpenRole={openNativeRole} /></PageSurface>}
@@ -921,7 +922,7 @@ function App() {
           <nav className="intel-hub-tabs section-tabs" aria-label="Intel views">{[['intel-roles','My roles'],['intel-outreach','Outreach'],['intel-discover','Discover']].map(([id,label])=><a key={id} href={'#'+id} className={'btn '+(page===id?'btn-primary':'btn-secondary')} aria-current={page===id?'page':undefined} onClick={e=>{e.preventDefault();setPage(id);}}>{label}</a>)}</nav>
           {visited.current.has('intel-outreach') && <PageSurface as="div" active={page === 'intel-outreach'}><window.Opportunities embedded launchItem={outreachLaunch} onConfigureIntel={configureIntel} active={page==='intel-outreach'} configureRequest={outreachConfigureRequest} setPage={setPage} nativeRoles={allRoles} onOpenRole={openNativeRole}/></PageSurface>}
           {visited.current.has('intel-roles') && <PageSurface as="div" active={page === 'intel-roles'}><Intel roleTrackerPendingRef={roleTrackerPendingRef} launchRole={roleLaunch} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setPage={setPage}/></PageSurface>}
-          {visited.current.has('intel-discover') && <PageSurface as="div" active={page === 'intel-discover'}><Discover listMode decisionState={discoveryDecisions} onOpenSaved={openSavedRoles} allIntel={allIntel} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleActions={setRoleActions} setPage={setPage}/></PageSurface>}
+          {visited.current.has('intel-discover') && <PageSurface as="div" active={page === 'intel-discover'}><Discover listMode decisionState={discoveryDecisions} onOpenSaved={openSavedRoles} allIntel={allIntel} onOpenRole={openNativeRole} allRoles={allRoles} roleActions={roleActions} roleTracker={roleTracker} setRoleTracker={setRoleTracker} setRoleActions={setRoleActions} roleHistory={roleHistory} setRoleHistory={setRoleHistory} setPage={setPage}/></PageSurface>}
         </PageSurface>}
         {visited.current.has('workbooks') && <PageSurface className="page-surface" active={page === 'workbooks'}><Workbooks setPage={setPage} /></PageSurface>}
         {visited.current.has('calendar') && <PageSurface className="page-surface" active={page === 'calendar'}><Calendar progress={progress} /></PageSurface>}
@@ -1295,9 +1296,10 @@ function nativeRoleStatus(key, actions, tracker) {
 }
 
 function discoveryRoleId(role) { return JSON.stringify([role.company,role.role,role.url||'',role.location||'']); }
+// Not decided under any of its alias keys in the current saved/skipped/applied/tracker state.
 function undecidedRole(role, actions, tracker) {
-  const key=role.company+'|'+role.role;
-  return !(actions.skipped||[]).includes(key) && !(actions.saved||[]).includes(key) && !nativeRoleStatus(key,actions,tracker).pipelineStarted && !tracker[key];
+  const keys=role.keys&&role.keys.length?role.keys:[role.company+'|'+role.role];
+  return keys.every(key=>!(actions.skipped||[]).includes(key) && !(actions.saved||[]).includes(key) && !nativeRoleStatus(key,actions,tracker).pipelineStarted && !tracker?.[key]);
 }
 function myRoleMatches(role, actions, tracker, filter='all') {
   const key=role.key || role.company+'|'+role.role, stage=nativeRoleStatus(key,actions,tracker).stage;
@@ -1309,6 +1311,29 @@ function myRoleMatches(role, actions, tracker, filter='all') {
   return saved || tracked || nativeRoleStatus(key,actions,tracker).pipelineStarted;
 }
 
+// The key a collapsed role is tracked under: the alias that already has saved/applied/tracker state, else the newest.
+function nativeRoleKey(role, actions, tracker) {
+  const keys = role.keys && role.keys.length ? role.keys : [`${role.company}|${role.role}`];
+  return keys.find(key => tracker?.[key] || actions?.saved?.includes(key) || actions?.applied?.includes(key)) || keys[0];
+}
+function asNativeRole(role, key) {
+  const at = key.indexOf('|');
+  return at === -1 ? { ...role, roleKey: key } : { ...role, company: key.slice(0, at), role: key.slice(at + 1), roleKey: key };
+}
+
+// New in Discover = undecided now, and not matching (by role identity) any handled ledger entry
+// or current saved/skipped/applied/tracker key.
+function unseenNativeRoles(allRoles, actions, tracker, history) {
+  const identity = window.JobQuestRoleIdentity;
+  const undecided = allRoles.filter(r => undecidedRole(r, actions || {}, tracker || {}));
+  if (!identity) return undecided;
+  const keys = [...(actions?.saved || []), ...(actions?.skipped || []), ...(actions?.applied || []), ...Object.keys(tracker || {})];
+  const index = identity.createRoleIndex([...(history?.handled || []), ...keys.map(key => ({ key, url: tracker?.[key]?.url || null }))]);
+  return undecided.filter(r => !index.match(r));
+}
+
+const UNDO_LABELS = { skip: 'Dismissed', save: 'Saved', apply: 'Marked applied' };
+
 function DiscoverySourceCoverage({ reports = [] }) {
   const report = reports.find(item => Array.isArray(item.sourceCoverage) && item.sourceCoverage.length);
   if (!report) return null;
@@ -1317,34 +1342,58 @@ function DiscoverySourceCoverage({ reports = [] }) {
   </details>;
 }
 
-function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleActions, resume, setPage, onOpenRole, launchRole, onOpenSaved, listMode = false, decisionState }) {
+function Discover({ allIntel = [], allRoles, roleActions, roleTracker, setRoleTracker = () => {}, setRoleActions, roleHistory, setRoleHistory = () => {}, resume, setPage, onOpenRole, launchRole, onOpenSaved, listMode = false, decisionState }) {
   const [view,setView]=useState('new'),[selectedKey,setSelectedKey]=useState(null);
-  const [localBusy,setLocalBusy]=useState(false),[error,setError]=useState(''),[localLastAction,setLocalLastAction]=useState(null);
-  const {busy=localBusy,setBusy=setLocalBusy,lastAction=localLastAction,setLastAction=setLocalLastAction}=decisionState || {};
-  const unseen=allRoles.filter(r=>undecidedRole(r,roleActions,roleTracker));
-  const dismissed=allRoles.filter(r=>(roleActions.skipped||[]).includes(r.company+'|'+r.role));
+  const [localBusy,setLocalBusy]=useState(false),[error,setError]=useState('');
+  const {busy=localBusy,setBusy=setLocalBusy}=decisionState || {};
+  const keysOf=r=>r.keys&&r.keys.length?r.keys:[r.company+'|'+r.role];
+  const unseen=unseenNativeRoles(allRoles,roleActions,roleTracker,roleHistory);
+  const dismissed=allRoles.flatMap(r=>{const k=keysOf(r).find(key=>(roleActions.skipped||[]).includes(key));return k?[asNativeRole(r,k)]:[];});
   const selected=selectedKey?(unseen.find(r=>discoveryRoleId(r)===selectedKey) || (listMode ? unseen[0] : null)):unseen[0];
+  // Undo is based on the server ledger, so it also appears after a reload and walks back one action at a time.
+  const undoTarget=roleHistory?.undo || null;
   useEffect(()=>{if(launchRole?.identity){setView('new');setSelectedKey(launchRole.identity);}},[launchRole?.request]);
+
+  // Each decision is one server-side event applied to the current files, so a stale tab cannot overwrite other changes.
+  // The server returns the one tracker entry it changed. Merging only that key keeps the shared
+  // copy current, so a later full-tracker save (Intel) cannot restore an undone application or
+  // drop a new one, and unsaved Intel edits to other roles are left alone.
+  const applyEventResult = (result) => {
+    if (result?.actions) setRoleActions(result.actions);
+    const change = result?.trackerChange;
+    if (change && typeof change.key === 'string') {
+      setRoleTracker(prev => {
+        const next = { ...(prev || {}) };
+        if (change.entry == null) delete next[change.key]; else next[change.key] = change.entry;
+        return next;
+      });
+    }
+    if (result?.history) setRoleHistory(result.history);
+  };
+  const EVENT_ACTIONS={like:'save',dismiss:'skip',restore:'restore'};
   const update=async(role,action)=>{
-    if(busy)return;const key=role.company+'|'+role.role;setBusy(true);setError('');
-    const next={...roleActions};
-    if(action==='restore')next.skipped=(next.skipped||[]).filter(k=>k!==key);
-    else {const field=action==='like'?'saved':'skipped';next[field]=[...new Set([...(next[field]||[]),key])];}
-    try {await api.post('/api/role-actions',next);setRoleActions(next);setLastAction(action==='restore'?null:{role,action});setSelectedKey(null);}
+    if(busy||!EVENT_ACTIONS[action])return;
+    const key=role.roleKey||role.company+'|'+role.role;setBusy(true);setError('');
+    try{applyEventResult(await api.post('/api/role-actions/event',{action:EVENT_ACTIONS[action],key,keys:keysOf(role),url:role.url||null}));setSelectedKey(null);}
     catch(e){setError(e.message||'Could not save your choice. Try again.');}finally{setBusy(false);}
   };
   const undo=async()=>{
-    if(busy||!lastAction)return;setBusy(true);setError('');
-    const key=lastAction.role.company+'|'+lastAction.role.role,field=lastAction.action==='like'?'saved':'skipped';
-    const next={...roleActions,[field]:(roleActions[field]||[]).filter(k=>k!==key)};
-    try{await api.post('/api/role-actions',next);setRoleActions(next);setSelectedKey(discoveryRoleId(lastAction.role));setView('new');setLastAction(null);}
-    catch(e){setError(e.message||'Could not undo. Try again.');}finally{setBusy(false);}
+    if(busy||!undoTarget)return;setBusy(true);setError('');
+    try{
+      const result=await api.post('/api/role-actions/event',{action:'undo',eventId:undoTarget.id,key:undoTarget.key});
+      applyEventResult(result);
+      const restoredKey=result?.undone?.key||undoTarget.key,restored=allRoles.find(r=>keysOf(r).includes(restoredKey));
+      setView('new');setSelectedKey(restored?discoveryRoleId(restored):null);
+    }catch(e){
+      setError(e.message||'Could not undo. Refresh and retry.');
+      api.get('/api/role-history').then(setRoleHistory).catch(()=>{});
+    }finally{setBusy(false);}
   };
   return <div className="discover-review">
     {listMode ? <div className="discovery-list-header view-intro"><h3 className="sr-only">Discover</h3><p>Browse new jobs. Save the ones you want to pursue in My roles.</p></div> : <header className="page-header"><h2>Discover</h2><p className="greeting-sub">Like a job to save it. Dismiss one to move on. Track your choices in Intel.</p></header>}
     <div className="discover-review-controls view-toolbar"><div className="discover-tabs view-filters" role="group" aria-label="Discover filters"><button className={'discover-tab '+(view==='new'?'active':'')} aria-pressed={view==='new'} onClick={()=>setView('new')}>New ({unseen.length})</button><button className={'discover-tab '+(view==='dismissed'?'active':'')} aria-pressed={view==='dismissed'} onClick={()=>setView('dismissed')}>Dismissed</button></div><a className="btn btn-secondary" href={listMode?'#discover':'#intel-discover'} onClick={e=>{if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();setPage(listMode?'discover':'intel-discover');}}>{listMode?'Card view':'List view'}</a>{!listMode && <button className="btn btn-secondary" onClick={()=>onOpenSaved?onOpenSaved():setPage('intel-roles')}>My saved roles</button>}</div>
     {error&&<p role="alert">{error}</p>}
-    {lastAction&&<p role="status" className="discover-undo">{lastAction.action==='like'?'Saved':'Dismissed'} {lastAction.role.company} · {lastAction.role.role}. <button className="btn btn-secondary" disabled={busy} onClick={undo}>Undo</button></p>}
+    <DiscoverUndo target={undoTarget} busy={busy} onUndo={undo} />
     {view==='new' && listMode && <DiscoverList roles={unseen} selected={selected} onSelect={role=>setSelectedKey(discoveryRoleId(role))} busy={busy} onDecide={update} onOpenSaved={()=>onOpenSaved?onOpenSaved():setPage('intel-roles')}/> }
     {view==='new'&&!listMode&&(selected?<div className="discover-container">
       <article className="discover-card active discover-single" key={selected.company+'|'+selected.role}>
@@ -1397,6 +1446,13 @@ function DiscoverList({ roles, selected, onSelect, busy, onDecide, onOpenSaved }
 }
 
 /* ===== APPLY MODAL ===== */
+// One undo for both Discover views, driven by the server ledger's latest undoable Discover action.
+function DiscoverUndo({ target, busy, onUndo }) {
+  if (!target) return null;
+  const label = UNDO_LABELS[target.action] || target.action;
+  return <p role="status" className="discover-undo">{label} {target.company} · {target.title}. <button type="button" className="btn btn-secondary" disabled={busy} onClick={onUndo} aria-label={`Undo: ${label} ${target.company}, ${target.title}`}>Undo</button></p>;
+}
+
 function ApplyModal({ role, onClose, onApply, busy = false, error = '' }) {
   return <div className="modal-overlay" onClick={e => {if(e.target === e.currentTarget) onClose();}}><div className="modal" role="dialog" aria-modal="true" aria-label="Application status"><h2>{role.company} — {role.role}</h2><p>Opening the listing does not submit an application. Confirm only after you have submitted it yourself.</p>{error && <p role="alert" style={{color:'var(--rose)'}}>{error}</p>}<div className="action-row">{role.url && <a className="btn btn-secondary" href={role.url} target="_blank" rel="noopener noreferrer">Open posting</a>}<button className="btn btn-primary" disabled={busy} onClick={onApply}>{busy ? 'Saving…' : 'I submitted this application'}</button><button className="btn btn-secondary" disabled={busy} onClick={onClose} autoFocus>Close</button></div></div></div>;
 }
@@ -2319,6 +2375,54 @@ function useTailoredRecord(roleKey, recordId = null) {
   return { record, reload: load, loaded: records !== null, error };
 }
 
+// One shared fetch of tailored records for a list of roles (Discover's Saved and Applied tabs).
+function useTailoredRecords() {
+  const [records, setRecords] = useState(null);
+  const load = useCallback(() => resumeApi.get('/api/resume/tailored').then(setRecords).catch(() => setRecords([])), []);
+  useEffect(() => {
+    load();
+    window.addEventListener('resume-tailored-updated', load);
+    return () => window.removeEventListener('resume-tailored-updated', load);
+  }, [load]);
+  const active = (records || []).some((m) => RM_ACTIVE.includes(m.status));
+  useEffect(() => {
+    if (!active) return undefined;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [active, load]);
+  return records;
+}
+
+// Tailoring never starts on its own. A role without a tailored resume offers "Tailor resume";
+// one that has a resume shows its state, and Review opens the role's full resume card
+// (Retry, Accept, Reject live there).
+function RoleTailorAction({ roleKey, records, onReview }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!records) return null;
+  const mine = records.filter((m) => (m.roleKeys || []).includes(roleKey));
+  const record = mine.find((m) => m.status !== 'failed') || mine[0] || null;
+  const tailor = async () => {
+    setBusy(true); setError('');
+    try {
+      await resumeApi.send('POST', '/api/resume/tailored', { roleKey });
+      window.dispatchEvent(new Event('resume-tailored-updated'));
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  if (!record) return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:6}}>
+      {error && <span role="alert" style={{fontSize:11,color:'var(--rose)'}}>{error}</span>}
+      <button type="button" className="btn btn-secondary" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} disabled={busy} onClick={tailor}><Icons.fileText style={{width:12,height:12}} /> {busy ? 'Starting…' : 'Tailor resume'}</button>
+    </span>
+  );
+  const label = `${RM_STATUS[record.status] || record.status}${typeof record.bestScore === 'number' ? ` · ${record.bestScore}` : ''}${record.accepted ? ' · accepted' : record.rejected ? ' · rejected' : ''}`;
+  return (
+    <button type="button" className="btn btn-secondary" title="Open this role's tailored resume" style={{padding:'7px 14px',fontSize:12,display:'flex',alignItems:'center',gap:4}} onClick={onReview}>
+      <Icons.fileText style={{width:12,height:12}} /> Resume: {label}
+    </button>
+  );
+}
+
 function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () => {} }) {
   const { record, reload, loaded, error: listError } = useTailoredRecord(roleKey, recordId);
   const [detail, setDetail] = useState(null);
@@ -2357,6 +2461,7 @@ function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () =>
   const tailor = () => act(() => resumeApi.send('POST', '/api/resume/tailored', { roleKey }));
   const retry = () => act(() => resumeApi.send('POST', `/api/resume/tailored/${id}/retry`));
   const accept = () => act(() => resumeApi.send('POST', `/api/resume/tailored/${id}/accept`), onAccepted);
+  const reject = () => act(() => resumeApi.send('POST', `/api/resume/tailored/${id}/reject`));
   const remove = () => { if (window.confirm('Delete this tailored resume?')) act(() => resumeApi.send('DELETE', `/api/resume/tailored/${id}`)); };
   const submitJd = () => act(async () => {
     await resumeApi.send('PUT', `/api/resume/tailored/${id}/jd`, { text: jdText });
@@ -2388,11 +2493,11 @@ function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () =>
       <div className="mc-section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Icons.fileText style={{ width: 14, height: 14, color: 'var(--emerald)' }} /> Tailored resume
         {record && typeof record.bestScore === 'number' && (
-          <span style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: rmScoreColor(record.bestScore), border: `1px solid ${rmScoreColor(record.bestScore)}` }}>{record.bestScore}{cats ? ` · K ${cats.K} P ${cats.P} S ${cats.S} H ${cats.H} C ${cats.C}` : '/100'}</span>
+          <span style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: rmScoreColor(record.bestScore), border: `1px solid ${rmScoreColor(record.bestScore)}` }}>{record.bestScore}{cats ? ` · K ${cats.K} P ${cats.P} S ${cats.S} H ${cats.H} C ${cats.C}${cats.F != null ? ` F ${cats.F}` : ''}` : '/100'}</span>
         )}
         {record && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            {RM_STATUS[record.status] || record.status}{record.deferred ? ' (deferred: daily cap)' : ''}{record.accepted ? ' · accepted' : ''}
+            {RM_STATUS[record.status] || record.status}{record.deferred ? ' (deferred: use Run now in the Resume library)' : ''}{record.accepted ? ' · accepted' : record.rejected ? ' · rejected' : ''}
           </span>
         )}
         <div style={{ flex: 1 }} />
@@ -2409,7 +2514,11 @@ function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () =>
 
           {cats && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-              {[['K', 'Keywords', 30], ['P', 'Parseability', 30], ['S', 'Structure', 15], ['H', 'History', 15], ['C', 'Content', 10]].map(([k, label, max]) => (
+              {/* Resumes graded before Fidelity existed have no F and the older maximums. */}
+              {(cats.F === undefined
+                ? [['K', 'Keywords', 30], ['P', 'Parseability', 30], ['S', 'Structure', 15], ['H', 'History', 15], ['C', 'Content', 10]]
+                : [['K', 'Keywords', 15], ['P', 'Parseability', 18], ['S', 'Structure', 12], ['H', 'History', 15], ['C', 'Content', 10], ['F', 'Fidelity', 30]]
+              ).filter(([k]) => cats[k] != null).map(([k, label, max]) => (
                 <div key={k} style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
                   {label} <strong style={{ color: cats[k] >= max ? 'var(--emerald)' : 'var(--text)' }}>{cats[k]}</strong>/{max}
                 </div>
@@ -2451,7 +2560,8 @@ function TailoredResumeCard({ roleKey, recordId = null, onAccepted = async () =>
             {record.bestRound && <button className="btn btn-secondary" style={rmActionBtn} onClick={toggleDiff}>{showDiff ? 'Hide' : 'Show'} bullet diff</button>}
             {!isActive && frozen && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={retry}>Retry</button>}
             {!isActive && detail && !frozen && <button className="btn btn-secondary" style={rmActionBtn} onClick={() => setPasting(!pasting)}>Paste JD</button>}
-            {record.bestRound && !record.accepted && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={accept}>Accept</button>}
+            {record.bestRound && !isActive && !record.accepted && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={accept} title="Also queues this role's workbook">Accept</button>}
+            {record.bestRound && !isActive && !record.rejected && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={reject} title="No workbook is built for a rejected resume">Reject</button>}
             {!isActive && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={remove}>Delete</button>}
             {record.status === 'failed' && <button className="btn btn-secondary" style={rmActionBtn} disabled={busy} onClick={tailor}>Start over</button>}
           </div>
@@ -2506,7 +2616,7 @@ function AcceptedResumeLink({ roleKey, stage }) {
 
 /* ===== RESUME LIBRARY ===== */
 const RL_TABS = [['library', 'Library'], ['master', 'Master'], ['editor', 'LaTeX editor']];
-const RL_FILTERS = [['all', 'All'], ['active', 'In progress'], ['target', '90+'], ['below', 'Below 90'], ['failed', 'Failed'], ['used', 'Used to apply']];
+const RL_FILTERS = [['all', 'All'], ['active', 'In progress'], ['target', '90+'], ['below', 'Below 90'], ['failed', 'Failed'], ['undecided', 'Needs review'], ['accepted', 'Accepted'], ['rejected', 'Rejected']];
 const RL_STAGE = { saved: 'Saved', discovered: 'Discovered', researching: 'Researching', applied: 'Applied', 'phone-screen': 'Phone screen', onsite: 'Onsite', offer: 'Offer', rejected: 'Rejected' };
 const rlKindLabel = (kind) => (kind === 'resume' ? 'resume' : kind === 'workbook' || kind === 'workbooks' ? 'workbook' : kind);
 const rlWhen = (iso) => {
@@ -2520,13 +2630,15 @@ function rlMatches(r, filter) {
   if (filter === 'target') return typeof r.bestScore === 'number' && r.bestScore >= 90;
   if (filter === 'below') return typeof r.bestScore === 'number' && r.bestScore < 90;
   if (filter === 'failed') return r.status === 'failed';
-  if (filter === 'used') return r.used;
+  if (filter === 'undecided') return !r.accepted && !r.rejected && !!r.bestRound && !RM_ACTIVE.includes(r.status);
+  if (filter === 'accepted') return !!r.accepted;
+  if (filter === 'rejected') return !!r.rejected;
   return true;
 }
 
 function rlQueueText(r) {
   const q = r.queue;
-  if (r.deferred || (q && q.status === 'deferred')) return 'Waiting for tomorrow (daily auto-tailor cap reached)';
+  if (r.deferred || (q && q.status === 'deferred')) return 'Deferred by the old daily cap. Choose Run now to start it.';
   if (r.status === 'running' || (q && q.status === 'running')) {
     const n = (r.rounds || []).length;
     return n ? `Tailoring: ${n} round${n === 1 ? '' : 's'} scored so far` : 'Tailoring: reading the job description';
@@ -2545,7 +2657,21 @@ function RlScore({ r }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
       <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: rmScoreColor(r.bestScore), border: `1px solid ${rmScoreColor(r.bestScore)}` }}>{r.bestScore}</span>
-      {c && <span title="Keywords /30 · Parseability /30 · Structure /15 · History /15 · Content /10" style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>K{Math.round(c.K)} P{Math.round(c.P)} S{Math.round(c.S)} H{Math.round(c.H)} C{Math.round(c.C)}</span>}
+      {c && <span title="Keywords /15 · Parseability /18 · Structure /12 · History /15 · Content /10 · Fidelity to the master /30 (older resumes were scored K/30 P/30 S/15 with no F)" style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>K{Math.round(c.K)} P{Math.round(c.P)} S{Math.round(c.S)} H{Math.round(c.H)} C{Math.round(c.C)}{c.F != null ? ` F${Math.round(c.F)}` : ''}</span>}
+    </span>
+  );
+}
+
+// Accept queues the role's workbook; reject keeps the resume but builds nothing. Either can be reversed.
+function RlDecision({ r, busy, onDecide }) {
+  if (!r.bestRound || RM_ACTIVE.includes(r.status)) return <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>;
+  const pill = (label, color) => <span style={{ fontSize: 12, fontWeight: 600, color }}>{label}</span>;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {r.accepted && pill('Accepted', 'var(--emerald)')}
+      {r.rejected && pill('Rejected', 'var(--rose)')}
+      {!r.accepted && <button className="btn btn-secondary" style={{ ...rmSmallBtn, color: 'var(--emerald)' }} disabled={busy} onClick={() => onDecide('accept')}>Accept</button>}
+      {!r.rejected && <button className="btn btn-secondary" style={{ ...rmSmallBtn, color: 'var(--rose)' }} disabled={busy} onClick={() => onDecide('reject')}>Reject</button>}
     </span>
   );
 }
@@ -2584,7 +2710,7 @@ function ResumeLibrary({ setPage, onOpenRole }) {
     catch (err) { setError(err.message); }
     finally { setBusyId(null); }
   };
-  const toggleUsed = (r) => mutate(r.id, () => resumeApi.send('PUT', `/api/resume/tailored/${r.id}/used`, { used: !r.used }));
+  const decide = (r, verdict) => mutate(r.id, () => resumeApi.send('POST', `/api/resume/tailored/${r.id}/${verdict}`));
   const runNow = (r) => mutate(r.id, () => resumeApi.send('POST', `/api/resume/tailored/${r.id}/run-now`));
   const openInIntel = (r) => {
     const key = r.roleKeys[0] || '';
@@ -2610,7 +2736,8 @@ function ResumeLibrary({ setPage, onOpenRole }) {
     ['target', '90 or higher', s.atTarget, 'var(--emerald)'],
     ['below', 'Below 90', s.belowTarget, 'var(--amber)'],
     ['failed', 'Failed', s.failed, 'var(--rose)'],
-    ['used', 'Used to apply', s.used, 'var(--cyan)'],
+    ['undecided', 'Needs review', s.undecided, 'var(--cyan)'],
+    ['accepted', 'Accepted', s.accepted, 'var(--emerald)'],
   ] : [];
   const libraryLabel = { ...rmLabel, fontSize: 14, fontFamily: 'var(--font-display)', textTransform: 'none', letterSpacing: 0 };
   const libraryInput = { ...rmInput, fontSize: 16, minHeight: 44, maxWidth: '100%', minWidth: 0 };
@@ -2677,7 +2804,7 @@ function ResumeLibrary({ setPage, onOpenRole }) {
 
       {records.length === 0 ? (
         <div style={{ ...rmCard, color: 'var(--text-muted)', fontSize: 14 }}>
-          No tailored resumes yet. Save or apply to a role, or choose “Tailor resume” on a role in Intel.
+          No tailored resumes yet. Choose “Tailor resume” on a saved or applied role in My roles, or on a role page in Intel.
         </div>
       ) : shown.length === 0 ? (
         <div style={{ ...rmCard, color: 'var(--text-muted)', fontSize: 14 }}>No resumes match this filter.</div>
@@ -2690,7 +2817,7 @@ function ResumeLibrary({ setPage, onOpenRole }) {
                 <th style={head}>ATS score</th>
                 <th style={head}>Status</th>
                 <th style={head}>Stage</th>
-                <th style={head} title="Accepted resumes count automatically; click to change">Used to apply</th>
+                <th style={head} title="Accepting a resume queues the role's workbook">Decision</th>
                 <th style={head}>Updated</th>
                 <th style={head}></th>
               </tr>
@@ -2714,11 +2841,7 @@ function ResumeLibrary({ setPage, onOpenRole }) {
                       </td>
                       <td style={{ ...cell, fontSize: 14 }}>{RL_STAGE[r.stage] || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                       <td style={cell} onClick={(e) => e.stopPropagation()}>
-                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={!!r.used} disabled={busyId === r.id} onChange={() => toggleUsed(r)} />
-                          {r.used ? 'Yes' : 'No'}
-                          {typeof r.usedToApply !== 'boolean' && r.accepted && <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>(accepted)</span>}
-                        </label>
+                        <RlDecision r={r} busy={busyId === r.id} onDecide={(verdict) => decide(r, verdict)} />
                       </td>
                       <td style={{ ...cell, fontSize: 14, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{rlWhen(r.updatedAt)}</td>
                       <td style={{ ...cell, whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
@@ -2732,6 +2855,7 @@ function ResumeLibrary({ setPage, onOpenRole }) {
                           <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 14, color: 'var(--text-muted)', margin: '6px 0 4px', flexWrap: 'wrap' }}>
                             <span>Created {rlWhen(r.createdAt)}</span>
                             {r.acceptedAt && <span>Accepted {rlWhen(r.acceptedAt)}</span>}
+                            {r.rejectedAt && <span>Rejected {rlWhen(r.rejectedAt)}</span>}
                             {r.jdUrl && <a href={r.jdUrl} target="_blank" rel="noopener" style={{ color: 'var(--cyan)' }}>Job posting</a>}
                             <button className="btn btn-secondary" style={rmSmallBtn} onClick={() => openInIntel(r)}>Open role in Intel</button>
                           </div>
@@ -2951,8 +3075,8 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   const allTips = allIntel.flatMap(r => r.tips || []);
   const roleMap = {};
   allRoles.forEach(r => {
-    const key = `${r.company}|${r.role}`;
-    if (!roleMap[key]) roleMap[key] = { ...r, key };
+    const key = nativeRoleKey(r, roleActions, roleTracker);
+    if (!roleMap[key]) roleMap[key] = { ...asNativeRole(r, key), key };
   });
 
   // Determine stage for each role
@@ -2968,6 +3092,7 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
   }));
 
   // My roles contains chosen/tracked work. An exact incoming role may be previewed without saving it.
+  const tailoredRecords = useTailoredRecords();
   const filtered = roles.filter(r=>myRoleMatches(r,roleActions,roleTracker,filter))
     .sort((a,b)=>(b.lastActivity||'').localeCompare(a.lastActivity||''));
   // Consume each requested destination once; keep tab switches and local filters stable.
@@ -3130,7 +3255,8 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
           </div>
           <div className="intel-role-list">
             {filtered.map(r => (
-              <button type="button" key={r.key} className={`intel-role-item ${selectedKey===r.key?'active':''}`} aria-pressed={selectedKey===r.key} ref={selectedKey===r.key?detail.selectedRowRef:null} onClick={() => {setSelectedKey(r.key);detail.showDetail();}}>
+              <div key={r.key} className="intel-role-row">
+              <button type="button" className={`intel-role-item ${selectedKey===r.key?'active':''}`} aria-pressed={selectedKey===r.key} ref={selectedKey===r.key?detail.selectedRowRef:null} onClick={() => {setSelectedKey(r.key);detail.showDetail();}}>
                 <div className="iri-company">
                   <span className={`stage-dot stage-${r.stage}`} />
                   {r.company}
@@ -3143,6 +3269,9 @@ function Intel({ allIntel, allRoles, roleActions, roleTracker, setRoleTracker, s
                   {r.lastActivity && <><span>&middot;</span><span>{timeAgo(r.lastActivity)}</span></>}
                 </div>
               </button>
+              {/* Tailoring is on demand only, so every saved or applied role offers it from the list. */}
+              {myRoleMatches(r,roleActions,roleTracker) && <div className="iri-actions"><RoleTailorAction roleKey={r.key} records={tailoredRecords} onReview={() => {setSelectedKey(r.key);detail.showDetail();}} /></div>}
+              </div>
             ))}
             {filtered.length === 0 && <div style={{padding:24,textAlign:'center',color:'var(--text-muted)',fontSize:13}}>No roles in this view. Like a job in Discover to save it here.</div>}
           </div>
@@ -3471,7 +3600,7 @@ function Workbooks({ setPage }) {
         <h2>Workbooks</h2><p className="greeting-sub">Study guides and interview practice for your roles.</p><div className="page-header-actions">
         <a className="btn btn-secondary" href="#setup-practice" onClick={e=>{e.preventDefault();setPage('setup-practice');}}>Workbook settings</a>
         <button className="btn btn-secondary" style={{minHeight:44, fontSize: 14, padding: '6px 12px' }} disabled={!candidates.length || building} onClick={buildAll}>
-          Build for all saved/applied ({candidates.length})
+          Build for all accepted resumes ({candidates.length})
         </button>
       </div></header>
       <UnlinkedSessions />
@@ -3483,7 +3612,7 @@ function Workbooks({ setPage }) {
           <div style={{ textAlign: 'center', padding: '32px 20px' }}>
             <Icons.clipboard style={{ width: 48, height: 48, color: 'var(--text-muted)', marginBottom: 16 }} />
             <h3 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>No workbooks yet</h3>
-            <p style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 440, margin: '0 auto 20px' }}>Open a role on the Intel page and click "Create workbook", or build workbooks for every saved and applied role with the button above.</p>
+            <p style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 440, margin: '0 auto 20px' }}>Open a role on the Intel page and click "Create workbook", or accept a tailored resume on the Resume page to queue one.</p>
             <button className="btn btn-primary" style={{minHeight:44, padding: '10px 24px', fontSize: 14 }} onClick={() => setPage('intel')}>
               <Icons.radar style={{ width: 14, height: 14, display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />Go to Intel
             </button>

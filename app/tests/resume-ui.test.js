@@ -278,7 +278,8 @@ test('Resume page opens on the Library tab with Master and LaTeX editor tabs', (
   assert.ok(html.includes("{tab === 'master' && <ResumeMaster active={active && tab === 'master'} />}"), 'Master tab hosts the overview/import page');
   const lib = html.slice(html.indexOf('function ResumeLibrary('), html.indexOf('function Resume({'));
   assert.ok(lib.includes("resumeApi.get('/api/resume/library')"));
-  assert.ok(lib.includes("`/api/resume/tailored/${r.id}/used`"));
+  assert.ok(lib.includes("`/api/resume/tailored/${r.id}/${verdict}`"), 'rows accept or reject');
+  assert.ok(!lib.includes('Used to apply'));
   assert.ok(lib.includes("`/api/resume/tailored/${r.id}/run-now`"));
   assert.ok(lib.includes('<TailoredResumeCard roleKey={r.roleKeys[0]} recordId={r.id} />'), 'details reuse the full tailored card');
   assert.ok(lib.includes("onOpenRole({ company: key.slice(0, i), role: key.slice(i + 1) })"), 'Open in Intel uses the app-level role launch');

@@ -23,7 +23,8 @@ const { readMaster, writeMaster } = require('./lib/resume/master');
 const { behavioralResumeContext } = require('./lib/resume/grounding');
 const { reviewSourceInfo } = require('./lib/jobs/review-source');
 const { readTracker, writeTracker, mergeTrackerSnapshot } = require('./lib/interview/tracker-effects');
-const { readRoleActions, applicationKeys, actionsWithApplications, reconcileRoleActions, writeRoleState } = require('./lib/jobs/role-state');
+const { readRoleActions, applicationKeys, actionsWithApplications, reconcileRoleActions, writeRoleState, ensureRoleHistory, recordRoleHistory, applyRoleEvent } = require('./lib/jobs/role-state');
+const roleHistory = require('./lib/jobs/role-history');
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '.env');
@@ -117,9 +118,10 @@ jobHandlers.workbook = createWorkbookHandler({ dataDir: DATA_DIR });
 jobHandlers['workbook-guide'] = require('./lib/workbook/guide').createGuideHandler({ dataDir: DATA_DIR });
 jobHandlers['workbook-restructure'] = require('./lib/workbook/restructure').createRestructureHandler({ dataDir: DATA_DIR });
 const workbookAutoBuild = createAutoBuild({ dataDir: DATA_DIR, queue: jobQueue });
-roleEvents.on('saved', (roleKey) => workbookAutoBuild.onRoleEvent('saved', roleKey));
-roleEvents.on('applied', (roleKey) => workbookAutoBuild.onRoleEvent('applied', roleKey));
 registerWorkbookRoutes(app, { dataDir: DATA_DIR, queue: jobQueue, autoBuild: workbookAutoBuild, publicDir: path.join(__dirname, 'public') });
+
+// Shared role identity rules (also used by the server and the daily runner).
+app.get('/role-identity.js', (req, res) => res.type('application/javascript').sendFile(path.join(__dirname, 'lib/jobs/role-identity.js'), { dotfiles: 'allow' }));
 
 // Validate workbook IDs before static middleware can normalize or redirect them.
 app.use(express.static(path.join(__dirname, 'public')));
@@ -446,6 +448,37 @@ app.post('/api/resume', (req, res) => {
   res.json({ success: true });
 });
 
+// Handled-roles ledger: what Discover must never show as new again, and the last undoable Discover action.
+app.get('/api/role-history', (req, res) => {
+  try {
+    const actions = readRoleActions(DATA_DIR), tracker = readTracker(DATA_DIR);
+    res.json(roleHistory.summarize(ensureRoleHistory(DATA_DIR, actions, tracker, new Date().toISOString())));
+  } catch (error) { res.status(503).json({ error: 'Role history is unavailable. Existing files were preserved.' }); }
+});
+
+// One Discover decision (skip/save/apply/undo/restore) for one role, applied server-side to current files.
+app.post('/api/role-actions/event', (req, res) => {
+  try {
+    const result = applyRoleEvent(DATA_DIR, req.body, readTracker(DATA_DIR), new Date().toISOString());
+    const key = result.event?.key;
+    // A retried action (duplicate) still reports the role's current tracker entry, so a client whose
+    // first response was lost catches up instead of keeping a stale copy that a later Intel save writes back.
+    const changedKey = key || (result.duplicate && typeof req.body?.key === 'string' ? req.body.key.trim() : null);
+    if (!result.duplicate) {
+      if (result.event.action === 'skip') logActivity('role_skipped', { roles: [key] });
+      if (result.event.action === 'save') { logActivity('role_saved', { roles: [key] }); roleEvents.emit('saved', key); }
+      if (result.event.action === 'apply') { logActivity('role_applied', { roles: [key] }); roleEvents.emit('applied', key); }
+      if (result.event.action === 'undo') logActivity('role_action_undone', { role: key, action: result.undone.action });
+      if (result.event.action === 'restore') logActivity('role_restored', { roles: [key] });
+    }
+    res.json({ success: true, duplicate: result.duplicate, event: roleHistory.publicEvent(result.event), undone: roleHistory.publicEvent(result.undone),
+      actions: actionsWithApplications(result.actions, result.tracker),
+      // Only the touched role's tracker entry (null when removed): clients merge it, keeping other unsaved Intel edits.
+      trackerChange: changedKey ? { key: changedKey, entry: result.tracker[changedKey] ?? null } : null,
+      history: roleHistory.summarize(result.history) });
+  } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save role state. Refresh and retry.' }); }
+});
+
 // Role actions (save/skip/apply from discover carousel)
 app.get('/api/role-actions', (req, res) => {
   try { res.json(actionsWithApplications(readRoleActions(DATA_DIR), readTracker(DATA_DIR))); }
@@ -455,8 +488,9 @@ app.get('/api/role-actions', (req, res) => {
 app.post('/api/role-actions', (req, res) => {
   try {
   const prev = readRoleActions(DATA_DIR), previousTracker = readTracker(DATA_DIR);
-  const next = reconcileRoleActions(prev, req.body, previousTracker, new Date().toISOString());
-  writeRoleState(DATA_DIR, next.actions, next.tracker);
+  const now = new Date().toISOString();
+  const next = reconcileRoleActions(prev, req.body, previousTracker, now);
+  writeRoleState(DATA_DIR, next.actions, next.tracker, recordRoleHistory(DATA_DIR, prev, previousTracker, next.actions, next.tracker, now, 'role-actions'));
   // Log new actions
   const newSaved = next.actions.saved.filter(r => !prev.saved.includes(r));
   const newSkipped = next.actions.skipped.filter(r => !prev.skipped.includes(r));
@@ -488,7 +522,7 @@ app.post('/api/role-tracker', (req, res) => {
   const prev = readTracker(DATA_DIR), previousActions = readRoleActions(DATA_DIR);
   const merged = mergeTrackerSnapshot(prev, req.body);
   const nextActions = actionsWithApplications(previousActions, merged);
-  writeRoleState(DATA_DIR, nextActions, merged);
+  writeRoleState(DATA_DIR, nextActions, merged, recordRoleHistory(DATA_DIR, previousActions, prev, nextActions, merged, new Date().toISOString(), 'role-tracker'));
   Object.keys(merged).forEach(key => {
     if (!prev[key]) {
       logActivity('role_tracked', { role: key, stage: merged[key].stage });
@@ -1622,8 +1656,9 @@ app.post('/api/data/:type', (req, res) => {
 // --- Resume tailoring (P2) ---
 const resumeService = createResumeService({ dataDir: DATA_DIR, queue: jobQueue });
 jobHandlers.resume = (job, ctx) => resumeService.runJob(job, ctx);
-roleEvents.on('saved', (roleKey) => resumeService.autoTailor(roleKey, 'auto-saved'));
-roleEvents.on('applied', (roleKey) => resumeService.autoTailor(roleKey, 'auto-applied'));
+// Saving or applying to a role tailors nothing: a tailored resume starts only from
+// POST /api/resume/tailored (the "Tailor resume" button). Workbooks are built only
+// for roles whose tailored resume was accepted (see the accept route).
 
 function sendResumeError(res, err) {
   if (err && err.validation) return res.status(400).json({ error: 'invalid master resume', errors: err.validation });
@@ -1649,7 +1684,6 @@ app.post('/api/resume/tailored', resumeRoute((req, res) => {
   res.status(result.created ? 201 : 200).json(result);
 }));
 app.get('/api/resume/library', resumeRoute((req, res) => res.json(resumeService.library())));
-app.put('/api/resume/tailored/:id/used', resumeRoute((req, res) => res.json(resumeService.setUsed(req.params.id, req.body ? req.body.used : undefined))));
 app.post('/api/resume/tailored/:id/run-now', resumeRoute((req, res) => res.json(resumeService.runNow(req.params.id))));
 app.get('/api/resume/tailored/:id', resumeRoute((req, res) => res.json(resumeService.getRecord(req.params.id))));
 app.put('/api/resume/tailored/:id/jd', resumeRoute((req, res) => res.json(resumeService.setJd(req.params.id, req.body && req.body.text))));
@@ -1657,6 +1691,21 @@ app.post('/api/resume/tailored/:id/retry', resumeRoute((req, res) => res.json(re
 app.post('/api/resume/tailored/:id/accept', resumeRoute((req, res) => {
   const meta = resumeService.accept(req.params.id);
   logActivity('resume_tailored_accepted', { id: meta.id, score: meta.bestScore });
+  // Accepting is what queues the role's workbook; a queue problem must not undo the acceptance.
+  const workbooks = (meta.roleKeys || []).map((roleKey) => {
+    try {
+      const r = workbookAutoBuild.onRoleEvent('accepted', roleKey);
+      return { roleKey, status: r.status, workbookId: r.workbook ? r.workbook.id : null };
+    } catch (err) {
+      console.error(`[workbook] auto-build after accept failed for ${roleKey}: ${err.message}`);
+      return { roleKey, status: 'error', workbookId: null };
+    }
+  });
+  res.json({ ...meta, workbooks });
+}));
+app.post('/api/resume/tailored/:id/reject', resumeRoute((req, res) => {
+  const meta = resumeService.reject(req.params.id);
+  logActivity('resume_tailored_rejected', { id: meta.id, score: meta.bestScore });
   res.json(meta);
 }));
 app.get('/api/resume/tailored/:id/pdf', resumeRoute((req, res) => {

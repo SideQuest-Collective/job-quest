@@ -1,5 +1,6 @@
 /* Dashboard outreach requires current conversation evidence; displaying priorities never changes state. */
-window.dashboardPriorities = function({ items = [], nativeRoles = [], roleActions = {}, roleTracker = {}, now = Date.now() } = {}) {
+// undecidedRoles (optional): Discover's New list (identity- and ledger-aware); only those roles are offered for review.
+window.dashboardPriorities = function({ items = [], nativeRoles = [], roleActions = {}, roleTracker = {}, undecidedRoles = null, now = Date.now() } = {}) {
   const timestamp = value => {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value)) return null;
     const day = value.slice(0, 10), at = Date.parse(value);
@@ -22,6 +23,7 @@ window.dashboardPriorities = function({ items = [], nativeRoles = [], roleAction
     roleRecords.add(identity); return true;
   });
   const candidates = [];
+  const undecided = Array.isArray(undecidedRoles) ? new Set(undecidedRoles) : null;
   const dateReason = (label, value) => timestamp(value) === null ? '' : ` ${label} ${displayDate(value)}.`;
 
   // The native prep workflow can record a scheduled interview in the timeline.
@@ -67,7 +69,7 @@ window.dashboardPriorities = function({ items = [], nativeRoles = [], roleAction
 
   for (const role of roles) {
     const key = keyFor(role);
-    if (inactive(role) || inactive(roleTracker[key]) || decided(key)) continue;
+    if (inactive(role) || inactive(roleTracker[key]) || decided(key) || (undecided && !undecided.has(role))) continue;
     const source = items.find(item => item.kind === 'job' && window.matchJobQuestOutreachRole?.(item, roles) === role);
     if (source && (inactive(source) || ['saved', 'dismissed', 'sent', 'applied'].includes(source.status))) continue;
     candidates.push({ id: `review:${key}`, kind: 'job', role, item: source, title: `${role.company} · ${role.role}`, label: 'Review undecided job', action: 'Review in Discover',
@@ -89,7 +91,7 @@ window.dashboardPriorities = function({ items = [], nativeRoles = [], roleAction
   return [...interviews, ...outreach.slice(0, 2), ...jobs, ...outreach.slice(2)].slice(0, 5);
 };
 
-window.DashboardHome = function({todayTasks, setPage, progress = {}, jobStatus, nativeRoles = [], roleActions = {}, roleTracker = {}, onOpenRole, onReviewJob, onOpenOutreach}) {
+window.DashboardHome = function({todayTasks, setPage, progress = {}, jobStatus, nativeRoles = [], roleActions = {}, roleTracker = {}, undecidedRoles = null, onOpenRole, onReviewJob, onOpenOutreach}) {
   const {useState,useEffect} = React;
   const pageVisible = window.useJobQuestPageVisible();
   const [profile,setProfile] = useState(null), [brief,setBrief] = useState(null), [practice,setPractice] = useState(null), [error,setError] = useState('');
@@ -107,7 +109,7 @@ window.DashboardHome = function({todayTasks, setPage, progress = {}, jobStatus, 
   const today = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
   const pending = (todayTasks?.tasks || []).filter(t=>!t.completed), next = pending.find(t=>t.minutes>5)||pending[0];
   const continuation = practice?.choices?.find(c=>c.saved && c.href);
-  const priorities = window.dashboardPriorities({items: brief?.opportunities || [], nativeRoles, roleActions, roleTracker, now: date.getTime()});
+  const priorities = window.dashboardPriorities({items: brief?.opportunities || [], nativeRoles, roleActions, roleTracker, undecidedRoles, now: date.getTime()});
   const openAction = item => {
     if (item.kind === 'job') return onReviewJob ? onReviewJob(item.role) : setPage('discover');
     if (item.kind === 'interview') return onOpenRole ? onOpenRole(item.role) : setPage('intel');

@@ -183,3 +183,12 @@ test('fresh evidence labels a new inbound reply accurately even when a saved rem
   const [firstReply]=priorities({items:[recruiter('unsent',{status:'snoozed',nextReminderAt:'2026-10-06'})]});
   assert.equal(firstReply.kind,'reply','an elapsed snooze does not imply a previous reply was sent');
 });
+
+test('undecided job reviews follow Discover New (handled-roles ledger) when it is provided', () => {
+  const handled = role('Handled'), fresh = role('Fresh');
+  const jobs = input => priorities({ nativeRoles: [handled, fresh], ...input }).filter(action => action.kind === 'job').map(action => action.role.company);
+  assert.deepEqual(jobs({}).sort(), ['Fresh', 'Handled'], 'without the New list only current saved/skipped/applied state counts');
+  assert.deepEqual(jobs({ undecidedRoles: [fresh] }), ['Fresh'], 'a ledger-handled role is not offered again');
+  assert.deepEqual(jobs({ undecidedRoles: [] }), []);
+  assert.match(home, /undecidedRoles, now: date\.getTime\(\)/);
+});

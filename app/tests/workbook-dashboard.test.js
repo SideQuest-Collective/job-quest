@@ -32,10 +32,14 @@ test('the Prep Plans tab is replaced by Workbooks', () => {
   assert.match(h, /visited\.current\.has\('workbooks'\)[^\n]*<PageSurface[^\n]*active=\{page === 'workbooks'\}[^\n]*<Workbooks setPage=\{setPage\} \/>/);
   assert.match(h, /page === 'workbooks' \|\| page === 'behavioral'/);
   for (const needle of [
-    'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all saved/applied (',
+    'function Workbooks(', 'function WorkbookCard(', "'/api/workbooks/backfill'", 'Build for all accepted resumes (',
     '>Open workbook<', 'Expand to onsite', 'Retry failed', 'Download offline', '>Delete<', 'setInterval(poll, 3000)',
     'Workbook settings', 'window.confirm(',
   ]) assert.ok(h.includes(needle), needle);
+  // The auto-build toggle lives in Setup's practice preferences and follows accepted resumes only.
+  const setup = fs.readFileSync(path.join(__dirname, '..', 'public', 'setup.jsx'), 'utf-8');
+  assert.ok(setup.includes('Auto-build when a tailored resume is accepted'));
+  assert.doesNotMatch(setup, /autoTailor|Automatically for saved and applied roles/);
 });
 
 const vm = require('node:vm');
