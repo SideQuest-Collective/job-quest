@@ -212,23 +212,35 @@ test('PDF download and accept work when DATA_DIR is inside a dot directory', asy
     assert.equal(await best.text(), '%PDF-1.4 best');
     assert.equal(await (await fetch(`${base}/api/resume/tailored/${id}/pdf?round=1`)).text(), '%PDF-1.4 round one');
     assert.equal((await fetch(`${base}/api/resume/tailored/${id}/pdf?round=7`)).status, 404);
+    const accepted = await (await fetch(`${base}/api/resume/tailored/${id}/accept`, post({}))).json();
+    assert.equal(accepted.accepted, true);
+    assert.deepEqual(accepted.workbooks.map((w) => [w.roleKey, w.workbookId]), [['Acme|Senior Software Engineer', 'acme-senior-software-engineer']], 'accepting queues the workbook');
+    const rejected = await (await fetch(`${base}/api/resume/tailored/${id}/reject`, post({}))).json();
+    assert.deepEqual([rejected.accepted, rejected.rejected], [false, true]);
     assert.equal((await (await fetch(`${base}/api/resume/tailored/${id}/accept`, post({}))).json()).accepted, true);
     const tracker = await (await fetch(`${base}/api/role-tracker`)).json();
     assert.deepEqual(tracker['Acme|Senior Software Engineer'].timeline.map((e) => e.event), ['Resume tailored (93)']);
   });
 });
 
-test('saving a role auto-tailors it unless auto-tailor is off', async () => {
+test('saving or applying a role tailors nothing, even with a legacy autoTailor setting; the button request still does', async () => {
   const dir = tmpDir();
   seedIntel(dir, [{ company: 'Initech', role: 'Senior Software Engineer' }, { company: 'Hooli', role: 'Staff Engineer' }]);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ resume: { autoTailor: true, autoDailyCap: 5 } }));
   await withServer(dir, async (base) => {
+    const list = () => fetch(`${base}/api/resume/tailored`).then((r) => r.json());
     await fetch(`${base}/api/role-actions`, post({ saved: [ROLE], skipped: [], applied: [] }));
-    let list = await (await fetch(`${base}/api/resume/tailored`)).json();
-    assert.deepEqual(list.map((m) => [m.roleKeys[0], m.trigger]), [[ROLE, 'auto-saved']]);
-    await fetch(`${base}/api/settings`, put({ resume: { autoTailor: false } }));
-    await fetch(`${base}/api/role-actions`, post({ saved: [ROLE, 'Hooli|Staff Engineer'], skipped: [], applied: [] }));
-    list = await (await fetch(`${base}/api/resume/tailored`)).json();
-    assert.equal(list.length, 1);
+    await fetch(`${base}/api/role-actions`, post({ saved: [], skipped: [], applied: [ROLE, 'Hooli|Staff Engineer'] }));
+    await fetch(`${base}/api/role-tracker`, post({ 'Hooli|Staff Engineer': { stage: 'applied' } }));
+    assert.deepEqual(await list(), []);
+    assert.deepEqual(await (await fetch(`${base}/api/jobs`)).json(), []);
+    assert.equal((await (await fetch(`${base}/api/settings`)).json()).resume, undefined, 'the legacy toggle is not reported');
+    const manual = await fetch(`${base}/api/resume/tailored`, post({ roleKey: ROLE }));
+    assert.equal(manual.status, 201);
+    const body = await manual.json();
+    assert.equal(body.created, true);
+    assert.equal(body.meta.trigger, 'manual');
+    assert.deepEqual((await list()).map((m) => m.roleKeys[0]), [ROLE]);
   });
 });
 
@@ -246,7 +258,7 @@ function seedRecord(dir, id, patch = {}) {
   return meta;
 }
 
-test('applied hooks dedupe every roleKey and do not backfill existing roles', async () => {
+test('role updates never create records; a manual request on an alias returns the existing record', async () => {
   const dir = tmpDir();
   const alias = 'Initech|Senior Engineer';
   const old = 'Old Co|Engineer';
@@ -260,55 +272,33 @@ test('applied hooks dedupe every roleKey and do not backfill existing roles', as
   await withServer(dir, async (base) => {
     const list = () => fetch(`${base}/api/resume/tailored`).then((r) => r.json());
     assert.equal((await list()).length, 1, 'startup does not backfill');
-    assert.equal((await fetch(`${base}/api/role-actions`, post(actions))).status, 200);
-    assert.equal((await fetch(`${base}/api/role-tracker`, post(tracker))).status, 200);
-    assert.equal((await list()).length, 1, 'unchanged roles do not backfill');
     const existing = await fetch(`${base}/api/resume/tailored`, post({ roleKey: alias }));
     assert.equal(existing.status, 200);
     assert.deepEqual(await existing.json(), { meta, created: false, queue: 'existing' });
-    actions.saved.push(alias);
+    actions.saved.push(alias, 'Saved Co|Engineer');
     actions.applied.push(ROLE, actionRole);
-    await fetch(`${base}/api/role-actions`, post(actions));
+    assert.equal((await fetch(`${base}/api/role-actions`, post(actions))).status, 200);
     tracker[alias] = { stage: 'applied' };
     tracker[trackerRole] = { stage: 'applied' };
-    await fetch(`${base}/api/role-tracker`, post(tracker));
-    const records = await list();
-    assert.equal(records.length, 3);
-    for (const key of [actionRole, trackerRole]) {
-      assert.equal(records.find((m) => m.roleKeys.includes(key)).trigger, 'auto-applied');
-    }
-    await fetch(`${base}/api/role-actions`, post(actions));
-    await fetch(`${base}/api/role-tracker`, post(tracker));
-    assert.equal((await list()).length, 3, 'repeated updates do not enqueue again');
-    await fetch(`${base}/api/settings`, put({ resume: { autoTailor: false } }));
-    tracker['Off Co|Engineer'] = { stage: 'applied' };
-    await fetch(`${base}/api/role-tracker`, post(tracker));
-    assert.equal((await list()).length, 3);
+    assert.equal((await fetch(`${base}/api/role-tracker`, post(tracker))).status, 200);
+    assert.equal((await list()).length, 1, 'new saved and applied roles are not tailored');
+    assert.deepEqual(await (await fetch(`${base}/api/jobs`)).json(), []);
   });
 });
 
-test('auto-tailor has its own default cap of 5 and defers excess jobs', async () => {
+test('saving many roles queues no jobs; manual requests are not capped', async () => {
   const dir = tmpDir();
   const roles = Array.from({ length: 6 }, (_, i) => `Company ${i}|Engineer`);
   await withServer(dir, async (base) => {
-    const settings = await (await fetch(`${base}/api/settings`)).json();
-    assert.equal(settings.resume.autoDailyCap, 5);
-    await fetch(`${base}/api/settings`, put({ workbooks: { autoBuild: false } }));
-    const actions = { saved: roles, skipped: [], applied: [] };
-    await fetch(`${base}/api/role-actions`, post(actions));
+    await fetch(`${base}/api/role-actions`, post({ saved: roles, skipped: [], applied: [] }));
+    assert.deepEqual(await (await fetch(`${base}/api/jobs`)).json(), [], 'saving builds neither a resume nor a workbook');
+    for (const roleKey of roles) {
+      const r = await fetch(`${base}/api/resume/tailored`, post({ roleKey }));
+      assert.equal(r.status, 201);
+      assert.equal((await r.json()).queue, 'queued');
+    }
     const jobs = await (await fetch(`${base}/api/jobs`)).json();
-    assert.equal(jobs.length, 6);
-    assert.ok(jobs.every((j) => j.kind === 'resume' && j.cap.name === 'resume' && j.cap.limit === 5));
-    assert.equal(jobs.filter((j) => j.status === 'deferred').length, 1);
-    const records = await (await fetch(`${base}/api/resume/tailored`)).json();
-    const deferred = records.find((m) => m.deferred);
-    assert.deepEqual(deferred.roleKeys, [roles[5]]);
-    actions.applied.push(roles[5]);
-    await fetch(`${base}/api/role-actions`, post(actions));
-    assert.equal((await (await fetch(`${base}/api/jobs`)).json()).length, 6, 'deferred role is deduped');
-    const manual = await fetch(`${base}/api/resume/tailored`, post({ roleKey: 'Manual Co|Engineer' }));
-    assert.equal(manual.status, 201);
-    assert.equal((await manual.json()).queue, 'queued', 'manual requests bypass the auto cap');
+    assert.ok(jobs.every((j) => j.kind === 'resume' && !j.cap && j.status !== 'deferred'));
   });
 });
 

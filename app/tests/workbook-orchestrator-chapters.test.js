@@ -120,6 +120,24 @@ test('the verify-fix loop is bounded at one round', { skip: !HAS_PY }, async (t)
   assert.equal((events(dir).match(/^start arrays fix-verify$/gm) || []).length, 1);
 });
 
+test('a review that runs out of steps keeps the chapter as written', async (t) => {
+  useFakeRuntime(t);
+  const { dataDir, meta, dir } = setup();
+  const handler = handlerFor(dataDir, {
+    runAgent: async (args) => {
+      const r = await realRunAgent(args);
+      return args.agent === 'editor-arrays' ? { ...r, ok: false, code: 1, stdout: 'Error: Reached max turns (40)' } : r;
+    },
+  });
+  assert.equal((await handler(job('run-1', meta.id))).status, 'ready');
+  const arrays = fs.readFileSync(path.join(dir, 'content', '02-arrays.md'), 'utf-8');
+  assert.match(arrays, /Plain words\./);
+  assert.doesNotMatch(arrays, /Plain, clear words/);
+  const review = store.readJsonFile(path.join(dir, 'review.json'), {}).chapters;
+  assert.deepEqual([review.arrays.ok, review.arrays.reverted, review.arrays.reason], [false, true, 'the review ran out of steps']);
+  assert.equal(review.caching.reverted, false);
+});
+
 test('editor edits that break lint are reverted and published content stays lint-clean', async (t) => {
   useFakeRuntime(t);
   const { dataDir, meta, dir } = setup({ editorBreaks: ['caching'], editorBreaksCode: HAS_PY ? ['stories'] : [] });

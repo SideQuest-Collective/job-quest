@@ -1,0 +1,102 @@
+/* Workbook vocabulary maps to the same palette and preference as Job Quest. */
+:root {
+  --wb-header-height: 64px;
+  --bg: var(--jq-canvas);
+  --panel: var(--jq-panel);
+  --panel2: var(--jq-surface);
+  --ink: var(--jq-text);
+  --ink2: var(--jq-secondary);
+  --ink3: var(--jq-muted);
+  --line: var(--jq-border);
+  --accent: var(--jq-accent);
+  --accent-ink: var(--jq-accent-ink);
+  --accent-soft: var(--jq-accent-soft);
+  --good: var(--jq-positive);
+  --warn: var(--jq-warning);
+  --bad: var(--jq-negative);
+  --good-soft: color-mix(in srgb, var(--good) 13%, var(--panel));
+  --warn-soft: color-mix(in srgb, var(--warn) 13%, var(--panel));
+  --bad-soft: color-mix(in srgb, var(--bad) 13%, var(--panel));
+  --co0: #c6b6dd;
+  --co1: #a6c6bb;
+  --both: var(--accent);
+  --co0-soft: color-mix(in srgb, var(--co0) 13%, var(--panel));
+  --co1-soft: color-mix(in srgb, var(--co1) 13%, var(--panel));
+  --both-soft: var(--accent-soft);
+  --code-bg: var(--jq-rail);
+  --shadow: none;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: var(--jq-font);
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+:root[data-theme="light"] {
+  --co0: #69517f;
+  --co1: #376859;
+}
+body { font-size: 16px; }
+header.top { background: var(--jq-rail); min-height: 64px; padding: 8px 16px; gap: 10px; }
+header.top .brand { font-size: 16px; letter-spacing: -.02em; }
+header.top .brand small { font-size: 13px; }
+.back-jq { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; border-radius: 12px; font-size: 14px; font-weight: 500; }
+.back-jq:hover { background: var(--panel2); }
+.layout { min-height: calc(100vh - var(--wb-header-height)); }
+nav.side { top: var(--wb-header-height); height: calc(100vh - var(--wb-header-height)); background: var(--jq-rail); padding: 10px 10px; }
+nav.side a { min-height: 44px; padding: 8px 10px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+nav.side .sec { margin: 12px 10px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+nav.side .pill { font-size: 12px; }
+main { padding: 24px 24px 64px; }
+h1 { font-weight: 600; letter-spacing: -.035em; line-height: 1.2; }
+h2,h3 { font-weight: 600; }
+.card,.stat,.ai-feedback { border-radius: 14px; }
+.btn,.iconbtn,input,select,textarea { font-family: var(--sans); }
+.btn,.iconbtn { min-height: 44px; border-radius: 12px; padding: 8px 12px; font-size: 14px; line-height: 1.35; }
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+#search { min-height: 44px; border-radius: 12px; font-size: 14px; }
+#search::placeholder { color: var(--ink3); opacity: 1; }
+#themeBtn,#menuBtn { min-width: 44px; font-size: 19px; padding: 6px; }
+select,input[type=number] { min-height: 44px; border-radius: 12px; font-size: 14px; }
+.choice { min-height: 44px; border-radius: 12px; font-size: 16px; line-height: 1.6; }
+.choice:not(.locked):hover,.chaplist .card:hover,.searchres .card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.choice.right,.choice.right:hover { border-color: var(--good); background: var(--good-soft); }
+.choice.wrong,.choice.wrong:hover { border-color: var(--bad); background: var(--bad-soft); }
+.chaplist .card h3 { font-size: 16px; }
+textarea.ans { font-size: 16px; }
+.chip { font-size: 12px; line-height: 1.5; }
+.filters label,.stat span,table.prog th { font-size: 13px; }
+.prose { font-size: 16px; line-height: 1.7; }
+.prose pre.code { background: var(--code-bg); }
+.gl:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+::selection { background: var(--accent-soft); color: var(--ink); }
+@media (max-width: 820px) {
+  header.top { padding-inline: 16px; }
+  nav.side { top: var(--wb-header-height); height: calc(100vh - var(--wb-header-height)); background: var(--jq-rail); }
+  .btn,.iconbtn,#search,select,input[type=number] { min-height: 44px; }
+  #themeBtn { min-width: 44px; }
+  main { padding-top: 24px; }
+}
+@media (max-width: 600px) {
+  :root { --wb-header-height: 94px; }
+  header.top { gap: 8px; padding: 10px 12px; }
+  header.top .brand { font-size: 15px; line-height: 22px; }
+  .back-jq { font-size: 14px; }
+  #search { font-size: 16px; width: 80px; }
+  #search::placeholder { font-size: 13px; }
+  nav.side { top: var(--wb-header-height); height: calc(100vh - var(--wb-header-height)); max-width: calc(100vw - 32px); }
+  main { padding: 24px 16px 64px; }
+  .row { gap: 10px; }
+  .prose table { font-size: 14px; }
+  .statgrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .stat {padding:12px;}
+}
+/* Printing uses paper colors regardless of the saved screen preference. */
+@media print {
+  :root {
+    --bg: #fff; --panel: #fff; --panel2: #f1f0ed;
+    --ink: #242527; --ink2: #444340; --ink3: #666360; --line: #b9b9b7;
+    --accent: #994330; --accent-ink: #fff; --accent-soft: #f6e1da;
+    --good: #286443; --warn: #7e580b; --bad: #a53832;
+    --co0: #69517f; --co1: #376859; --code-bg: #f1f0ed;
+  }
+  body { background: #fff; color: #242527; }
+  main { padding: 0; }
+}

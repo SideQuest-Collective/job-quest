@@ -33,6 +33,8 @@ function matchesMedia(m, choice) {
   // Broad native categories such as arrays-hashing are not concept evidence.
   if (m.id === 'media:mit-hashing') return (choice.tags || []).some(t => ['hash-map', 'hash-set', 'hashing', 'hash-table'].includes(t)) || /\b(hash(?:ing| table| map| set)|collision)\b/i.test(choice.title);
   if (m.id === 'media:aws-resilience') return /\b(resilien\w*|availability zones?|fault toleran\w*|failover|disaster recovery)\b/i.test(`${choice.title} ${(choice.tags || []).join(' ')}`);
+  if (m.id === 'media:mit-bfs') return (choice.tags || []).some(t=>['bfs','breadth-first-search','graph'].includes(t)) || /\b(breadth.first|BFS)\b/i.test(choice.title);
+  if (m.id === 'media:aws-database-scaling') return /\b(database|sharding|relational|connection pool)\b/i.test(`${choice.title} ${(choice.tags || []).join(' ')}`);
   return false;
 }
 function recommendations(dataDir, { choices = [], state, linkedSources = [] }) {
@@ -85,7 +87,7 @@ function recommendations(dataDir, { choices = [], state, linkedSources = [] }) {
   const media = catalog.map(m => {
     const target = choices.find(c => matchesMedia(m, c));
     const followUp = target ? {choiceId: target.id, title: target.title, href: target.href, reason: target.reason, ...(target.planId ? {planId: target.planId} : {})} :
-      {choiceId: m.id, title: m.id === 'media:mit-hashing' ? 'Apply hashing in Code Lab' : 'Practice a resilient system design', href: m.id === 'media:mit-hashing' ? '/#codelab' : '/#sysdesign', reason: 'Optional concept practice; no matching unfinished task found'};
+      {choiceId: m.id, title: m.practiceTitle || (m.id === 'media:mit-hashing' ? 'Apply hashing in Code Lab' : 'Practice a resilient system design'), href: m.practiceHref || (m.id === 'media:mit-hashing' ? '/#codelab' : '/#sysdesign'), reason: 'Optional concept practice; no matching unfinished task found'};
     return { ...m, matched: !!target, planContext: followUp, goal: target ? `${m.goal} Apply it to ${compact(target.title, 250)}.` : m.goal,
       reflection: `${m.reflection}\nThen ${target ? `apply one idea to “${compact(target.title, 250)}” and name a trade-off before continuing the full exercise.` : 'describe a small application of this concept, then choose an exercise in the linked practice tool.'}` };
   }).sort((a, b) => Number(b.matched) - Number(a.matched));

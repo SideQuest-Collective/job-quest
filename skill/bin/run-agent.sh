@@ -72,6 +72,15 @@ else
     *) TOOLS="Read,Glob,Grep" ;;
   esac
   CMD=("${JOB_QUEST_RUNTIME_COMMAND}" "${JOB_QUEST_RUNTIME_COMMAND_ARGS[@]}" --allowed-tools "$TOOLS" --add-dir "$WORK_DIR" --permission-mode acceptEdits)
+  # Workbook writer and editor passes are the bulk of usage; run them on a cheaper model.
+  # Set JOB_QUEST_WORKBOOK_MODEL to override, or to "" to use the CLI default.
+  if [[ "$PROFILE" =~ ^(write|edit)$ && "$WORK_DIR" == */workbooks/*/drafts ]] && [ -n "${JOB_QUEST_WORKBOOK_MODEL-sonnet}" ]; then
+    CMD+=(--model "${JOB_QUEST_WORKBOOK_MODEL-sonnet}")
+  fi
+  # Cap the chapter review; the review step keeps the written chapter when it runs out.
+  if [ "$PROFILE" = "edit" ] && [[ "$WORK_DIR" == */workbooks/*/drafts ]] && [ -n "${JOB_QUEST_WORKBOOK_REVIEW_MAX_TURNS-40}" ]; then
+    CMD+=(--max-turns "${JOB_QUEST_WORKBOOK_REVIEW_MAX_TURNS-40}")
+  fi
   if [ "${JOB_QUEST_RUNTIME_DRY_RUN:-0}" = "1" ]; then printf '%q ' "${CMD[@]}"; echo; exit 0; fi
   run_in_scratch
 fi

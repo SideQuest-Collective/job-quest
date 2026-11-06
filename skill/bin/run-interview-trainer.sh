@@ -137,15 +137,17 @@ actions = load('role-actions.json', {'saved': [], 'applied': []})
 tracker = load('role-tracker.json', {})
 questions = load('trainer/questions.json', [])
 
-# Roles the user cares about: applied > tracked > saved.
+# Roles the user cares about: applied > tracked > saved. Closed (rejected) roles are skipped even if still saved or applied.
+closed = {k for k, v in tracker.items() if isinstance(v, dict) and v.get('stage') == 'rejected'}
 role_keys = []
 for k in actions.get('applied', []):
-    role_keys.append((k, 'applied'))
+    if k not in closed:
+        role_keys.append((k, 'applied'))
 for k in tracker:
-    if k not in [r for r, _ in role_keys]:
+    if k not in closed and k not in [r for r, _ in role_keys]:
         role_keys.append((k, tracker[k].get('stage', 'tracked')))
 for k in actions.get('saved', []):
-    if k not in [r for r, _ in role_keys]:
+    if k not in closed and k not in [r for r, _ in role_keys]:
         role_keys.append((k, 'saved'))
 
 # Pull fit paragraphs from intel history where available.

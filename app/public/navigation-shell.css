@@ -1,0 +1,35 @@
+/* The same three levels everywhere: destination, section, then local filters. */
+.sidebar .nav-section {display:flex;flex-direction:column;gap:24px;}
+.sidebar .nav-group-label {padding:0 12px 6px;margin:0;font-size:13px;font-weight:500;line-height:1.5;letter-spacing:0;text-transform:none;color:var(--text-muted);}
+.sidebar .nav-group-settings {margin-top:auto;padding-top:24px;}
+.sidebar .nav-item {min-height:44px;}
+.sidebar .sidebar-footer {padding:16px 12px 0;font-size:13px;}
+.practice-tool-bar {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;position:relative;z-index:9;}
+.practice-tool-bar>a {color:var(--text-secondary);font-size:14px;min-height:44px;display:inline-flex;align-items:center;}
+.practice-tool-picker>summary {min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 14px;border:1px solid var(--border);border-radius:10px;background:var(--panel);font-size:14px;list-style:none;}
+.practice-tool-picker>summary::-webkit-details-marker {display:none;}
+.practice-tool-picker>summary::after {content:'⌄';font-size:18px;}
+.practice-tool-picker[open]>summary {border-color:var(--accent);}
+.practice-tool-menu {position:absolute;right:0;top:calc(100% + 8px);width:min(660px,100%);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px;background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 28px #0003;}
+.practice-tool-menu h3 {font-size:13px;font-weight:500;color:var(--text-muted);margin:0 8px 6px;}
+.practice-tool-menu a {display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:8px;border-radius:8px;font-size:14px;color:var(--text);text-decoration:none;}
+.practice-tool-menu a:hover {background:var(--surface);}
+.practice-tool-menu a[aria-current] {background:var(--accent-soft);color:var(--accent);}
+.practice-tool-menu .badge {font-size:12px;color:var(--text-muted);}
+.practice-tool-picker summary:focus-visible,.practice-tool-menu a:focus-visible {outline:2px solid var(--focus);outline-offset:2px;}
+@media(max-width:520px){.practice-tool-menu{grid-template-columns:repeat(2,minmax(0,1fr));max-height:60dvh;overflow:auto;padding:12px;gap:16px 8px;}.practice-tool-menu>div:last-child{grid-column:1/-1;}}
+
+.mobile-header .brand-home {white-space:nowrap;}
+.mobile-header .menu-toggle {min-width:62px;white-space:nowrap;}
+
+/* Approved J + suitcase-Q identity. Keep the mobile action area roomy. */
+.brand-home {display:inline-flex;align-items:center;gap:9px;min-height:44px;}
+.brand-home .brand-mark {display:block;flex:none;object-fit:contain;}
+.sidebar-brand h1 {font-size:22px;letter-spacing:-.7px;}
+.sidebar-brand .subtitle {margin-top:4px;}
+.mobile-header .brand-home {gap:7px;font-size:18px;letter-spacing:-.5px;}
+@media(max-width:370px){
+ .mobile-header {padding-inline:10px;}
+ .mobile-header .brand-home {gap:5px;font-size:16px;}
+ .mobile-header .brand-mark {width:36px;height:27px;}
+}

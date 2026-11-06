@@ -140,10 +140,14 @@ mkdir -p "$BIN_DIR/lib"
 cp "$APP_DIR/skill/bin/lib/dashboard-control.sh" "$BIN_DIR/lib/dashboard-control.sh"
 cp "$APP_DIR/skill/bin/run-daily-intel.sh" "$BIN_DIR/run-daily-intel.sh"
 cp "$APP_DIR/skill/bin/configure-local.cjs" "$BIN_DIR/configure-local.cjs"
+cp "$APP_DIR/skill/bin/collect-outreach.cjs" "$BIN_DIR/collect-outreach.cjs"
+cp "$APP_DIR/skill/bin/check-content-readiness.cjs" "$BIN_DIR/check-content-readiness.cjs"
 cp "$APP_DIR/skill/bin/install-schedule.sh" "$BIN_DIR/install-schedule.sh"
 cp "$APP_DIR/skill/bin/run-interview-trainer.sh" "$BIN_DIR/run-interview-trainer.sh"
 cp "$APP_DIR/skill/bin/install-trainer-schedule.sh" "$BIN_DIR/install-trainer-schedule.sh"
 cp "$APP_DIR/skill/bin/run-trainer-replies.sh" "$BIN_DIR/run-trainer-replies.sh"
+cp "$APP_DIR/skill/bin/run-daily-podcast.sh" "$BIN_DIR/run-daily-podcast.sh"
+cp "$APP_DIR/skill/bin/install-podcast-schedule.sh" "$BIN_DIR/install-podcast-schedule.sh"
 cp "$APP_DIR/skill/bin/import-workbook.sh" "$BIN_DIR/import-workbook.sh"
 
 # Dedicated Full Disk Access entry point for the trainer reply poller (macOS).
@@ -159,7 +163,7 @@ cp "$APP_DIR/skill/bin/install-xbar.sh" "$BIN_DIR/install-xbar.sh"
 mkdir -p "$BIN_DIR/xbar"
 cp "$APP_DIR/skill/bin/xbar/job-quest.5m.sh" "$BIN_DIR/xbar/job-quest.5m.sh"
 chmod +x "$BIN_DIR/"*.sh "$BIN_DIR/lib/"*.sh "$BIN_DIR/xbar/"*.sh
-chmod +x "$BIN_DIR/configure-local.cjs"
+chmod +x "$BIN_DIR/configure-local.cjs" "$BIN_DIR/collect-outreach.cjs" "$BIN_DIR/check-content-readiness.cjs"
 
 # Job Quest CLI for /interview (contract jq-interview/1; see CONTRACT.md).
 # Named jq by the contract. ~/.job-quest/bin is never added to PATH, so the jq JSON tool is unaffected;

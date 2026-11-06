@@ -16,7 +16,7 @@ function harness({ scores = [], tailorReplies = null, analystReplies = null, com
   fs.mkdirSync(path.join(dataDir, 'intel'), { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'intel', '2026-10-05.json'), JSON.stringify({ roles: [{ company: 'Initech', role: 'Senior Software Engineer', url: 'https://jobs.example.com/initech/1' }] }));
   if (master) writeMaster(dataDir, master);
-  const calls = { analyst: [], tailor: [], compile: 0, grade: 0, fetch: 0, agents: [], compiles: [] };
+  const calls = { analyst: [], tailor: [], compile: 0, grade: 0, fetch: 0, agents: [], compiles: [], gradeOpts: [] };
   const good = fence(identityTailored(loadMaster()));
   const deps = {
     fetchJd: async () => { calls.fetch++; return fetchResult || { ok: true, text: jdText() }; },
@@ -40,11 +40,12 @@ function harness({ scores = [], tailorReplies = null, analystReplies = null, com
       fs.writeFileSync(pdfPath, `%PDF-1.4 stub ${calls.compile}`);
       return { ok: true, pdfPath, log: '' };
     },
-    gradePdf: async () => {
+    gradePdf: async (pdfPath, opts) => {
       calls.grade++;
+      calls.gradeOpts.push(opts);
       const total = scores.length ? scores.shift() : 50;
       return {
-        total, categories: { K: 20, P: 30, S: 15, H: 15, C: 10 },
+        total, categories: { K: 10, P: 18, S: 12, H: 15, C: 10, F: 30 },
         keywords: { requiredHit: [], requiredMiss: ['Kafka', 'Fortran'], preferredHit: [], preferredMiss: [], stuffed: [] },
         checks: [], tells: [], words: 500, pages: 1,
       };
@@ -92,6 +93,52 @@ test('caps at 3 rounds, reports below-target, and feeds the previous score into 
   assert.ok(!h.calls.tailor[0].includes('## Previous round'));
   assert.match(h.calls.tailor[1], /## Previous round \(round 1, score 70\/100\)/);
   assert.match(h.calls.tailor[2], /Required keywords still missing: Kafka, Fortran/);
+});
+
+test('the tailor sees only eligible bullets and the base; the grader gets the tailored JSON and the JD', async () => {
+  const master = loadMaster();
+  master.experience[0].roles[0].bullets[4].tailor = false;
+  const t = identityTailored(loadMaster());
+  t.experience[0].roles[0].bullets.splice(4, 1);
+  const h = harness({ master, scores: [70, 95], tailorReplies: [fence(t), fence(t)] });
+  const r = await run(h);
+  assert.equal(r.meta.status, 'done');
+  const prompt = h.calls.tailor[0];
+  assert.ok(!prompt.includes('exp.sr.5') && !prompt.includes('Mentor 4 engineers'), 'the excluded bullet is not in the prompt');
+  assert.match(prompt, /## The base resume \(start from this\)\nExperience: every bullet below/);
+  assert.match(prompt, /Role `sr` \(Senior Software Engineer\): exp\.sr\.1 \[keep\], exp\.sr\.2 \[keep\], exp\.sr\.3 \[keep\], exp\.sr\.4 \[keep\]\n/);
+  assert.deepEqual(h.calls.gradeOpts[0].tailored, t);
+  assert.equal(h.calls.gradeOpts[0].jd, jdText());
+  assert.match(h.calls.tailor[1], /Category scores: K 10\/15, P 18\/18, S 12\/12, H 15\/15, C 10\/10, F 30\/30/);
+  assert.match(h.calls.tailor[1], /Fix failed F checks first/);
+  assert.ok(!h.calls.tailor[1].includes('The PDF ran to'), 'a one-page round gets no page note');
+});
+
+function pagedHarness(rounds) {
+  return harness({ overrides: { gradePdf: async () => {
+    const [total, pages] = rounds.shift();
+    return {
+      total, categories: { K: 10, P: 15, S: 12, H: 15, C: 10, F: 30 },
+      keywords: { requiredHit: [], requiredMiss: [], preferredHit: [], preferredMiss: [], stuffed: [] },
+      checks: [], tells: [], words: 680, pages,
+    };
+  } } });
+}
+
+test('a 2-page round never reaches the target, and the next round is told to cut unmarked bullets', async () => {
+  const h = pagedHarness([[94, 2], [91, 1]]);
+  const r = await run(h);
+  assert.deepEqual(r.rounds.map((x) => [x.n, x.score, x.pages]), [[1, 94, 2], [2, 91, 1]]);
+  assert.equal(r.meta.status, 'done');
+  assert.equal(r.meta.bestRound, 2, 'the one-page round beats a higher-scoring 2-page round');
+  assert.match(h.calls.tailor[1], /- The PDF ran to 2 pages\. Make it one page: leave out unmarked bullets, project bullets, or skill items until it fits, never a \[keep\] bullet\./);
+});
+
+test('when every round runs past one page, the best one is kept as below-target', async () => {
+  const r = await run(pagedHarness([[93, 2], [95, 2], [92, 2]]));
+  assert.equal(r.meta.status, 'below-target');
+  assert.equal(r.meta.bestRound, 2);
+  assert.equal(r.rounds.length, 3);
 });
 
 test('the best round wins and ties go to the earliest round', async () => {
@@ -442,15 +489,15 @@ test('malformed job ids never throw and public record lookups return a service e
   }
 });
 
-test('requests deduplicate and auto cap deferrals preserve queued metadata', async () => {
-  const h = harness({ overrides: { readSettings: () => ({ resume: { autoTailor: true, autoDailyCap: 0 } }) } });
-  const first = h.service.autoTailor(ROLE, 'auto-saved');
+test('requests deduplicate and queue uncapped jobs with their metadata', async () => {
+  const h = harness();
+  const first = h.service.requestTailor(ROLE);
   assert.equal(first.created, true);
-  assert.equal(first.queue, 'deferred');
-  assert.equal(first.meta.status, 'queued');
-  assert.equal(first.meta.deferred, true);
-  assert.equal(first.meta.trigger, 'auto-saved');
-  assert.deepEqual(h.queue.list()[0].cap, { name: 'resume', limit: 0 });
+  assert.equal(first.queue, 'queued');
+  assert.ok(['queued', 'running'].includes(first.meta.status), 'manual requests start right away');
+  assert.equal(first.meta.deferred, false);
+  assert.equal(first.meta.trigger, 'manual');
+  assert.equal(h.queue.list()[0].cap, null, 'no daily cap');
   assert.deepEqual(h.queue.list()[0].payload, { id: first.meta.id, mode: 'full' });
   assert.equal(h.queue.list()[0].key, `resume:${first.meta.id}`);
   const again = h.service.requestTailor(ROLE);
@@ -459,8 +506,10 @@ test('requests deduplicate and auto cap deferrals preserve queued metadata', asy
   assert.equal(again.meta.id, first.meta.id);
   assert.equal(h.service.listMeta().length, 1);
   assert.equal(h.queue.list().length, 1);
+  await h.queue.drain();
+  const job = h.queue.list()[0];
   h.service.remove(first.meta.id);
-  assert.deepEqual(await h.service.runJob(h.queue.list()[0]), { skipped: 'record deleted' });
+  assert.deepEqual(await h.service.runJob(job), { skipped: 'record deleted' });
 });
 
 test('all discarded rounds fail without publishing a PDF; dependency errors are recorded', async () => {
