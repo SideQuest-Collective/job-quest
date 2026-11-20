@@ -84,3 +84,21 @@ test('editor prompt names the review file', () => {
   assert.match(e, /^REVIEW_FILE: \.review\/arrays\.json$/m);
   assert.match(e, /"chapterId":"arrays"/);
 });
+
+
+test('Socratic policy reaches onsite planning and chapter repair without changing headers', () => {
+  const policy = prompts.socraticInstructions();
+  assert.match(policy, /## Evaluation rules/);
+  const onsite = prompts.plannerPrompt({ meta, research: 'R', profile, tier: 'onsite' });
+  assert.ok(onsite.includes(policy));
+  assert.match(onsite, /4–10 concrete subskills/);
+  for (const fix of [null, { kind: 'lint', errors: ['missing rubric'] }, { kind: 'verify', errors: ['case failed'] }]) {
+    const text = prompts.writerPrompt({ meta, chapter, research: 'R', profile, fix });
+    assert.ok(text.includes(policy));
+    assert.match(text, /3–5 diagnostic probes/);
+    assert.match(text, /unprompted recall/);
+    assert.match(text, /@@hint[\s\S]*@@answer/);
+    const headers = text.split('HEADERS-BEGIN\n')[1].split('\nHEADERS-END')[0];
+    assert.equal(headers, headerLines(chapter).join('\n'));
+  }
+});

@@ -39,6 +39,8 @@ The workbook is practice for the questions this company asks in its interviews. 
 - `code` questions are small Python functions or classes (under about 40 lines) with deterministic outputs, because code runs every reference answer against its tests. For a multi-part reported problem, use one code question per part.
 - Prefer questions the research reports this company actually asks; otherwise use standard questions for this level.
 
+{{socraticGuidance}}
+
 ## Reply shape
 
 {"chapters":[{"id":"kebab-case-id","title":"Plain title","topic":"Short topic label","company":"{{companySlug}}","kind":"coding","summary":"2-4 sentences: what this chapter teaches and why this loop tests it","questions":[{"type":"mcq","diff":2,"focus":"one sentence: what this question checks"}]}]}

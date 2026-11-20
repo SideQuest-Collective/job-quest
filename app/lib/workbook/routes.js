@@ -8,6 +8,7 @@ const { buildPrintHtml } = require('./print');
 const { htmlToPdf, PdfUnavailableError } = require('./pdf');
 const guide = require('./guide');
 const restructure = require('./restructure');
+const tutor = require('./tutor');
 
 function jobSummary(queue, id) {
   const jobs = queue.list().filter((j) => j.payload && j.payload.workbookId === id);
@@ -33,7 +34,7 @@ function listItem(dataDir, queue, meta) {
   };
 }
 
-function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir, pdfRenderer }) {
+function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir, pdfRenderer, tutorRunAgent }) {
   const viewerFile = path.join(publicDir, 'workbook.html');
   const load = (req, res) => {
     const id = String(req.params.id || '');
@@ -102,6 +103,22 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir, pdf
     if (meta) res.json(store.readProgress(dataDir, meta.id));
   });
 
+  app.get('/api/workbooks/:id/tutor', (req, res) => {
+    const meta = load(req, res);
+    if (!meta) return;
+    try { res.json(tutor.publicState(tutor.readState(dataDir, meta.id))); }
+    catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+
+  app.post('/api/workbooks/:id/tutor', async (req, res) => {
+    const meta = load(req, res);
+    if (!meta) return;
+    try { res.json(await tutor.submit(dataDir, meta.id, req.body, tutorRunAgent)); }
+    catch (error) {
+      res.status(error.status || 500).json({ error: error.status ? error.message : 'The tutor turn could not be saved. Your previous session is preserved.' });
+    }
+  });
+
   app.put('/api/workbooks/:id/progress', (req, res) => {
     const meta = load(req, res);
     if (!meta) return;
@@ -146,6 +163,9 @@ function registerWorkbookRoutes(app, { dataDir, queue, autoBuild, publicDir, pdf
       res.status(409).json({ error: 'this workbook is being generated; try again when it finishes' });
       return;
     }
+    try {
+      if (tutor.isBusy(dataDir, meta.id)) return res.status(409).json({ error: 'A tutor turn is running. Try deleting after it finishes.' });
+    } catch (error) { return res.status(error.status || 500).json({ error: error.message }); }
     store.deleteWorkbook(dataDir, meta.id);
     res.json({ deleted: true });
   });

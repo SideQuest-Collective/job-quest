@@ -12,6 +12,107 @@ test('the viewer names no company and has exactly one data marker', () => {
   assert.doesNotMatch(html, /<!--CONTENT-->|text\/x-prep/);
 });
 
+function tutorState(revision = 0) {
+  return { revision, phase: revision ? 'diagnostic' : 'idle', targetLevel: 4, diagnosticCount: 0,
+    focusId: revision ? 'queue' : null,
+    skills: revision ? [{ id: 'queue', title: 'Queue delivery', level: 1, provisional: true }] : [],
+    messages: revision ? [{ role: 'assistant', message: '<img src=x onerror=alert(1)>', question: 'What happens if delivery is repeated?' }] : [] };
+}
+const tutorReply = (state, status = 200) => ({ ok: status === 200, status, json: async () => clone(state) });
+
+test('every workbook links to tutoring while ordinary and offline navigation makes no tutor requests', async () => {
+  const viewer = await loadViewer();
+  assert.match(viewer.elements.get('side').innerHTML, /href="#tutor"/);
+  assert.match(viewer.elements.get('main').innerHTML, /Open Socratic tutor/);
+  assert.ok(viewer.requests.every(url => !url.endsWith('/tutor')));
+  const offline = await loadViewer({ offline: true });
+  offline.api.location.hash = '#tutor';
+  offline.api.viewTutor();
+  assert.match(offline.elements.get('main').innerHTML, /Interactive tutoring needs the local Job Quest dashboard/);
+  assert.match(offline.elements.get('main').innerHTML, /Practice offline/);
+  assert.deepEqual(offline.requests, []);
+});
+
+test('tutor entry resumes saved state and escapes model content without a model call', async () => {
+  const methods = [];
+  const viewer = await loadViewer({ tutorResponse(options) { methods.push(options?.method || 'GET'); return tutorReply(tutorState(1)); } });
+  viewer.api.location.hash = '#tutor';
+  await viewer.api.loadTutor();
+  const markup = viewer.elements.get('main').innerHTML;
+  assert.deepEqual(methods, ['GET']);
+  assert.match(markup, /Queue delivery/);
+  assert.match(markup, /1\/5/);
+  assert.match(markup, /provisional/);
+  assert.match(markup, /What happens if delivery is repeated\?/);
+  assert.match(markup, /&lt;img/);
+  assert.doesNotMatch(markup, /<img\b/);
+});
+
+test('tutor retries a failed turn with the same request ID and preserves the answer draft', async () => {
+  const turns = [];
+  let fail = true;
+  const viewer = await loadViewer({ tutorResponse(options) {
+    if (!options) return tutorReply(tutorState());
+    turns.push(JSON.parse(options.body));
+    return fail ? tutorReply({ error: 'Try again later' }, 502) : tutorReply(tutorState(1));
+  } });
+  viewer.api.location.hash = '#tutor';
+  await viewer.api.loadTutor();
+  viewer.api.keepTutorDraft('My learning goal');
+  await viewer.api.sendTutor();
+  assert.equal(viewer.storage.get('workbook.sample.tutor-draft'), 'My learning goal');
+  assert.match(viewer.elements.get('main').innerHTML, /Try again later/);
+  fail = false;
+  await viewer.api.sendTutor();
+  assert.equal(turns[0].requestId, turns[1].requestId);
+  assert.equal(turns[0].expectedRevision, 0);
+  assert.equal(viewer.storage.get('workbook.sample.tutor-draft'), '');
+});
+
+test('a tutor conflict refreshes the session, retains the draft and sends the new revision', async () => {
+  const turns = [];
+  let revision = 1;
+  const viewer = await loadViewer({ tutorResponse(options) {
+    if (!options) return tutorReply(tutorState(revision));
+    turns.push(JSON.parse(options.body));
+    if (turns.length === 1) { revision = 2; return tutorReply({ error: 'Session changed' }, 409); }
+    return tutorReply(tutorState(3));
+  } });
+  viewer.api.location.hash = '#tutor';
+  await viewer.api.loadTutor();
+  viewer.api.keepTutorDraft('I would deduplicate');
+  await viewer.api.sendTutor();
+  assert.equal(viewer.storage.get('workbook.sample.tutor-draft'), 'I would deduplicate');
+  await viewer.api.sendTutor();
+  assert.equal(turns[1].expectedRevision, 2);
+  assert.notEqual(turns[0].requestId, turns[1].requestId);
+});
+
+test('tutor disables overlapping sends, supports keyboard submission and leaves a navigated view intact', async () => {
+  let resolveTurn;
+  let calls = 0;
+  const viewer = await loadViewer({ tutorResponse(options) {
+    if (!options) return tutorReply(tutorState());
+    calls++;
+    return new Promise(resolve => { resolveTurn = resolve; });
+  } });
+  viewer.api.location.hash = '#tutor';
+  await viewer.api.loadTutor();
+  viewer.api.keepTutorDraft('Start with queues');
+  viewer.elements.get('tutorAnswer').onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+  await viewer.api.sendTutor();
+  assert.equal(calls, 1);
+  assert.match(viewer.elements.get('main').innerHTML, /The tutor is thinking/);
+  viewer.api.location.hash = '#home';
+  viewer.api.viewHome();
+  resolveTurn(tutorReply(tutorState(1)));
+  await new Promise(setImmediate);
+  assert.match(viewer.elements.get('main').innerHTML, /Sample workbook/);
+  viewer.api.location.hash = '#tutor';
+  viewer.api.drawTutor();
+  assert.match(viewer.elements.get('main').innerHTML, /What happens if delivery/);
+});
+
 test('the viewer script parses and runs as an async IIFE', () => {
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
   assert.equal(scripts.length, 1);
@@ -43,7 +144,7 @@ const at = '2026-10-05T12:00:00.000Z';
 
 // Execute the complete IIFE with a minimal DOM and deterministic timer queue.
 // Only the return value is instrumented; production code has no test hooks.
-async function loadViewer({ progress = {}, offline = false, stored = {}, contentStatus = 200, customizeData = () => {}, putResponse } = {}) {
+async function loadViewer({ progress = {}, offline = false, stored = {}, contentStatus = 200, customizeData = () => {}, putResponse, tutorResponse } = {}) {
   const elements = new Map();
   const storage = new Map(Object.entries(stored));
   const events = {};
@@ -97,6 +198,7 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
   let failPut = false;
   let timerId = 0;
   const context = vm.createContext({
+    crypto: globalThis.crypto,
     document,
     window: { JobQuestTheme: theme, WB_OFFLINE: offline, scrollTo() {}, addEventListener(name, handler) { events[name] = handler; } },
     location: { pathname: '/workbooks/sample', hash: '' },
@@ -106,6 +208,7 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
     clearTimeout(id) { timers.delete(id); }, clearInterval() {},
     async fetch(url, options) {
       requests.push(url);
+      if (url.endsWith('/tutor') && tutorResponse) return tutorResponse(options);
       if (options?.method === 'PUT') {
         puts.push(JSON.parse(options.body));
         if (putResponse) { const result=await putResponse(puts.at(-1)); if(!result.json) result.json=async()=>({...puts.at(-1),revision:puts.at(-1).expectedRevision+1}); return result; }
@@ -117,7 +220,7 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
   });
   const script = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(
     /route\(\);\s*\}\)\(\);\s*$/,
-    'route(); return { S, save, flush, importLegacy, wireQ, QUESTIONS, qHTML, viewHome, viewGuide, viewRead, viewPractice, viewProgress, viewSearch, resolveConflict, conflictMarkup, restoreBrowserDraft }; })();',
+    'route(); return { S, save, flush, importLegacy, wireQ, QUESTIONS, qHTML, viewHome, viewGuide, viewRead, viewPractice, viewProgress, viewSearch, resolveConflict, conflictMarkup, restoreBrowserDraft, viewTutor, drawTutor, loadTutor, sendTutor, keepTutorDraft, location }; })();',
   );
   const api = await vm.runInContext(script, context);
   return { api, document, elements, storage, events, timers, puts, requests,

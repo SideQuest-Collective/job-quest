@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/janestreet/agent_skills",
+  "commit": "469868f4489cbdbe178c775a0af05bb6bef63689",
+  "skillPath": "socratic-tutor/SKILL.md",
+  "licensePath": "LICENSE.md",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 Jane Street Group, LLC"
+}
