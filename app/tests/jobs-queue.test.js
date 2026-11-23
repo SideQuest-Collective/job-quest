@@ -112,3 +112,18 @@ test('ctx.update persists progress', async () => {
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'jobs', 'queue.json'), 'utf-8'));
   assert.deepEqual(saved.jobs.find((j) => j.id === id).progress, { step: 'write', done: 2, total: 6 });
 });
+
+test('kinds listed in priority run before earlier-queued kinds, FIFO within a kind', async () => {
+  const order = [];
+  const q = createQueue({ dataDir: tmp(), priority: ['resume'], handlers: {
+    workbook: async (job) => { await new Promise((r) => setTimeout(r, 5)); order.push(job.key); return {}; },
+    resume: async (job) => { await new Promise((r) => setTimeout(r, 5)); order.push(job.key); return {}; },
+  } });
+  q.enqueue({ kind: 'workbook', key: 'wb-a', payload: {} }); // starts running immediately
+  q.enqueue({ kind: 'workbook', key: 'wb-b', payload: {} });
+  q.enqueue({ kind: 'resume', key: 'rs-a', payload: {} });
+  q.enqueue({ kind: 'resume', key: 'rs-b', payload: {} });
+  q.enqueue({ kind: 'workbook', key: 'wb-c', payload: {} });
+  await q.drain();
+  assert.deepEqual(order, ['wb-a', 'rs-a', 'rs-b', 'wb-b', 'wb-c']);
+});

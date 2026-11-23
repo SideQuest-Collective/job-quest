@@ -56,31 +56,17 @@ test('a failed record does not block a new request, which gets a suffixed id', a
   await s.queue.drain();
 });
 
-test('autoTailor respects the off switch and skips roles that already have a resume', async () => {
+test('tailoring is on demand only: no automatic entry point, and requests are never capped or deferred', async () => {
   const s = svc();
-  writeSettings(s.dataDir, { resume: { autoTailor: false } });
-  assert.deepEqual(s.service.autoTailor(key('Acme'), 'auto-saved'), { skipped: 'auto-tailor is off' });
-  assert.deepEqual(s.service.listMeta(), []);
-  writeSettings(s.dataDir, { resume: { autoTailor: true } });
-  s.service.requestTailor(key('Bolt'));
-  assert.deepEqual(s.service.autoTailor(key('Bolt'), 'auto-applied'), { skipped: 'already tailored or queued' });
-  assert.equal(s.service.autoTailor(key('Acme'), 'auto-saved').meta.trigger, 'auto-saved');
+  assert.equal(s.service.autoTailor, undefined, 'the service exposes no automatic tailoring hook');
+  // A legacy settings file that still asks for auto-tailoring with a zero cap changes nothing.
+  writeSettings(s.dataDir, { resume: { autoTailor: true, autoDailyCap: 0 } });
+  const results = ['Acme', 'Bolt', 'Cora'].map((c) => s.service.requestTailor(key(c)));
+  assert.deepEqual(results.map((r) => r.queue), ['queued', 'queued', 'queued']);
+  assert.ok(results.every((r) => r.meta.trigger === 'manual' && r.meta.deferred === false));
+  assert.ok(s.queue.list().every((j) => !j.cap), 'manual jobs carry no daily cap');
   await s.queue.drain();
-});
-
-test('auto runs over the daily cap are deferred and promoted the next day; manual ignores the cap', async () => {
-  const s = svc();
-  writeSettings(s.dataDir, { resume: { autoDailyCap: 2 } });
-  const results = ['Acme', 'Bolt', 'Cora'].map((c) => s.service.autoTailor(key(c), 'auto-saved'));
-  assert.deepEqual(results.map((r) => r.queue), ['queued', 'queued', 'deferred']);
-  assert.equal(results[2].meta.deferred, true);
-  await s.queue.drain();
-  assert.deepEqual(s.ran, ['acme-senior-software-engineer', 'bolt-senior-software-engineer']);
-  s.setClock('2026-10-06T08:00:00');
-  await s.queue.tick();
   assert.deepEqual(s.ran, ['acme-senior-software-engineer', 'bolt-senior-software-engineer', 'cora-senior-software-engineer']);
-  assert.equal(s.service.requestTailor(key('Dyno')).queue, 'queued');
-  await s.queue.drain();
 });
 
 test('accept marks the record and appends "Resume tailored (score)" to the role timeline once', async () => {
@@ -245,3 +231,73 @@ for (const retry of ['crashed', 'unparseable', 'throws', 'too few']) {
     assert.deepEqual(r.keywords, { title: 'Engineer', required: required.slice(0, 20), preferred: preferred.slice(0, 15) });
   });
 }
+
+test('library joins tracker stage, best-round categories, accept/reject decision, and summary counts', async () => {
+  const s = svc();
+  fs.writeFileSync(path.join(s.dataDir, 'role-tracker.json'), JSON.stringify({ [key('Acme')]: { stage: 'applied', notes: '', checklist: [], timeline: [] } }));
+  const a = s.service.requestTailor(key('Acme')).meta;
+  const b = s.service.requestTailor(key('Bolt')).meta;
+  await s.queue.drain();
+  s.editMeta(a.id, { status: 'done', bestRound: 1, bestScore: 92, rounds: [{ n: 1, status: 'scored', score: 92 }] });
+  fs.mkdirSync(path.join(s.dataDir, 'resume', 'tailored', a.id, 'round-1'), { recursive: true });
+  fs.writeFileSync(path.join(s.dataDir, 'resume', 'tailored', a.id, 'round-1', 'score.json'), JSON.stringify({ total: 92, categories: { K: 25, P: 30, S: 15, H: 15, C: 7 } }));
+  s.editMeta(b.id, { status: 'below-target', bestRound: 1, bestScore: 80 });
+  s.service.accept(a.id);
+
+  let lib = s.service.library();
+  const byId = Object.fromEntries(lib.records.map((r) => [r.id, r]));
+  assert.equal(byId[a.id].stage, 'applied');
+  assert.deepEqual(byId[a.id].categories, { K: 25, P: 30, S: 15, H: 15, C: 7 });
+  assert.equal(byId[a.id].decision, 'accepted');
+  assert.equal(byId[b.id].decision, null);
+  assert.equal(byId[b.id].stage, null);
+  assert.deepEqual({ total: lib.summary.total, atTarget: lib.summary.atTarget, belowTarget: lib.summary.belowTarget, accepted: lib.summary.accepted, rejected: lib.summary.rejected, undecided: lib.summary.undecided, avgScore: lib.summary.avgScore },
+    { total: 2, atTarget: 1, belowTarget: 1, accepted: 1, rejected: 0, undecided: 1, avgScore: 86 });
+
+  const beforeDecision = s.service.listMeta().find((m) => m.id === b.id).updatedAt;
+  const rejected = s.service.reject(b.id);
+  assert.equal(rejected.updatedAt, beforeDecision, 'a decision does not move the row in the Recently updated sort');
+  assert.deepEqual([rejected.rejected, rejected.accepted], [true, false]);
+  lib = s.service.library();
+  assert.deepEqual([lib.summary.accepted, lib.summary.rejected, lib.summary.undecided], [1, 1, 0]);
+  const flipped = s.service.reject(a.id);
+  assert.deepEqual([flipped.accepted, flipped.acceptedAt, flipped.rejected], [false, null, true], 'reject reverses an accept');
+  const back = s.service.accept(a.id);
+  assert.deepEqual([back.accepted, back.rejected, back.rejectedAt], [true, false, null], 'accept reverses a reject');
+});
+
+// Records deferred by the retired daily auto-tailor cap can still exist on disk.
+function seedLegacyDeferred(s, company) {
+  const id = `${company.toLowerCase()}-senior-software-engineer`;
+  const dir = path.join(s.dataDir, 'resume', 'tailored', id);
+  fs.mkdirSync(dir, { recursive: true });
+  const t = '2026-10-05T08:00:00.000Z';
+  const meta = {
+    id, roleKeys: [key(company)], company, role: 'Senior Software Engineer', jdUrl: '', status: 'queued',
+    bestRound: null, bestScore: null, accepted: false, acceptedAt: null, trigger: 'auto-saved',
+    createdAt: t, updatedAt: t, error: null, deferred: true, gaps: null, rounds: [], runs: [],
+  };
+  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
+  assert.equal(s.queue.enqueue({ kind: 'resume', key: `resume:${id}`, payload: { id, mode: 'full' } }, { auto: true, capName: 'resume', cap: 0 }).status, 'deferred');
+  return meta;
+}
+
+test('library reports queue position, and runNow starts a legacy deferred run', async () => {
+  const s = svc();
+  const a = s.service.requestTailor(key('Acme')).meta;
+  const b = seedLegacyDeferred(s, 'Bolt');
+  s.queue.enqueue({ kind: 'workbook', key: 'wb:x', payload: {} });
+  const lib = s.service.library();
+  const rb = lib.records.find((r) => r.id === b.id);
+  assert.equal(rb.deferred, true);
+  assert.equal(rb.queue.status, 'deferred');
+  assert.equal(lib.summary.deferred, 1);
+  const ra = lib.records.find((r) => r.id === a.id);
+  assert.ok(ra.queue && ['queued', 'running'].includes(ra.queue.status));
+
+  assert.throws(() => s.service.runNow(a.id), (err) => err.status === 409, 'only deferred records can run now');
+  const started = s.service.runNow(b.id);
+  assert.equal(started.deferred, false);
+  await s.queue.drain();
+  assert.ok(s.ran.includes(b.id));
+});

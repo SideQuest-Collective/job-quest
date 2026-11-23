@@ -38,23 +38,33 @@ function createAutoBuild({ dataDir, queue, now = () => new Date() }) {
     return { status: r.status, workbook: meta, jobId: r.id };
   }
 
+  // Only an accepted tailored resume triggers an automatic build; saving or applying alone does not.
   function onRoleEvent(event, roleKey) {
-    return enqueueWorkbook(roleKey, { trigger: event === 'applied' ? 'auto-applied' : 'auto-saved', auto: true });
+    if (event !== 'accepted') return { status: 'ignored' };
+    return enqueueWorkbook(roleKey, { trigger: 'auto-accepted', auto: true });
   }
 
-  function savedAndAppliedKeys() {
-    const actions = store.readJsonFile(path.join(dataDir, 'role-actions.json'), {}) || {};
+  // Roles with an accepted tailored resume, skipping ones the tracker has closed out.
+  function acceptedResumeKeys() {
+    const tailored = path.join(dataDir, 'resume', 'tailored');
     const tracker = store.readJsonFile(path.join(dataDir, 'role-tracker.json'), {}) || {};
+    let dirs = [];
+    try { dirs = fs.readdirSync(tailored); } catch { return []; }
     const keys = [];
-    const add = (k) => { if (typeof k === 'string' && k.includes('|') && !keys.includes(k)) keys.push(k); };
-    (actions.saved || []).forEach(add);
-    (actions.applied || []).forEach(add);
-    for (const [k, v] of Object.entries(tracker)) if (v && v.stage === 'applied') add(k);
+    for (const d of dirs.sort()) {
+      const meta = store.readJsonFile(path.join(tailored, d, 'meta.json'), null);
+      if (!meta || !meta.accepted) continue;
+      for (const k of meta.roleKeys || []) {
+        if (typeof k !== 'string' || !k.includes('|') || keys.includes(k)) continue;
+        if (tracker[k] && tracker[k].stage === 'rejected') continue;
+        keys.push(k);
+      }
+    }
     return keys;
   }
 
   function backfillCandidates() {
-    return savedAndAppliedKeys().filter((k) => {
+    return acceptedResumeKeys().filter((k) => {
       const w = store.findByRoleKey(dataDir, k);
       return !w || w.source === 'interview';
     });

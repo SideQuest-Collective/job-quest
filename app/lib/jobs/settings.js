@@ -4,8 +4,17 @@ const path = require('path');
 
 const DEFAULT_SETTINGS = Object.freeze({
   workbooks: { autoBuild: true, autoDailyCap: 3 },
-  resume: { autoTailor: true, autoDailyCap: 5 },
 });
+
+// Resume tailoring is on-demand only. Older settings files may still carry
+// resume.autoTailor / resume.autoDailyCap; they are dropped on read so they
+// cannot turn automatic tailoring back on or reappear in the API.
+const RETIRED_KEYS = ['resume'];
+
+function dropRetired(settings) {
+  for (const k of RETIRED_KEYS) delete settings[k];
+  return settings;
+}
 
 function clone(v) { return JSON.parse(JSON.stringify(v)); }
 
@@ -25,14 +34,14 @@ function file(dataDir) { return path.join(dataDir, 'settings.json'); }
 
 function readSettings(dataDir) {
   try {
-    return merge(DEFAULT_SETTINGS, JSON.parse(fs.readFileSync(file(dataDir), 'utf-8')));
+    return dropRetired(merge(DEFAULT_SETTINGS, JSON.parse(fs.readFileSync(file(dataDir), 'utf-8'))));
   } catch {
     return clone(DEFAULT_SETTINGS);
   }
 }
 
 function writeSettings(dataDir, patch) {
-  const next = merge(readSettings(dataDir), patch);
+  const next = dropRetired(merge(readSettings(dataDir), patch));
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(file(dataDir), JSON.stringify(next, null, 2));
   return next;

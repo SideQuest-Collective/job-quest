@@ -66,6 +66,30 @@ test('roles lists matches with the documented fields', (t) => {
   assert.deepEqual(r.json, [{ roleKey: ROLE_KEY, company: 'Acme Capital', role: 'Software Engineer', stage: 'applied', hasWorkbook: false, hasTailoredResume: false }]);
 });
 
+test('roles --all returns selectable roles without a company filter', (t) => {
+  const env = setup(t);
+  fs.writeFileSync(path.join(env.dataDir, 'role-tracker.json'), JSON.stringify({
+    [ROLE_KEY]: { stage: 'applied', timeline: [] },
+    'Beta|Researcher': { stage: 'researching', timeline: [] },
+  }));
+  fs.writeFileSync(path.join(env.dataDir, 'role-actions.json'), JSON.stringify({
+    saved: ['Gamma|Engineer'], applied: [], skipped: ['Delta|Skipped'],
+  }));
+  const r = run(env, ['roles', '--all']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.map((role) => [role.roleKey, role.stage]), [
+    [ROLE_KEY, 'applied'], ['Beta|Researcher', 'researching'], ['Gamma|Engineer', 'saved'],
+  ]);
+});
+
+test('roles --all returns an empty list when there are no selected roles', (t) => {
+  const env = setup(t);
+  fs.writeFileSync(path.join(env.dataDir, 'role-tracker.json'), '{}');
+  const r = run(env, ['roles', '--all']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json, []);
+});
+
 test('interview-context returns written, skipped, cheatsheet, practice', (t) => {
   const env = setup(t);
   const r = run(env, ['interview-context', ROLE_KEY, '--round', 'coding', '--no-agent']);
@@ -170,8 +194,12 @@ test('usage errors exit 2, runtime errors exit 1, both with {"error"} on stdout'
   const cases = [
     [['frobnicate'], 2, /^unknown command: frobnicate; run jq with no arguments for usage$/],
     [[], 2, /usage: jq/],
-    [['roles'], 2, /roles needs --company/],
+    [['roles'], 2, /roles needs exactly one/],
     [['roles', '--company', '!!!'], 2, /roles needs --company/],
+    [['roles', '--all', '--company', 'Acme'], 2, /roles needs exactly one/],
+    [['roles', '--company', '', '--all'], 2, /roles needs exactly one/],
+    [['roles', '--all=true'], 2, /--all does not take a value/],
+    [['roles', '--all', 'extra'], 2, /roles needs exactly one/],
     [['link-session', FIXTURE_FOLDER], 2, /link-session needs <folder> <roleKey>/],
     [['interview-context', ROLE_KEY, '--round'], 2, /--round needs a value/],
     [['link-session', FIXTURE_FOLDER, 'Nobody|Role'], 2, /unknown roleKey: Nobody\|Role/],

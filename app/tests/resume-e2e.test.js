@@ -71,7 +71,7 @@ async function runE2e(t, { retry = false } = {}) {
   assert.ok(r.meta.bestScore >= 90, String(r.meta.bestScore));
   assert.equal(r.meta.bestRound, 1);
   assert.deepEqual(r.rounds.map((x) => x.status), ['scored']);
-  assert.deepEqual(r.rounds[0].scoreDetail.categories, { ...r.rounds[0].scoreDetail.categories, P: 30, S: 15, H: 15 });
+  assert.deepEqual(r.rounds[0].scoreDetail.categories, { ...r.rounds[0].scoreDetail.categories, P: 18, S: 12, H: 15, F: 30 });
   assert.deepEqual(r.keywords.required.map((k) => k.term), loadKeywords().required.map((k) => k.term));
   const calls = require('./fixtures/fake-calls').readFakeCalls(path.dirname(fake));
   assert.deepEqual(calls, { 'jd-analyst': 1, tailor: 2 });
@@ -173,7 +173,7 @@ test('live-tailor prints the verified live-run field names and selects the best 
   const dataDir = tmpDir('jq-live-cli-');
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   writeMaster(dataDir, loadMaster());
-  const categories = { K: 23.9, P: 30, S: 15, H: 15, C: 9 };
+  const categories = { K: 11.9, P: 18, S: 12, H: 15, C: 9, F: 27 };
   const gaps = { unsupported: ['Rust', 'Go', 'GraphQL', 'multi-tenant'] };
   const record = { meta: { status: 'done', bestScore: 93, bestRound: 2, gaps }, rounds: [
     { n: 1, status: 'discarded', reason: 'fact guard', guard: { violations: [{ rule: 7 }] } },

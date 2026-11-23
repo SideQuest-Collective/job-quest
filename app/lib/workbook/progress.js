@@ -1,9 +1,10 @@
 // app/lib/workbook/progress.js
+const { isDeepStrictEqual } = require('node:util');
 const GRADES = new Set(['got', 'partial', 'missed']);
 const WEIGHTS = { 1: 1, 2: 2, 3: 3 };
 
 function emptyProgress() {
-  return { version: 1, answers: {}, grades: {}, history: {}, notes: {}, lastChapter: null, ui: {} };
+  return { version: 1, revision: 0, answers: {}, grades: {}, history: {}, notes: {}, lastChapter: null, ui: {} };
 }
 
 function obj(v) {
@@ -18,6 +19,7 @@ function normalizeProgress(p) {
   }
   return {
     version: 1,
+    revision: Number.isSafeInteger(src.revision) && src.revision >= 0 ? src.revision : 0,
     answers: { ...obj(src.answers) },
     grades: { ...obj(src.grades) },
     history,
@@ -32,8 +34,13 @@ function validGrade(g) {
 }
 
 function mergeProgress(existing, incoming) {
+  const before = normalizeProgress(existing);
   const out = normalizeProgress(existing);
   const inc = obj(incoming);
+  if (inc.expectedRevision !== undefined) {
+    if (!Number.isSafeInteger(inc.expectedRevision) || inc.expectedRevision < 0) throw Object.assign(new Error('Workbook revision must be a nonnegative integer.'), {status:400});
+    if (inc.expectedRevision !== out.revision) throw Object.assign(new Error('This workbook changed on another device. Your browser draft is preserved; choose which answers to keep.'), {status:409, current:out});
+  }
   for (const [qid, text] of Object.entries(obj(inc.answers))) if (typeof text === 'string') out.answers[qid] = text;
   for (const [qid, text] of Object.entries(obj(inc.notes))) if (typeof text === 'string') out.notes[qid] = text;
   for (const [qid, g] of Object.entries(obj(inc.grades))) {
@@ -48,7 +55,22 @@ function mergeProgress(existing, incoming) {
     if (!cur || !validGrade(cur) || Date.parse(entry.at) > Date.parse(cur.at)) out.grades[qid] = entry;
   }
   if (typeof inc.lastChapter === 'string') out.lastChapter = inc.lastChapter;
-  if (inc.ui && typeof inc.ui === 'object' && !Array.isArray(inc.ui)) out.ui = { ...out.ui, ...inc.ui };
+  if (inc.ui && typeof inc.ui === 'object' && !Array.isArray(inc.ui)) {
+    const priorPicks = obj(out.ui.picks);
+    out.ui = { ...out.ui, ...inc.ui };
+    if (Object.keys(priorPicks).length || Object.hasOwn(inc.ui, 'picks')) {
+      const picks = {};
+      for (const qid of new Set([...Object.keys(priorPicks), ...Object.keys(obj(inc.ui.picks))])) {
+        const prior = obj(priorPicks[qid]), next = obj(obj(inc.ui.picks)[qid]);
+        picks[qid] = { ...prior, ...next };
+        for (const key of ['assisted', 'revealed', 'hintUsed']) if (prior[key] === true || next[key] === true) picks[qid][key] = true;
+      }
+      out.ui.picks = picks;
+    }
+  }
+  // Replaying a recorded grade or saving unchanged text is a true no-op.
+  // New answers, history or help evidence still invalidate stale browser drafts.
+  if (!isDeepStrictEqual(out, before)) out.revision++;
   return out;
 }
 

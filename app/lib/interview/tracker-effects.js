@@ -69,6 +69,7 @@ function applyStage(entry, round, practice) {
   if (!Object.prototype.hasOwnProperty.call(STAGE_RANK, entry.stage)) return null;
   if (STAGE_RANK[entry.stage] >= want) return null;
   const from = entry.stage;
+  if (from === 'applied') entry.applicationSubmitted = true;
   entry.stage = RANK_STAGE[want];
   return { from, to: entry.stage };
 }

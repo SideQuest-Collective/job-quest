@@ -2,8 +2,8 @@
 const KINDS = ['company', 'coding', 'system-design', 'behavioral', 'concepts'];
 const TYPES = ['mcq', 'open', 'code'];
 const BUDGETS = {
-  screen: { chapters: [5, 7], questions: [25, 35], requireKinds: ['company', 'coding', 'system-design', 'behavioral'], minTypePct: 20 },
-  onsite: { chapters: [4, 8], questions: [25, 45], requireKinds: [], minTypePct: 0 },
+  screen: { chapters: [5, 7], questions: [25, 35], requireKinds: ['coding'], forbidKinds: ['company'], minTypePct: 20, minCodePct: 40 },
+  onsite: { chapters: [4, 8], questions: [25, 45], requireKinds: [], forbidKinds: ['company'], minTypePct: 0, minCodePct: 30 },
 };
 const FIXED_TOPICS = { 'system-design': 'System design', behavioral: 'Behavioral' };
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
@@ -35,6 +35,7 @@ function validateOutline(outline, { tier, existingIds = [] }) {
     }
     if (typeof c.company !== 'string' || !(c.company === 'both' || SLUG_RE.test(c.company))) errors.push(`${where}.company must be the company slug or "both"`);
     if (!KINDS.includes(c.kind)) errors.push(`${where}.kind must be one of ${KINDS.join(', ')}`);
+    else if (b.forbidKinds.includes(c.kind)) errors.push(`${where}.kind "${c.kind}" is not allowed: plan chapters around interview questions, not facts about the company`);
     else {
       kinds.add(c.kind);
       if (FIXED_TOPICS[c.kind] && c.topic !== FIXED_TOPICS[c.kind]) errors.push(`${where}.topic must be "${FIXED_TOPICS[c.kind]}" for kind ${c.kind}`);
@@ -61,6 +62,10 @@ function validateOutline(outline, { tier, existingIds = [] }) {
     for (const t of TYPES) {
       if (typeCounts[t] < need) errors.push(`needs at least ${need} ${t} questions (${b.minTypePct}% of ${total}), got ${typeCounts[t]}`);
     }
+  }
+  if (b.minCodePct && total) {
+    const need = Math.ceil((total * b.minCodePct) / 100);
+    if (typeCounts.code < need) errors.push(`needs at least ${need} code questions (${b.minCodePct}% of ${total}), got ${typeCounts.code}`);
   }
   return errors;
 }

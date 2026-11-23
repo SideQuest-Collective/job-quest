@@ -20,7 +20,19 @@ test('screen budget: chapter count, question count, required kinds, type mix', (
   const noBehavioral = clone(screenOutline());
   noBehavioral.chapters[3].kind = 'concepts';
   noBehavioral.chapters[3].topic = 'People';
-  assert.ok(validateOutline(noBehavioral, { tier: 'screen' }).some((x) => /kind "behavioral"/.test(x)));
+  assert.deepEqual(validateOutline(noBehavioral, { tier: 'screen' }), []);
+  const noCoding = clone(screenOutline());
+  for (const i of [0, 1]) { noCoding.chapters[i].kind = 'concepts'; }
+  assert.ok(validateOutline(noCoding, { tier: 'screen' }).some((x) => /kind "coding"/.test(x)));
+  for (const tier of ['screen', 'onsite']) {
+    const trivia = clone(tier === 'screen' ? screenOutline() : onsiteOutline());
+    trivia.chapters[0].kind = 'company';
+    assert.ok(validateOutline(trivia, { tier }).some((x) => /kind "company" is not allowed/.test(x)));
+  }
+  const fewCode = clone(screenOutline());
+  for (const c of fewCode.chapters) for (const qq of c.questions) if (qq.type === 'code') qq.type = 'open';
+  fewCode.chapters[1].questions[0].type = 'code';
+  assert.ok(validateOutline(fewCode, { tier: 'screen' }).some((x) => /at least 10 code questions \(40% of 25\), got 1/.test(x)));
   const allMcq = clone(screenOutline());
   for (const c of allMcq.chapters) for (const qq of c.questions) qq.type = 'mcq';
   const mix = validateOutline(allMcq, { tier: 'screen' });
@@ -31,7 +43,7 @@ test('screen budget: chapter count, question count, required kinds, type mix', (
 test('the 20% share uses integer math (35 questions needs 7, not 8)', () => {
   const o = clone(screenOutline());
   o.chapters.push({ id: 'extra', title: 'Extra', topic: 'Extra', company: 'both', kind: 'concepts', summary: 's',
-    questions: [{ type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }] });
+    questions: [{ type: 'code', diff: 1, focus: 'f' }, { type: 'code', diff: 1, focus: 'f' }, { type: 'code', diff: 1, focus: 'f' }, { type: 'code', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }, { type: 'mcq', diff: 1, focus: 'f' }] });
   o.chapters[0].questions[1].type = 'mcq';
   // open is now exactly 7 of 35; floating-point 0.2 * 35 would demand 8
   assert.deepEqual(validateOutline(o, { tier: 'screen' }), []);

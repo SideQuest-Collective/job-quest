@@ -82,6 +82,7 @@ Start with the answer in one sentence, then explain why. For a code question, th
 - `-` and `1.` lists; nest by indenting two spaces
 - `**bold**`, `*italic*`, `` `code` ``
 - fenced code blocks marked `python`, `js`, `sql`, or unmarked
+- fenced `diagram` blocks (see "Diagrams" below)
 - `>` blockquotes
 - `|` tables with a `|---|` separator row
 - `[text](https://...)` links
@@ -91,6 +92,34 @@ Hard rules:
 - Never use `|` inside a table cell, not even inside backticks. Write "or" instead.
 - Use `*` for italics only when it wraps words tightly (`*like this*`). Write multiplication in backticks (`` `2 * 3` ``) or as `×`.
 - Never write the text `</script` anywhere.
+
+## Diagrams
+
+A box-and-arrow picture goes in a fenced block marked `diagram`. Code checks every diagram and rejects the file if one is invalid.
+
+```diagram
+title: The job scheduler: callers submit jobs, workers claim and run them
+box client "Team's code" "submits jobs, checks status" kind=client at=0,0
+box api "Job API service" "validates, saves jobs" kind=service at=1,0
+box db "Jobs database" "Postgres: jobs, schedules" kind=store at=1,1
+box workers "Workers (many)" "claim, run, report" kind=service at=2,1
+box llm "LLM provider" "grades answers" kind=external at=2,2
+box reaper "Reaper" "re-queues stuck jobs" kind=job at=0,1
+arrow client -> api "submit / status"
+arrow api -> db "insert job row"
+arrow workers <-> db "claim, finish"
+arrow workers -> llm "do the work"
+arrow reaper -> db "expired lease"
+```
+
+Rules:
+- `title:` (optional, one line, at most 140 characters) becomes the caption. Say what the picture shows.
+- `box <id> "Title" "optional subtitle" kind=<kind> at=<col>,<row>`. The id is letters, digits, `-` or `_`. Title at most 28 characters, subtitle at most 36.
+- `kind` is one of: `client` (a user or caller), `service` (a program we run), `store` (where data is stored), `external` (someone else's service), `job` (a background job).
+- `at=col,row` places the box on a grid: columns 0 to 3 (left to right), rows 0 to 5 (top to bottom). Two boxes never share a spot.
+- `arrow <fromId> -> <toId> "optional label"`, or `<->` for both ways. Label at most 26 characters.
+- At least two boxes. Lay boxes out so the main flow reads left to right, then top to bottom, and arrows don't cross other boxes: keep connected boxes in the same row or column, or diagonal neighbours.
+- After every diagram, explain each box in a `-` list ("**Jobs database:** ...") so the picture is never the only explanation.
 
 ## Glossary file
 

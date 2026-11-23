@@ -4,17 +4,18 @@ const path = require('path');
 const { runAgent } = require('../jobs/runner');
 const { roleSlug } = require('../jobs/slug');
 const { resolveRole } = require('../jobs/roles');
-const { readSettings } = require('../jobs/settings');
-const { readMaster, validateMaster, allMasterText, assignIds, emptyMaster } = require('./master');
+const { readMaster, validateMaster, eligibleMaster, allMasterText, assignIds, emptyMaster } = require('./master');
 const { buildLexicon, matchesAny } = require('./lexicon');
 const { checkTailored } = require('./guard');
 const { buildDocument, renderTex, compileTex, ensureTemplate } = require('./render');
-const { gradePdf, loadTellWords } = require('./grade');
+const { gradePdf, loadTellWords, MAX } = require('./grade');
+const { describeBase } = require('./fidelity');
 const { fetchJd } = require('./jdfetch');
 const { renderPrompt, extractJson, verifyKeywords, keywordCountsOk } = require('./agents');
 const { diffTailored, lineDiff } = require('./diff');
 const { readTracker, writeTracker } = require('../interview/tracker-effects');
 const { writeFileAtomic } = require('../interview/atomic');
+const { extractResume } = require('./import-file');
 
 const TARGET = 90;
 const MAX_ROUNDS = 3;
@@ -23,6 +24,8 @@ const TAILOR_TIMEOUT_MS = 10 * 60 * 1000;
 const MIN_PASTED_JD = 200;
 const ID_RE = /^[a-z0-9-]{1,90}$/;
 const ACTIVE = new Set(['queued', 'running']);
+// A resume that runs past one page never reaches the target. Rounds recorded without a page count fit.
+const fits = (round) => round.pages === undefined || round.pages === 1;
 
 class ServiceError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -61,7 +64,6 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     compileTex: deps.compileTex || compileTex,
     gradePdf: deps.gradePdf || gradePdf,
     resolveRole: deps.resolveRole || resolveRole,
-    readSettings: deps.readSettings || readSettings,
   };
   const tailoredDir = path.join(dataDir, 'resume', 'tailored');
   const stamp = () => new Date(now()).toISOString();
@@ -74,8 +76,10 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
   }
   const metaFile = (id) => path.join(recDir(id), 'meta.json');
   const readMeta = (id) => readJson(metaFile(id));
-  function patchMeta(id, patch) {
-    const meta = { ...readMeta(id), ...patch, updatedAt: stamp() };
+  // touch: false keeps updatedAt, so an accept/reject does not reorder the library's "Recently updated" list.
+  function patchMeta(id, patch, { touch = true } = {}) {
+    const prev = readMeta(id);
+    const meta = { ...prev, ...patch, updatedAt: touch ? stamp() : prev.updatedAt };
     writeJson(metaFile(id), meta);
     return meta;
   }
@@ -96,7 +100,8 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
   const fail = (id, error) => patchMeta(id, { status: 'failed', error, deferred: false });
   const maxRound = (meta) => (meta.rounds || []).reduce((m, r) => Math.max(m, r.n), 0);
 
-  function requestTailor(roleKey, { trigger = 'manual', auto = false } = {}) {
+  // Tailoring only ever starts on request (the role's "Tailor resume" button or POST /api/resume/tailored).
+  function requestTailor(roleKey, { trigger = 'manual' } = {}) {
     if (typeof roleKey !== 'string' || !roleKey.includes('|')) throw new ServiceError(400, 'roleKey must look like "Company|Role"');
     const existing = activeFor(roleKey);
     if (existing) return { meta: existing, created: false, queue: 'existing' };
@@ -110,17 +115,8 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
       status: 'queued', bestRound: null, bestScore: null, accepted: false, acceptedAt: null, trigger,
       createdAt: t, updatedAt: t, error: null, deferred: false, gaps: null, rounds: [], runs: [],
     });
-    const opts = auto ? { auto: true, capName: 'resume', cap: d.readSettings(dataDir).resume.autoDailyCap } : {};
-    const r = queue.enqueue({ kind: 'resume', key: `resume:${id}`, payload: { id, mode: 'full' } }, opts);
-    if (r.status === 'deferred') patchMeta(id, { deferred: true });
+    const r = queue.enqueue({ kind: 'resume', key: `resume:${id}`, payload: { id, mode: 'full' } });
     return { meta: readMeta(id), created: true, queue: r.status };
-  }
-
-  function autoTailor(roleKey, trigger) {
-    const s = d.readSettings(dataDir);
-    if (!s.resume || s.resume.autoTailor === false) return { skipped: 'auto-tailor is off' };
-    if (activeFor(roleKey)) return { skipped: 'already tailored or queued' };
-    return requestTailor(roleKey, { trigger, auto: true });
   }
 
   function profileText() {
@@ -152,14 +148,16 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     const list = (a) => ((a || []).length ? a.join(', ') : 'none');
     return [
       `## Previous round (round ${last.n}, score ${s.total}/100)`,
-      `- Category scores: K ${c.K}/30, P ${c.P}/30, S ${c.S}/15, H ${c.H}/15, C ${c.C}/10`,
+      `- Category scores: ${Object.entries(MAX).map(([k, max]) => `${k} ${c[k]}/${max}`).join(', ')}`,
       `- Required keywords still missing: ${list(kw.requiredMiss)}`,
       `- Preferred keywords missing: ${list(kw.preferredMiss)}`,
       `- Keywords used more than 3 times: ${list(kw.stuffed)}`,
       `- Failed checks: ${failed.length ? failed.join('; ') : 'none'}`,
       `- AI tells found: ${list(s.tells)}`,
       `- Words: ${s.words}, pages: ${s.pages}`,
-      'Improve on these without breaking the hard rules. A missing keyword the master does not support must stay missing.',
+      ...(s.pages > 1 ? [`- The PDF ran to ${s.pages} pages. Make it one page: leave out unmarked bullets, project bullets, or skill items until it fits, never a [keep] bullet.`] : []),
+      'Fix failed F checks first: put back every [keep] bullet, copy bullet text from the master word for word, and remove job description phrases.',
+      'Improve on these without breaking the hard rules or the edit limits. A missing keyword the master does not support must stay missing.',
     ].join('\n');
   }
 
@@ -210,10 +208,11 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     const rdir = path.join(dir, `round-${n}`);
     fs.rmSync(rdir, { recursive: true, force: true });
     fs.mkdirSync(rdir, { recursive: true });
-    const { meta: _ignored, contact: _contact, ...masterForPrompt } = master;
+    // The tailor never sees bullets marked tailor: false.
+    const { meta: _ignored, contact: _contact, ...masterForPrompt } = eligibleMaster(master);
     const base = {
       company: meta.company, role: meta.role, round: String(n), jd,
-      keywords: JSON.stringify(keywords, null, 2), master: JSON.stringify(masterForPrompt, null, 2),
+      keywords: JSON.stringify(keywords, null, 2), master: JSON.stringify(masterForPrompt, null, 2), base: describeBase(master),
       profile: profileText(), previous: previousSummary(id, meta), tells: tells().join(', '),
     };
     let fix = '';
@@ -254,13 +253,13 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
       return { n, status: 'discarded', reason: `compile failed: ${tail(c.log, 300)}`, score: null };
     }
     frozenKeywords(id);
-    const score = await d.gradePdf(c.pdfPath, { keywords, master, tellWords: tells() });
+    const score = await d.gradePdf(c.pdfPath, { keywords, master, tailored, jd, tellWords: tells() });
     writeJson(path.join(rdir, 'score.json'), score);
-    return { n, status: 'scored', reason: null, score: score.total };
+    return { n, status: 'scored', reason: null, score: score.total, pages: score.pages };
   }
 
   function computeGaps(master, keywords, score) {
-    const text = allMasterText(master);
+    const text = allMasterText(eligibleMaster(master));
     const missing = (score.keywords && score.keywords.requiredMiss) || [];
     const byTerm = new Map((keywords.required || []).map((k) => [k.term, k]));
     const unsupported = missing.filter((t) => {
@@ -277,12 +276,14 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
       const why = (meta.rounds || []).map((r) => `round ${r.n}: ${r.reason}`).join('; ');
       return patchMeta(id, { status: 'failed', error: `no round produced a gradable resume (${why})`, bestRound: null, bestScore: null });
     }
-    const best = scored.reduce((a, b) => (b.score > a.score || (b.score === a.score && b.n < a.n) ? b : a));
+    // A one-page round beats any longer one.
+    const pool = scored.some(fits) ? scored.filter(fits) : scored;
+    const best = pool.reduce((a, b) => (b.score > a.score || (b.score === a.score && b.n < a.n) ? b : a));
     const dir = recDir(id);
     fs.copyFileSync(path.join(dir, `round-${best.n}`, 'resume.pdf'), path.join(dir, 'resume.pdf'));
     const score = readJson(path.join(dir, `round-${best.n}`, 'score.json'), {});
     return patchMeta(id, {
-      status: best.score >= TARGET ? 'done' : 'below-target',
+      status: best.score >= TARGET && fits(best) ? 'done' : 'below-target',
       bestRound: best.n, bestScore: best.score, error: null, gaps: computeGaps(master, keywords, score),
     });
   }
@@ -338,7 +339,7 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
       for (;;) {
         meta = readMeta(id);
         const inRun = (meta.rounds || []).filter((r) => r.n >= run.startRound);
-        if (inRun.length >= MAX_ROUNDS || inRun.some((r) => r.status === 'scored' && r.score >= TARGET)) break;
+        if (inRun.length >= MAX_ROUNDS || inRun.some((r) => r.status === 'scored' && r.score >= TARGET && fits(r))) break;
         const n = run.startRound + inRun.length;
         ctx.update({ step: 'round', round: n });
         const result = await runRound({ id, n, master, keywords, jd, meta, template, lexicon });
@@ -393,19 +394,30 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     const meta = mustMeta(id);
     if (!meta.bestRound) throw new ServiceError(409, 'nothing to accept yet: no scored round');
     if (meta.accepted) return meta;
+    if (ACTIVE.has(meta.status)) throw new ServiceError(409, 'wait for this resume to finish tailoring');
     let tracker;
     try { tracker = readTracker(dataDir); } catch (error) {
       throw new ServiceError(500, `cannot read role-tracker.json: ${error.message}`);
     }
-    const updated = patchMeta(id, { accepted: true, acceptedAt: stamp() });
+    const updated = patchMeta(id, { accepted: true, acceptedAt: stamp(), rejected: false, rejectedAt: null }, { touch: false });
     const actions = readJson(path.join(dataDir, 'role-actions.json'), { applied: [] });
     for (const key of meta.roleKeys) {
       const entry = tracker[key] || { stage: (actions.applied || []).includes(key) ? 'applied' : 'discovered', notes: '', checklist: [], timeline: [] };
-      entry.timeline = [...(entry.timeline || []), { date: stamp(), event: `Resume tailored (${meta.bestScore})` }];
+      const event = `Resume tailored (${meta.bestScore})`;
+      // Accept after a reject must not log the same resume twice.
+      if (!(entry.timeline || []).some((e) => e && e.event === event)) entry.timeline = [...(entry.timeline || []), { date: stamp(), event }];
       tracker[key] = entry;
     }
     writeTracker(dataDir, tracker);
     return updated;
+  }
+
+  // Rejecting keeps the files (the role can be tailored again) but stops a workbook from being built for it.
+  function reject(id) {
+    const meta = mustMeta(id);
+    if (meta.rejected) return meta;
+    if (ACTIVE.has(meta.status)) throw new ServiceError(409, 'wait for this resume to finish tailoring');
+    return patchMeta(id, { rejected: true, rejectedAt: stamp(), accepted: false, acceptedAt: null }, { touch: false });
   }
 
   function remove(id) {
@@ -437,7 +449,95 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
     return { round: n, ...diffTailored(readMaster(dataDir), readJson(path.join(dir, `round-${n}`, 'tailored.json'))) };
   }
 
-  async function importLatex(texPath) {
+  let importBusy = false;
+  async function withImportLock(propose) {
+    if (importBusy) throw new ServiceError(409, 'A resume import is already running. Wait for its draft before importing another file.');
+    importBusy = true;
+    try { return await propose(); } finally { importBusy = false; }
+  }
+  const importFile = file => withImportLock(() => proposeFile(file));
+  const importLatex = file => withImportLock(() => proposeLatex(file));
+
+  async function proposeFile(file) {
+    if (!fs.existsSync(file)) throw new ServiceError(404, 'Resume file not found');
+    if (path.extname(file).toLowerCase() === '.tex') return proposeLatex(file);
+    const source = await extractResume(file);
+    const cwd = path.join(dataDir, 'resume', 'import');
+    fs.mkdirSync(cwd, { recursive: true });
+    const r = await d.runAgent({
+      agent: 'resume-to-master', prompt: renderPrompt('resume-to-master', { text: JSON.stringify(source.text) }),
+      cwd, profile: 'read', timeoutMs: ANALYST_TIMEOUT_MS, logFile: path.join(cwd, 'agents.log'),
+    });
+    if (!r.ok) throw new ServiceError(502, r.timedOut ? 'The resume converter timed out. Your original is saved; try again.' : 'The resume converter failed. Your original is saved; check your configured AI runtime and try again.');
+    const parsed = extractJson(r.stdout);
+    if (!parsed.ok) throw new ServiceError(502, `The resume converter: ${parsed.error}`);
+    const current = readMaster(dataDir);
+    const base = emptyMaster();
+    const v = parsed.value && typeof parsed.value === 'object' ? parsed.value : {};
+    const proposed = assignIds(current, { ...base, ...v, version: 1, contact: { ...base.contact, ...(v.contact || {}) }, meta: current.meta || base.meta });
+    return { proposed, errors: validateMaster(proposed).errors,
+      diff: lineDiff(JSON.stringify(current, null, 2), JSON.stringify(proposed, null, 2)),
+      source: { filename: path.basename(file), format: source.format, characters: source.characters },
+      warnings: ['Review the draft against your original before saving. Check dates, contact details, and every bullet; conversion can omit or misread text.'],
+    };
+  }
+
+  function runNow(id) {
+    const meta = mustMeta(id);
+    if (!meta.deferred) throw new ServiceError(409, 'only a resume waiting on the daily cap can be started now');
+    if (!queue || !queue.runNow(`resume:${id}`)) throw new ServiceError(409, 'no deferred job found for this resume');
+    return patchMeta(id, { deferred: false });
+  }
+
+  // Every tailored resume with its tracker stage, best-round breakdown, and queue position.
+  function library() {
+    let tracker = {};
+    try { tracker = readTracker(dataDir) || {}; } catch {}
+    const actions = readJson(path.join(dataDir, 'role-actions.json'), {}) || {};
+    const jobs = queue ? queue.list() : [];
+    const waiting = jobs.filter((j) => j.status === 'running' || j.status === 'queued');
+    const records = listMeta().map((meta) => {
+      const dir = recDir(meta.id);
+      const score = meta.bestRound ? readJson(path.join(dir, `round-${meta.bestRound}`, 'score.json')) : null;
+      const job = jobs.find((j) => j.key === `resume:${meta.id}` && ['queued', 'running', 'deferred'].includes(j.status)) || null;
+      let queueInfo = null;
+      if (job) {
+        const i = waiting.indexOf(job);
+        const ahead = i > 0 ? waiting.slice(0, i) : [];
+        queueInfo = {
+          status: job.status, startedAt: job.startedAt, progress: job.progress,
+          ahead: ahead.map((j) => ({ kind: j.kind, key: j.key, status: j.status })),
+        };
+      }
+      const stages = (meta.roleKeys || []).map((k) => (tracker[k] && tracker[k].stage)
+        || ((actions.applied || []).includes(k) ? 'applied' : (actions.saved || []).includes(k) ? 'saved' : null));
+      return {
+        ...meta,
+        decision: meta.accepted ? 'accepted' : meta.rejected ? 'rejected' : null,
+        stage: stages.find(Boolean) || null,
+        categories: score ? score.categories : null,
+        roundCount: (meta.rounds || []).length,
+        queue: queueInfo,
+      };
+    });
+    const scored = records.filter((r) => typeof r.bestScore === 'number');
+    const summary = {
+      total: records.length,
+      active: records.filter((r) => ACTIVE.has(r.status)).length,
+      deferred: records.filter((r) => r.deferred).length,
+      atTarget: scored.filter((r) => r.bestScore >= TARGET).length,
+      belowTarget: scored.filter((r) => r.bestScore < TARGET).length,
+      failed: records.filter((r) => r.status === 'failed').length,
+      accepted: records.filter((r) => r.accepted).length,
+      rejected: records.filter((r) => r.rejected).length,
+      undecided: records.filter((r) => !r.accepted && !r.rejected && r.bestRound && !ACTIVE.has(r.status)).length,
+      avgScore: scored.length ? Math.round(scored.reduce((s, r) => s + r.bestScore, 0) / scored.length) : null,
+      target: TARGET,
+    };
+    return { records, summary };
+  }
+
+  async function proposeLatex(texPath) {
     if (!fs.existsSync(texPath)) throw new ServiceError(404, `LaTeX file not found: ${path.basename(texPath)}`);
     const cwd = path.join(dataDir, 'resume', 'import');
     fs.mkdirSync(cwd, { recursive: true });
@@ -456,7 +556,7 @@ function createResumeService({ dataDir, queue = null, now = () => new Date(), de
   }
 
   return {
-    tailoredDir, listMeta, requestTailor, autoTailor, runJob, getRecord, retry, setJd, accept, remove, pdfPath, diff, importLatex,
+    tailoredDir, listMeta, library, requestTailor, runJob, getRecord, retry, setJd, accept, reject, runNow, remove, pdfPath, diff, importLatex, importFile,
   };
 }
 

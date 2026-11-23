@@ -25,6 +25,21 @@ if [ ! -d "$DASHBOARD_DIR" ]; then
   exit 1
 fi
 
+# Optional local adapter preserves explicitly configured hosting behavior.
+export DATA_DIR="${DATA_DIR:-$JOB_QUEST_DATA_DIR}"
+DASHBOARD_ENTRY="$(node - "$DATA_DIR" "$DASHBOARD_DIR/server.js" <<'NODE'
+const fs = require('fs'), path = require('path');
+try {
+  let config = {};
+  try { config = JSON.parse(fs.readFileSync(path.join(process.argv[2], 'local-setup.json'), 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const entry = config.dashboardLauncher || process.argv[3];
+  if (typeof entry !== 'string' || !path.isAbsolute(entry) || !/\.(c?js)$/.test(entry) || !fs.statSync(entry).isFile()) throw Error('Configured dashboard launcher is not a readable JavaScript file.');
+  console.log(entry);
+} catch (error) { console.error('Cannot start Job Quest: ' + error.message); process.exit(1); }
+NODE
+)"
+
 if [ "${1:-}" = --background ]; then
   PORT="${JOB_QUEST_PORT:-${PORT:-3847}}"
   export PORT
@@ -57,8 +72,17 @@ if [ "${1:-}" = --background ]; then
   fi
 
   cd "$DASHBOARD_DIR"
-  DATA_DIR="$DATA_DIR" nohup node server.js </dev/null >>"$LOG_FILE" 2>&1 &
-  disown "$!"
+  # A new process group survives the invoking agent/terminal session closing.
+  node - "$DASHBOARD_ENTRY" "$LOG_FILE" <<'NODE'
+const fs = require('fs'), { spawn } = require('child_process');
+const log = fs.openSync(process.argv[3], 'a', 0o600);
+const child = spawn(process.execPath, [process.argv[2]], {
+  detached: true, stdio: ['ignore', log, log], env: process.env,
+});
+child.on('error', error => { console.error('Cannot start dashboard: ' + error.message); process.exitCode = 1; });
+child.unref();
+fs.closeSync(log);
+NODE
 
   # One-second requests and a deadline bound even slow or unresponsive servers.
   deadline=$((SECONDS + 15))
@@ -81,4 +105,4 @@ echo "  Dashboard: http://localhost:${PORT:-3847}"
 echo ""
 
 cd "$DASHBOARD_DIR"
-DATA_DIR="$JOB_QUEST_DATA_DIR" node server.js
+node "$DASHBOARD_ENTRY"

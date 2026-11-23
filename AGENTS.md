@@ -39,18 +39,10 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, or `.github/skills/` with a `SKILL.md` index file.
 <!-- GSD:skills-end -->
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
+## Local implementation workflow — October 8, 2026
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+For the authorized local UI, discovery, outreach, learning, feedback and private-access improvements, GSD is not required. Radhika explicitly removed that requirement for these changes. Maintain a written plan, reversible source control, private data backups and appropriate verification. No push, merge, release or deployment is authorized.
 
-Use these entry points:
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
 
 
 
@@ -60,3 +52,11 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Routine phone interaction checks
+
+For UI changes, check responsiveness alongside visual consistency on desktop and at 390px. Navigate through Dashboard, Discover, Intel and Practice, then revisit them; exercise menus, tabs, filters and the changed primary controls. Ready content should appear promptly without entrance animations or delayed tap feedback. Investigate any perceptible pause, especially delays around half a second or longer.
+
+When navigation, shared state or polling changes, verify that hidden pages avoid unnecessary renders and requests, returning pages refresh current data, drafts survive navigation, and legitimate background jobs continue. Run the relevant lifecycle regression tests and repeat the affected flow against the installed local app. Restore viewport overrides and stop temporary preview servers afterward.
+
+For phone performance reports, separate browser rendering, API response time and the private Tailscale connection. Check the actual phone through its existing private URL when available; otherwise state that real-device latency is unverified and request a refreshed-phone check after completing local verification. A desktop viewport or fast ping alone does not establish phone responsiveness. Do not change network exposure as part of these checks.

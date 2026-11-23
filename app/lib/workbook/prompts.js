@@ -12,7 +12,7 @@ const SCREEN_INSTRUCTIONS = [
   '## Role summary',
   '## Interview loop',
   '## Reported questions',
-  '## Company context',
+  '## Question patterns',
   '## Domain knowledge to learn',
   '## Confidence notes',
   '## Sources',
@@ -79,6 +79,8 @@ function budgetText(tier) {
   const lines = [`- Chapters: ${b.chapters[0]} to ${b.chapters[1]}.`, `- Questions in total: ${b.questions[0]} to ${b.questions[1]}.`];
   if (b.requireKinds.length) lines.push(`- At least one chapter of each kind: ${b.requireKinds.join(', ')}.`);
   if (b.minTypePct) lines.push(`- At least ${b.minTypePct}% of all questions of each type: mcq, open, code.`);
+  if (b.minCodePct) lines.push(`- At least ${b.minCodePct}% of all questions are code questions.`);
+  if (b.forbidKinds.length) lines.push(`- No chapter of kind: ${b.forbidKinds.join(', ')}.`);
   if (tier === 'onsite') lines.push('- New chapters only. Never reuse a chapter id listed under "Chapters that already exist".');
   lines.push('- At most 10 questions in one chapter.');
   return lines.join('\n');

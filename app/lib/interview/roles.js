@@ -1,5 +1,5 @@
 // app/lib/interview/roles.js
-// `jq roles --company <name>`: deterministic role lookup over the tracker and role actions.
+// `jq roles --company <name>` and `jq roles --all`: deterministic role lookup over tracker and actions.
 const fs = require('fs');
 const path = require('path');
 const { slugify } = require('../jobs/slug');
@@ -23,14 +23,14 @@ function lastActivity(entry) {
   return ((entry && entry.timeline) || []).reduce((m, e) => (e && e.date && String(e.date) > m ? String(e.date) : m), '');
 }
 
-function listRolesForCompany(dataDir, company) {
-  if (!/[a-z0-9]/i.test(String(company || ''))) throw new InputError('roles needs --company <name>');
+function listRoles(dataDir, company = null) {
   const tracker = readJson(path.join(dataDir, 'role-tracker.json'), {});
   const actions = readJson(path.join(dataDir, 'role-actions.json'), {});
   const applied = actions.applied || [];
   const keys = new Set([...Object.keys(tracker), ...(actions.saved || []), ...applied]);
   return [...keys]
-    .filter((k) => typeof k === 'string' && k.includes('|') && companyMatches(splitRoleKey(k).company, company))
+    .filter((k) => typeof k === 'string' && k.includes('|')
+      && (company === null || companyMatches(splitRoleKey(k).company, company)))
     .map((k) => {
       const { company: co, role } = splitRoleKey(k);
       const t = tracker[k];
@@ -50,6 +50,15 @@ function listRolesForCompany(dataDir, company) {
     .map(({ last, ...row }) => row);
 }
 
+function listRolesForCompany(dataDir, company) {
+  if (!/[a-z0-9]/i.test(String(company || ''))) throw new InputError('roles needs --company <name>');
+  return listRoles(dataDir, company);
+}
+
+function listAllRoles(dataDir) {
+  return listRoles(dataDir);
+}
+
 function isKnownRole(dataDir, roleKey) {
   const tracker = readJson(path.join(dataDir, 'role-tracker.json'), {});
   const actions = readJson(path.join(dataDir, 'role-actions.json'), {});
@@ -57,4 +66,4 @@ function isKnownRole(dataDir, roleKey) {
   return resolveRole(dataDir, roleKey).source === 'intel';
 }
 
-module.exports = { companyMatches, listRolesForCompany, isKnownRole };
+module.exports = { companyMatches, listRolesForCompany, listAllRoles, isKnownRole };

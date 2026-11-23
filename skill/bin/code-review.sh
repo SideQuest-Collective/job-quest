@@ -28,10 +28,11 @@ else
   CLEANUP_PROMPT=1
 fi
 
+trap 'rm -f "$PROMPT_FILE"' EXIT
 if [ "$JOB_QUEST_ACTIVE_RUNTIME" = "codex" ]; then
-  job_quest_run_prompt_file "$PROMPT_FILE" --sandbox workspace-write
+  job_quest_run_prompt_file "$PROMPT_FILE" --sandbox read-only
 else
-  job_quest_run_prompt_file "$PROMPT_FILE"
+  job_quest_run_prompt_file "$PROMPT_FILE" --disallowed-tools Bash,Edit,Read,Write,Glob,Grep,Agent
 fi
 EXIT_CODE=$?
 

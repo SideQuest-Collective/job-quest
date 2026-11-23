@@ -101,7 +101,7 @@ test('dashboard POST atomically publishes the merged tracker and passes it to ac
   const temps = [], events = [], activities = [];
   let handler, previous = disk;
   t.mock.method(fs, 'renameSync', (from, to) => {
-    assert.equal(to, file);
+    if (to !== file) { assert.equal(to, path.join(env.dataDir, 'role-actions.json')); return rename(from, to); }
     assert.equal(path.dirname(from), env.dataDir);
     assert.ok(from.endsWith('.tmp'));
     assert.notEqual(from, `${file}.tmp`);
@@ -113,6 +113,7 @@ test('dashboard POST atomically publishes the merged tracker and passes it to ac
   vm.runInNewContext(route, {
     app: { post: (_url, fn) => { handler = fn; } }, fs, path, DATA_DIR: env.dataDir,
     ...require('../lib/interview/tracker-effects'),
+    ...require('../lib/jobs/role-state'),
     diffTracker: (prev, next) => {
       assert.deepEqual(JSON.parse(JSON.stringify(next)), merged);
       return require('../lib/jobs/role-events').diffTracker(prev, next);
@@ -130,5 +131,6 @@ test('dashboard POST atomically publishes the merged tracker and passes it to ac
   assert.equal(new Set(temps).size, 2, 'each save uses a unique sibling temp');
   assert.deepEqual(events, [['applied', 'Acme|SWE']]);
   assert.deepEqual(activities, [{ type: 'role_stage_change', detail: { role: 'Acme|SWE', from: 'onsite', to: 'applied' } }]);
-  assert.deepEqual(fs.readdirSync(env.dataDir), ['role-tracker.json']);
+  assert.deepEqual(fs.readdirSync(env.dataDir), ['role-actions.json', 'role-tracker.json']);
+  assert.deepEqual(readJson(path.join(env.dataDir, 'role-actions.json')).applied.sort(), ['Acme|SWE', 'Ingested|SWE']);
 });

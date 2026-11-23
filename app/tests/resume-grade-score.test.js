@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { loadTellWords, bulletsOf, computeTells, checkContent, scoreExtracted, gradePdf } = require('../lib/resume/grade');
 const { DEFAULT_TEMPLATE, renderTex, buildDocument, compileTex, findTectonic } = require('../lib/resume/render');
-const { loadMaster, loadKeywords, identityTailored, syntheticExtract, tmpDir } = require('./helpers/resume-fixtures');
+const { loadMaster, loadKeywords, jdText, identityTailored, syntheticExtract, tmpDir } = require('./helpers/resume-fixtures');
 
 const master = loadMaster();
 const tellWords = loadTellWords();
@@ -39,6 +39,18 @@ test('every grade.py tell type is detected, in order', () => {
   ]);
 });
 
+test('summary tells in sentences copied from the master do not count', () => {
+  const lines = [
+    { text: 'Summary', x: 20 },
+    { text: 'Engineer for 8 years. Core strengths: queues, caches, and logs. Grew coverage from 11% to 80%. Wants a hard problem.', x: 20 },
+    { text: 'Experience', x: 20 },
+  ];
+  const ex = { lines, text: lines.map((l) => l.text).join('\n'), pages: 1, fontsEmbedded: true };
+  assert.deepEqual(computeTells(ex, tellWords), ['colon in summary', "'from X to Y' x1 in summary"]);
+  const keep = ['Core strengths: queues, caches, and logs.', 'Grew coverage from 11% to 80%.'];
+  assert.deepEqual(computeTells(ex, tellWords, { keep }), []);
+});
+
 test('C: a clean resume keeps all 10 points', () => {
   const ex = syntheticExtract();
   const r = checkContent(ex, computeTells(ex, tellWords));
@@ -64,35 +76,41 @@ test('C floors at 0', () => {
   assert.equal(checkContent(ex, computeTells(ex, tellWords)).C, 0);
 });
 
-test('scoreExtracted: synthetic master against the fixture keywords scores 98', () => {
-  const s = scoreExtracted(syntheticExtract(), { keywords: loadKeywords(), master, tellWords });
-  assert.deepEqual(s.categories, { K: 28, P: 30, S: 15, H: 15, C: 10 });
-  assert.equal(s.total, 98);
+test('scoreExtracted: the synthetic master scores 99, with F only when the tailored JSON is given', () => {
+  const s = scoreExtracted(syntheticExtract(), { keywords: loadKeywords(), master, tailored: identityTailored(master), jd: jdText(), tellWords });
+  assert.deepEqual(s.categories, { K: 14, P: 18, S: 12, H: 15, C: 10, F: 30 });
+  assert.equal(s.total, 99);
   assert.deepEqual(s.keywords.preferredMiss, ['Terraform']);
   assert.deepEqual(s.tells, []);
   assert.equal(s.words, 477);
   assert.equal(s.pages, 1);
-  assert.equal(s.checks.length, 6 + 5 + 3 + 2);
+  assert.equal(s.checks.length, 6 + 4 + 3 + 2 + 6);
+  assert.deepEqual(s.fidelity, { dropped: [], rewritten: [], jdPhrases: [], swaps: ['proj.relay.2'] });
+  const pdfOnly = scoreExtracted(syntheticExtract(), { keywords: loadKeywords(), master, tellWords });
+  assert.equal(pdfOnly.categories.F, null);
+  assert.equal(pdfOnly.fidelity, null);
+  assert.equal(pdfOnly.total, 69);
 });
 
 test('categories round to one decimal and total rounds the sum', () => {
   const kw = loadKeywords();
   kw.required.push({ term: 'Scala', alts: [] });
-  const s = scoreExtracted(syntheticExtract(), { keywords: kw, master, tellWords });
-  assert.equal(s.categories.K, 25.8);
-  assert.equal(s.total, 96);
+  const s = scoreExtracted(syntheticExtract(), { keywords: kw, master, tailored: identityTailored(master), tellWords });
+  assert.equal(s.categories.K, 12.9);
+  assert.equal(s.total, 98);
 });
 
-test('rendered fixture PDF: P, S, H pass, K is 28, total >= 90, identical across 10 runs', { skip, timeout: 300000 }, async () => {
+test('rendered fixture PDF: P, S, H, F pass, K is 14, total >= 90, identical across 10 runs', { skip, timeout: 300000 }, async () => {
   const dir = tmpDir();
   const texPath = path.join(dir, 'resume.tex');
   fs.writeFileSync(texPath, renderTex(fs.readFileSync(DEFAULT_TEMPLATE, 'utf-8'), buildDocument(master, identityTailored(master))));
   const c = await compileTex({ texPath });
   assert.equal(c.ok, true, c.log);
-  const opts = { keywords: loadKeywords(), master, tellWords };
+  const opts = { keywords: loadKeywords(), master, tailored: identityTailored(master), jd: jdText(), tellWords };
   const first = await gradePdf(c.pdfPath, opts);
   assert.deepEqual(first.checks.filter((x) => !x.pass && x.cat !== 'C'), [], JSON.stringify(first, null, 2));
-  assert.equal(first.categories.K, 28, JSON.stringify(first.keywords));
+  assert.equal(first.categories.K, 14, JSON.stringify(first.keywords));
+  assert.equal(first.categories.F, 30, JSON.stringify(first.fidelity));
   assert.ok(first.categories.C >= 8, JSON.stringify({ tells: first.tells, checks: first.checks }));
   assert.ok(first.total >= 90, String(first.total));
   for (let i = 0; i < 9; i++) assert.deepEqual(await gradePdf(c.pdfPath, opts), first);
@@ -132,7 +150,6 @@ test('one compiled PDF per check: each mutation fails the check it targets', { s
     ['P/ascii-only', { edit: (tex) => tex.replace('Cut P99 API latency', 'Cut \\textsterling{}5 and P99 API latency') }],
     ['P/contact', { gradeMaster: clone((m) => { m.contact.location = 'Shelbyville, IL'; }) }],
     ['S/heading-summary', { edit: (tex) => tex.replace('\\section{Summary}', '\\section{Profile}') }],
-    ['S/target-title', { keywords: { ...kw, title: 'Staff Data Engineer' } }],
     ['H/date-format', { doc: withDoc((d) => { d.experience[0].roles[1].bullets[3] = 'Shipped a REST API in 2021 for 30+ merchants.'; }) }],
     ['H/reverse-chronological', { gradeMaster: clone((m) => { m.experience[0].roles[2].start = '2023-01'; }) }],
     ['H/history-matches-master', { gradeMaster: clone((m) => { m.experience[0].roles[0].title = 'Staff Software Engineer'; }) }],
