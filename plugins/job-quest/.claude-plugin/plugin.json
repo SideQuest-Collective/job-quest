@@ -1,0 +1,5 @@
+{
+  "name": "job-quest",
+  "version": "0.1.0",
+  "description": "Your personal job hunt command center — AI-powered daily intel, interview prep, coding practice, and role tracking. Use this skill when the user wants to organize their job search, get daily job recommendations, practice interviews, track applications, or mentions wanting help finding their next role. Triggers on \"job quest\", \"get a job\", \"job hunting\", \"interview prep\", \"job search setup\", or any request about structuring a job search. Even if the user just casually mentions looking for a new role, this skill can help."
+}

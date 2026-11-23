@@ -34,6 +34,7 @@ echo "  ======================="
 echo ""
 echo "This will remove:"
 echo "  Product home: $PRODUCT_HOME"
+echo "  Claude plugin: job-quest@job-quest-local (if registered)"
 echo "  Claude skill: $CLAUDE_SKILL_DIR"
 echo "  Codex skill:  $CODEX_SKILL_DIR"
 echo "  Legacy shim:  $LEGACY_HOME"
@@ -98,6 +99,13 @@ XBAR_PLUGIN="$HOME/Library/Application Support/xbar/plugins/job-quest.5m.sh"
 if [ -f "$XBAR_PLUGIN" ]; then
   rm -f "$XBAR_PLUGIN"
   open -g "xbar://app.xbarapp.com/refreshAllPlugins" >/dev/null 2>&1 || true
+fi
+
+# Claude Code plugin and its marketplace. stdin is /dev/null so the CLI can
+# never read from a piped script, and failures never stop the uninstall.
+if command -v claude >/dev/null 2>&1; then
+  claude plugin uninstall job-quest@job-quest-local --scope user </dev/null >/dev/null 2>&1 || true
+  claude plugin marketplace remove job-quest-local </dev/null >/dev/null 2>&1 || true
 fi
 
 rm -rf "$CLAUDE_SKILL_DIR" "$CODEX_SKILL_DIR"

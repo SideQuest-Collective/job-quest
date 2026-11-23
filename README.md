@@ -16,12 +16,21 @@ Job Quest is a local job-search command center with a web dashboard, scheduled d
 curl -sL https://raw.githubusercontent.com/SideQuest-Collective/job-quest/main/install.sh | bash
 ```
 
-The installer creates a shared home at `~/.job-quest/`, installs the repo under `~/.job-quest/app/`, writes runtime config to `~/.job-quest/config/runtime.json`, and registers `job-quest` in:
+The installer creates a shared home at `~/.job-quest/`, installs the repo under `~/.job-quest/app/`, writes runtime config to `~/.job-quest/config/runtime.json`, and registers `job-quest` for each runtime:
 
-- `~/.claude/skills/job-quest/SKILL.md`
-- `~/.codex/skills/job-quest/SKILL.md`
+- **Claude Code**: the plugin `job-quest@job-quest-local`, installed from the `job-quest-local` marketplace at `~/.job-quest/app`. It shows up in `claude plugin list`, and the skill runs as `/job-quest:job-quest`. Re-running the installer (or `update.sh`) refreshes it.
+- **Codex**: `~/.codex/skills/job-quest/SKILL.md`
+
+A copy at `~/.claude/skills/job-quest/SKILL.md` is written only as a fallback, when the `claude` CLI is missing or the plugin cannot be installed; the installer says why. To register the plugin by hand later:
+
+```bash
+claude plugin marketplace add ~/.job-quest/app
+claude plugin install job-quest@job-quest-local
+```
 
 The active runtime defaults to the CLI that ran the installer and can switch later without reinstall.
+
+Maintainers: the skill lives at `plugins/job-quest/skills/job-quest/SKILL.md`. When it changes, bump the version in `plugins/job-quest/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` together.
 
 ## Shared Layout
 
@@ -127,6 +136,8 @@ bash ~/.job-quest/bin/uninstall.sh --keep-data
 bash ~/.job-quest/bin/reinstall.sh
 bash ~/.job-quest/bin/reinstall.sh --keep-data
 ```
+
+Uninstall also removes the Claude Code plugin `job-quest@job-quest-local` and the `job-quest-local` marketplace when the `claude` CLI is available.
 
 ## Runtime Docs
 

@@ -170,9 +170,83 @@ echo "Installing shared references..."
 cp "$APP_DIR/skill/references/intel-agent-template.md" "$REFERENCES_DIR/intel-agent-template.md"
 
 echo "Installing runtime registration artifacts..."
-mkdir -p "$CLAUDE_SKILL_DIR" "$CODEX_SKILL_DIR"
-cp "$APP_DIR/skill/SKILL.md" "$CLAUDE_SKILL_DIR/SKILL.md"
-cp "$APP_DIR/skill/SKILL.md" "$CODEX_SKILL_DIR/SKILL.md"
+SKILL_SOURCE="$APP_DIR/plugins/job-quest/skills/job-quest/SKILL.md"
+mkdir -p "$CODEX_SKILL_DIR"
+cp "$SKILL_SOURCE" "$CODEX_SKILL_DIR/SKILL.md"
+
+# Claude Code: register the plugin job-quest@job-quest-local from the
+# job-quest-local marketplace in this checkout. The ~/.claude/skills copy is
+# only a fallback for when the claude CLI is missing or the plugin cannot be
+# made current. Every claude call reads /dev/null, because under
+# `curl ... | bash` stdin is the rest of this script.
+CLAUDE_PLUGIN_ID="job-quest@job-quest-local"
+CLAUDE_MARKETPLACE="job-quest-local"
+CLAUDE_PLUGIN_OK=0
+CLAUDE_PLUGIN_WHY=""
+
+run_claude() {
+  claude "$@" </dev/null >/dev/null 2>&1 || true
+}
+
+plugin_field() {
+  node "$APP_DIR/lib/runtime.js" claude-plugin-status --source "$APP_DIR" --field "$1" 2>/dev/null || true
+}
+
+plugin_current() {
+  node "$APP_DIR/lib/runtime.js" claude-plugin-status --source "$APP_DIR" >/dev/null 2>&1
+}
+
+if command -v claude >/dev/null 2>&1; then
+  echo "  Registering Claude Code plugin $CLAUDE_PLUGIN_ID..."
+  MARKETPLACE_STATE="$(plugin_field marketplace)"
+  if [ "$MARKETPLACE_STATE" = "current" ]; then
+    run_claude plugin marketplace update "$CLAUDE_MARKETPLACE"
+  else
+    if [ "$MARKETPLACE_STATE" = "other" ]; then
+      run_claude plugin marketplace remove "$CLAUDE_MARKETPLACE"
+    fi
+    run_claude plugin marketplace add "$APP_DIR" --scope user
+  fi
+
+  if [ "$(plugin_field marketplace)" != "current" ]; then
+    CLAUDE_PLUGIN_WHY="the $CLAUDE_MARKETPLACE marketplace could not be registered from $APP_DIR"
+  else
+    if ! plugin_current; then
+      run_claude plugin install "$CLAUDE_PLUGIN_ID" --scope user
+    fi
+    if ! plugin_current; then
+      run_claude plugin update "$CLAUDE_PLUGIN_ID" --scope user
+    fi
+    if ! plugin_current; then
+      run_claude plugin uninstall "$CLAUDE_PLUGIN_ID" --scope user
+      run_claude plugin install "$CLAUDE_PLUGIN_ID" --scope user
+    fi
+    if plugin_current; then
+      CLAUDE_PLUGIN_OK=1
+    else
+      CLAUDE_PLUGIN_WHY="claude plugin install did not leave a current $CLAUDE_PLUGIN_ID"
+    fi
+  fi
+else
+  CLAUDE_PLUGIN_WHY="the claude CLI was not found on PATH"
+fi
+
+if [ "$CLAUDE_PLUGIN_OK" = "1" ]; then
+  rm -rf "$CLAUDE_SKILL_DIR"
+else
+  # Never leave an out-of-date plugin next to the fallback copy.
+  if command -v claude >/dev/null 2>&1 && [ "$(plugin_field record)" = "yes" ]; then
+    run_claude plugin uninstall "$CLAUDE_PLUGIN_ID" --scope user
+    if [ "$(plugin_field record)" = "yes" ]; then
+      echo "  Warning: an out-of-date $CLAUDE_PLUGIN_ID plugin is still installed."
+      echo "    Remove it by hand: claude plugin uninstall $CLAUDE_PLUGIN_ID --scope user"
+    fi
+  fi
+  mkdir -p "$CLAUDE_SKILL_DIR"
+  cp "$SKILL_SOURCE" "$CLAUDE_SKILL_DIR/SKILL.md"
+  echo "  Claude plugin not registered ($CLAUDE_PLUGIN_WHY); installed the skill at ~/.claude/skills/job-quest instead."
+  echo "    To retry: claude plugin marketplace add $APP_DIR && claude plugin install $CLAUDE_PLUGIN_ID"
+fi
 
 echo "Writing runtime descriptor..."
 ACTIVE_RUNTIME="$(node "$APP_DIR/lib/runtime.js" ensure --require-registration |
@@ -198,7 +272,11 @@ echo "  Active runtime:      $ACTIVE_RUNTIME"
 echo "  Shared data:         $DATA_DIR"
 echo ""
 echo "  Registered entrypoints:"
-echo "    Claude: ~/.claude/skills/job-quest/SKILL.md"
+if [ "$CLAUDE_PLUGIN_OK" = "1" ]; then
+  echo "    Claude: plugin $CLAUDE_PLUGIN_ID (/job-quest:job-quest)"
+else
+  echo "    Claude: ~/.claude/skills/job-quest/SKILL.md (fallback; plugin not registered)"
+fi
 echo "    Codex:  ~/.codex/skills/job-quest/SKILL.md"
 echo ""
 echo "  Dashboard:"

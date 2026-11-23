@@ -22,9 +22,12 @@ test -f ~/.job-quest/config/runtime.json
 3. Confirm both runtime registrations exist.
 
 ```bash
-test -f ~/.claude/skills/job-quest/SKILL.md
+# Claude: the plugin is installed (or, in the fallback case, the legacy skill copy exists)
+claude plugin list | grep -q 'job-quest@job-quest-local' || test -f ~/.claude/skills/job-quest/SKILL.md
 test -f ~/.codex/skills/job-quest/SKILL.md
 ```
+
+When the `claude` CLI is available, `claude plugin list` should show `job-quest@job-quest-local` and `~/.claude/skills/job-quest` should not exist.
 
 ## Runtime Config Checks
 

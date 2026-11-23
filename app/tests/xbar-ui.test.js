@@ -142,7 +142,7 @@ test('existing workbook mock-interview links retain the selected page hash when 
 });
 
 test('xbar onboarding and script reference document controls, states and logs', () => {
-  const skill = fs.readFileSync(path.join(__dirname, '../../skill/SKILL.md'), 'utf8');
+  const skill = fs.readFileSync(path.join(__dirname, '../../plugins/job-quest/skills/job-quest/SKILL.md'), 'utf8');
   const onboarding = skill.split('### Phase 7 (macOS only, optional): Offer the Menu Bar Plugin')[1].split('## Returning User Flow')[0];
   const reference = skill.split('### install-xbar.sh (macOS only)')[1].split('## /interview integration')[0];
   for (const section of [onboarding, reference]) {

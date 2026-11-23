@@ -6,7 +6,7 @@ const { execFileSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const install = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf-8');
-const skill = fs.readFileSync(path.join(ROOT, 'skill', 'SKILL.md'), 'utf-8');
+const skill = fs.readFileSync(path.join(ROOT, 'plugins', 'job-quest', 'skills', 'job-quest', 'SKILL.md'), 'utf-8');
 
 test('install.sh symlinks jq into ~/.job-quest/bin and creates the records dir', () => {
   assert.ok(install.includes('ln -sfn "$APP_DIR/skill/bin/jq" "$BIN_DIR/jq"'));
