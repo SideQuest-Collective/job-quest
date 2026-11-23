@@ -83,6 +83,11 @@ TMP_INSTALL="$(mktemp)"
 trap 'rm -f "$TMP_INSTALL"' EXIT
 git -C "$APP_DIR" show "$REMOTE_NAME/$REMOTE_BRANCH:install.sh" > "$TMP_INSTALL"
 
+# Re-running install.sh also refreshes the Claude Code plugin
+# job-quest@job-quest-local (marketplace update, then install/update/reinstall
+# until the cached plugin matches the checkout). Convention: when SKILL.md
+# changes, bump the version in plugins/job-quest/.claude-plugin/plugin.json and
+# .claude-plugin/marketplace.json together.
 log "Applying update from $REMOTE_NAME/$REMOTE_BRANCH..."
 bash "$TMP_INSTALL"
 

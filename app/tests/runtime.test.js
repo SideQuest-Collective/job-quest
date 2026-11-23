@@ -34,7 +34,7 @@ function fixture(t, { saved, env = {} }, install) {
     const repo = path.join(productHome, 'app');
     fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
     fs.mkdirSync(path.join(repo, 'app'));
-    for (const dir of ['skill', 'lib']) {
+    for (const dir of ['skill', 'lib', 'plugins', '.claude-plugin']) {
       fs.cpSync(path.join(ROOT, dir), path.join(repo, dir), { recursive: true });
     }
   }
