@@ -279,7 +279,7 @@ echo "  Shared data:         $DATA_DIR"
 echo ""
 echo "  Registered entrypoints:"
 if [ "$CLAUDE_PLUGIN_OK" = "1" ]; then
-  echo "    Claude: plugin $CLAUDE_PLUGIN_ID (/job-quest:job-quest)"
+  echo "    Claude: plugin $CLAUDE_PLUGIN_ID (/job-quest:job-quest, /job-quest:schedule)"
 else
   echo "    Claude: ~/.claude/skills/job-quest/SKILL.md (fallback; plugin not registered)"
 fi
