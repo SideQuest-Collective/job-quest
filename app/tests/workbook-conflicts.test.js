@@ -41,7 +41,7 @@ test('omitted/null picks and native grade writers cannot erase recorded help, an
 const html=fs.readFileSync(path.resolve(__dirname,'../public/workbook.html'),'utf8');
 const harness=fs.readFileSync(path.join(__dirname,'workbook-viewer.test.js'),'utf8');
 let helper=harness.slice(harness.indexOf('async function loadViewer('),harness.indexOf("test('a viewer answer save"));
-helper=helper.replace('putResponse } = {})','putResponse, getProgress } = {})');
+helper=helper.replace('putResponse, tutorResponse } = {})','putResponse, tutorResponse, getProgress } = {})');
 helper=helper.replace('json: async () => clone(progress)','json: async () => getProgress ? getProgress() : clone(progress)');
 const loadViewer=new Function('vm','clone','html','assert',helper+';return loadViewer;')(vm,value=>JSON.parse(JSON.stringify(value)),html,assert);
 function backend(initial){let current=normalizeProgress(initial);return {read:()=>JSON.parse(JSON.stringify(current)),put:async payload=>{try{current=mergeProgress(current,payload);return response(200,current);}catch(e){return response(e.status,{error:e.message,current:e.current});}},change:fn=>{current=fn(current);}};}

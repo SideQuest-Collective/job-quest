@@ -9,12 +9,12 @@ const existingHarness = fs.readFileSync(path.join(__dirname, 'workbook-viewer.te
 // Reuse the native viewer's complete-IIFE harness, extending only its test
 // inputs and returned private functions. Production code has no test hooks.
 let helper = existingHarness.slice(existingHarness.indexOf('async function loadViewer('), existingHarness.indexOf("test('a viewer answer save"));
-helper = helper.replace('putResponse } = {})', "putResponse, feedbackResponse, pathname='/workbooks/sample', referrer='' } = {})");
+helper = helper.replace('putResponse, tutorResponse } = {})', "putResponse, tutorResponse, feedbackResponse, pathname='/workbooks/sample', referrer='' } = {})");
 helper = helper.replace('const document = {', 'const document = { referrer,');
 helper = helper.replace('document,\n    window:', 'document, crypto, TextEncoder, URL,\n    window:');
 helper = helper.replace("location: { pathname: '/workbooks/sample', hash: '' }", "location: { pathname, hash: '', origin:'http://localhost:3847' }");
 helper = helper.replace("requests.push(url);", "requests.push(url); if(url.startsWith('/api/feedback')||url==='/api/evaluate-answer') return feedbackResponse ? feedbackResponse(url,options) : {ok:true,json:async()=>({attempts:[]})};");
-helper = helper.replace('restoreBrowserDraft };', 'restoreBrowserDraft, submitReview, loadReview, feedbackKey, REVIEWS, reviewMarkup };');
+helper = helper.replace('restoreBrowserDraft, viewTutor,', 'restoreBrowserDraft, submitReview, loadReview, feedbackKey, REVIEWS, reviewMarkup, viewTutor,');
 const loadViewer = new Function('vm', 'clone', 'html', 'assert', 'crypto', 'TextEncoder', 'URL', helper + '; return loadViewer;')(vm, value => JSON.parse(JSON.stringify(value)), html, assert, crypto, TextEncoder, URL);
 const panel = () => ({ isConnected:true, innerHTML:'', querySelectorAll(){return [];} });
 const done = (body, extra={}) => ({ id:body.attemptId, questionId:body.key, source:'workbook', answer:body.userAnswer, createdAt:'2026-10-09T10:00:00Z',status:'done',evaluation:{score:8,maxScore:10,feedback:'Clear answer.',strengths:['Specific'],improvements:['Mention limits']},...extra });

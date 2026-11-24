@@ -37,6 +37,14 @@ function readRef(rel) {
   return fs.readFileSync(path.join(REF_DIR, rel), 'utf-8');
 }
 
+function socraticInstructions() {
+  return readRef('socratic-tutor/SKILL.md');
+}
+
+function socraticGenerationGuidance() {
+  return readRef('socratic-tutor/generation.md') + socraticInstructions();
+}
+
 function renderTemplate(text, vars) {
   return String(text).replace(/\{\{(\w+)\}\}/g, (m, key) => {
     if (!Object.prototype.hasOwnProperty.call(vars, key)) throw new Error(`template variable not provided: ${key}`);
@@ -119,6 +127,7 @@ function plannerPrompt({ meta, research, profile, tier, existingOutline = null, 
     research: research || '(no research available)',
     existingOutline: existing,
     budget: budgetText(tier),
+    socraticGuidance: socraticGenerationGuidance(),
     errors: errors.length
       ? `## Your previous reply was rejected\n\nFix every problem below and reply again with the whole JSON object.\n\n${errors.map((e) => `- ${e}`).join('\n')}`
       : '',
@@ -153,6 +162,7 @@ function writerPrompt({ meta, chapter, research, profile, fix = null }) {
     styleGuide: renderStyleGuide(profile, meta),
     formatSpec: formatSpec(),
     fixSection: fixSection(fix, targetFile),
+    socraticGuidance: socraticGenerationGuidance(),
   });
 }
 
@@ -172,5 +182,5 @@ function editorPrompt({ meta, chapter, profile, reviewFile }) {
 
 module.exports = {
   REF_DIR, renderTemplate, profileVars, profileSummary, renderStyleGuide, formatSpec, budgetText,
-  researcherPrompt, plannerPrompt, writerPrompt, editorPrompt,
+  researcherPrompt, plannerPrompt, writerPrompt, editorPrompt, socraticInstructions,
 };

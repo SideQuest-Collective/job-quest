@@ -38,6 +38,8 @@ HEADERS-END
 
 {{fixSection}}
 
+{{socraticGuidance}}
+
 ## Finish
 
 Before you reply, re-read both files against the format spec. Then reply with one line: `wrote {{targetFile}}`.
