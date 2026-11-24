@@ -25,7 +25,14 @@ fi
 # shellcheck disable=SC1090
 source "$REPO_ROOT/lib/runtime-shell.sh"
 JOB_QUEST_REPO_ROOT="$REPO_ROOT"
-job_quest_load_runtime --require-registration
+if [ "${1:-}" = "--exists" ]; then
+  # --exists: a runtime that fails to load means "could not tell" (exit 2), not "not installed".
+  unset JOB_QUEST_BIN_DIR JOB_QUEST_DATA_DIR
+  job_quest_load_runtime --require-registration >/dev/null 2>&1 || exit 2
+  { [ -n "${JOB_QUEST_BIN_DIR:-}" ] && [ -n "${JOB_QUEST_DATA_DIR:-}" ]; } || exit 2
+else
+  job_quest_load_runtime --require-registration
+fi
 
 RUNNER="$JOB_QUEST_BIN_DIR/run-daily-intel.sh"
 LOG_DIR="$JOB_QUEST_DATA_DIR/logs"
@@ -34,6 +41,50 @@ PLIST_LABEL="com.sidequest.job-quest.daily-intel"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 
 is_macos() { [[ "$OSTYPE" == darwin* ]]; }
+
+# The crontab is listed once per run, and any rewrite is built from that one listing,
+# only when the listing succeeded. read_crontab keeps its output, error text and status.
+CRONTAB_TEXT=""
+CRONTAB_ERR=""
+CRONTAB_STATUS=0
+read_crontab() {
+  local err_file
+  CRONTAB_TEXT=""
+  CRONTAB_STATUS=0
+  if ! err_file="$(mktemp "${TMPDIR:-/tmp}/job-quest-crontab.XXXXXX")"; then
+    CRONTAB_ERR="could not create a temporary file"
+    CRONTAB_STATUS=1
+    return 0
+  fi
+  CRONTAB_TEXT="$(crontab -l 2>"$err_file")" || CRONTAB_STATUS=$?
+  CRONTAB_ERR="$(cat "$err_file" 2>/dev/null || true)"
+  rm -f "$err_file"
+}
+
+# ok: the listing succeeded. none: the user has no crontab. error: anything else.
+crontab_state() {
+  if [ "$CRONTAB_STATUS" -eq 0 ]; then
+    echo ok
+  elif [[ "$CRONTAB_ERR" == *"no crontab for"* ]]; then
+    echo none
+  else
+    echo error
+  fi
+}
+
+crontab_has_marker() {
+  [ -n "$CRONTAB_TEXT" ] && printf '%s\n' "$CRONTAB_TEXT" | grep -qF "$MARKER"
+}
+
+# The captured listing without this script's lines.
+crontab_without_marker() {
+  [ -n "$CRONTAB_TEXT" ] || return 0
+  printf '%s\n' "$CRONTAB_TEXT" | grep -vF "$MARKER" || true
+}
+
+crontab_read_error() {
+  echo "Error: could not read the crontab (${CRONTAB_ERR:-crontab -l exited $CRONTAB_STATUS}); it was left unchanged." >&2
+}
 
 current_cron_from_launchd() {
   [ -f "$PLIST_PATH" ] || return 1
@@ -289,8 +340,17 @@ if [ "${1:-}" = "--show" ]; then
 fi
 
 if [ "${1:-}" = "--exists" ]; then
-  current_cron >/dev/null 2>&1
-  exit $?
+  if is_macos && current_cron_from_launchd >/dev/null 2>&1; then
+    exit 0
+  fi
+  # One captured listing: a failed read (other than "no crontab for") is "could not tell",
+  # and output printed by a failed read never counts as installed.
+  read_crontab
+  case "$(crontab_state)" in
+    ok) crontab_has_marker && exit 0; exit 1 ;;
+    none) exit 1 ;;
+    *) exit 2 ;;
+  esac
 fi
 
 if [ "${1:-}" = "--current-cron" ]; then
@@ -304,10 +364,18 @@ if [ "${1:-}" = "--uninstall" ]; then
   if is_macos; then
     uninstall_launchd && removed=1
   fi
-  if crontab -l 2>/dev/null | grep -q "$MARKER"; then
-    CLEANED=$(crontab -l 2>/dev/null | grep -v "$MARKER")
-    write_crontab "$CLEANED" && { echo "Removed job-quest entry from crontab."; removed=1; }
-  fi
+  read_crontab
+  case "$(crontab_state)" in
+    ok)
+      if crontab_has_marker; then
+        write_crontab "$(crontab_without_marker)" && { echo "Removed job-quest entry from crontab."; removed=1; }
+      fi ;;
+    none) ;;
+    *)
+      crontab_read_error
+      echo "Could not check the crontab for a job-quest entry." >&2
+      exit 1 ;;
+  esac
   [ $removed -eq 0 ] && echo "No job-quest schedule to remove."
   exit 0
 fi
@@ -326,7 +394,7 @@ if [ -z "$CRON_EXPR" ]; then
   echo ""
   echo "Other commands:"
   echo "  $0 --show       Print current schedule"
-  echo "  $0 --exists     Exit 0 if a schedule is installed"
+  echo "  $0 --exists     Exit 0 if a schedule is installed, 1 if not, 2 if it could not tell"
   echo "  $0 --current-cron  Print the current cron expression"
   echo "  $0 --uninstall  Remove the schedule"
   echo ""
@@ -348,14 +416,25 @@ mkdir -p "$LOG_DIR"
 if is_macos && [ "$FORCE_CRON" = false ]; then
   install_launchd "$CRON_EXPR" || exit 1
   # Clean up any old crontab entry from prior installs to avoid double-firing
-  if crontab -l 2>/dev/null | grep -q "$MARKER"; then
-    CLEANED=$(crontab -l 2>/dev/null | grep -v "$MARKER")
-    write_crontab "$CLEANED" 2>/dev/null && echo "Cleaned up legacy crontab entry."
+  # (best effort: the launchd schedule is installed, so an unreadable crontab is left alone)
+  read_crontab
+  if [ "$(crontab_state)" = ok ] && crontab_has_marker; then
+    if write_crontab "$(crontab_without_marker)" 2>/dev/null; then
+      echo "Cleaned up legacy crontab entry."
+    fi
   fi
 else
   # Linux, or --force-cron on macOS
   NEW_ENTRY="$CRON_EXPR $RUNNER $MARKER"
-  EXISTING=$(crontab -l 2>/dev/null | grep -v "$MARKER" || true)
+  read_crontab
+  case "$(crontab_state)" in
+    ok) EXISTING="$(crontab_without_marker)" ;;
+    none) EXISTING="" ;;
+    *)
+      crontab_read_error
+      echo "The daily intel schedule was not installed." >&2
+      exit 1 ;;
+  esac
   if [ -n "$EXISTING" ]; then
     write_crontab "$(printf '%s\n%s' "$EXISTING" "$NEW_ENTRY")" || exit 1
   else

@@ -39,7 +39,7 @@ echo "  Claude skill: $CLAUDE_SKILL_DIR"
 echo "  Codex skill:  $CODEX_SKILL_DIR"
 echo "  Legacy shim:  $LEGACY_HOME"
 echo "  Server:       node listener on port ${JOB_QUEST_PORT:-${PORT:-3847}} (if running)"
-echo "  Schedule:     daily intel cron/launchd entry"
+echo "  Schedule:     daily intel, interview trainer and daily podcast cron/launchd entries"
 echo "  Menu bar:     xbar plugin (if installed)"
 echo ""
 
@@ -68,6 +68,29 @@ else
   echo "  Warning: dashboard stop helper not found; skipping server stop." >&2
 fi
 
+# Remove the crontab lines holding any of the given markers. The crontab is listed once,
+# and rewritten from that same listing only when it succeeded and holds a marker; a
+# failed listing, no crontab or no matching line means no rewrite. Never stops the uninstall.
+remove_crontab_entries() {
+  local listing status=0 kept marker found=0
+  local args=()
+  listing="$(crontab -l 2>/dev/null)" || status=$?
+  [ "$status" -eq 0 ] || return 0
+  [ -n "$listing" ] || return 0
+  for marker in "$@"; do
+    args+=(-e "$marker")
+    if printf '%s\n' "$listing" | grep -qF "$marker"; then found=1; fi
+  done
+  [ "$found" -eq 1 ] || return 0
+  kept="$(printf '%s\n' "$listing" | grep -vF "${args[@]}" || true)"
+  if [ -n "$kept" ]; then
+    printf '%s\n' "$kept" | crontab - 2>/dev/null || true
+  else
+    printf '' | crontab - 2>/dev/null || true
+  fi
+  return 0
+}
+
 SCHEDULE_REMOVER="$BIN_DIR/install-schedule.sh"
 if [ -x "$SCHEDULE_REMOVER" ]; then
   "$SCHEDULE_REMOVER" --uninstall || true
@@ -75,9 +98,7 @@ else
   PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.daily-intel.plist"
   [ -f "$PLIST" ] && launchctl unload "$PLIST" 2>/dev/null || true
   [ -f "$PLIST" ] && rm -f "$PLIST"
-  if crontab -l 2>/dev/null | grep -q "# job-quest-daily-intel"; then
-    crontab -l 2>/dev/null | grep -v "# job-quest-daily-intel" | crontab - 2>/dev/null || true
-  fi
+  remove_crontab_entries "# job-quest-daily-intel"
 fi
 
 TRAINER_SCHEDULE_REMOVER="$BIN_DIR/install-trainer-schedule.sh"
@@ -90,9 +111,17 @@ else
   REPLIES_PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.trainer-replies.plist"
   [ -f "$REPLIES_PLIST" ] && launchctl unload "$REPLIES_PLIST" 2>/dev/null || true
   [ -f "$REPLIES_PLIST" ] && rm -f "$REPLIES_PLIST"
-  if crontab -l 2>/dev/null | grep -qe "# job-quest-interview-trainer" -e "# job-quest-trainer-replies"; then
-    crontab -l 2>/dev/null | grep -v "# job-quest-interview-trainer" | grep -v "# job-quest-trainer-replies" | crontab - 2>/dev/null || true
-  fi
+  remove_crontab_entries "# job-quest-interview-trainer" "# job-quest-trainer-replies"
+fi
+
+PODCAST_SCHEDULE_REMOVER="$BIN_DIR/install-podcast-schedule.sh"
+if [ -x "$PODCAST_SCHEDULE_REMOVER" ]; then
+  "$PODCAST_SCHEDULE_REMOVER" --uninstall || true
+else
+  PODCAST_PLIST="$HOME/Library/LaunchAgents/com.sidequest.job-quest.daily-podcast.plist"
+  [ -f "$PODCAST_PLIST" ] && launchctl unload "$PODCAST_PLIST" 2>/dev/null || true
+  [ -f "$PODCAST_PLIST" ] && rm -f "$PODCAST_PLIST"
+  remove_crontab_entries "# job-quest-daily-podcast"
 fi
 
 XBAR_PLUGIN="$HOME/Library/Application Support/xbar/plugins/job-quest.5m.sh"

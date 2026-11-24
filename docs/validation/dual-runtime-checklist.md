@@ -87,6 +87,18 @@ Expected outcomes:
 2. Confirm Claude uses the shared install rather than creating a second product home.
 3. Confirm `runtime.json` keeps or switches `activeRuntime` to `claude` when Claude is the validated invoking runtime.
 
+## Schedule Command Walkthrough (/job-quest:schedule)
+
+The command is a prompt, so no automated test can run it. Walk through it by hand in Claude Code and check the state after each step:
+
+1. Remove the daily intel schedule outside Claude (`~/.job-quest/bin/install-schedule.sh --uninstall`) and make sure `~/.job-quest/data/intel-schedule-preference.json` does not say frequency `off`. Start a new session: the SessionStart note says the daily intel schedule is missing and names `/job-quest:schedule`. Nothing was installed: `~/.job-quest/bin/install-schedule.sh --exists` still exits 1.
+2. Type `/job-quest:schedule intel off` and confirm. Then `~/.job-quest/bin/install-schedule.sh --exists` exits 1 and `~/.job-quest/data/intel-schedule-preference.json` has frequency `off`, with `time` and `cron` null. Start a new session: no note.
+3. Type `/job-quest:schedule intel` and choose weekdays at 07:03. Then `~/.job-quest/bin/install-schedule.sh --exists` exits 0 and the preference has frequency `weekdays` (or `daily`, if chosen), `time` `07:03` and `cron` `3 7 * * 1-5` (`3 7 * * *` for daily).
+4. Put `"schedule": "external"` in `~/.job-quest/data/local-setup.json` and remove the schedule again. `/job-quest:schedule` says a missing native schedule is expected and asks before installing one. A new session shows no note.
+5. Replace the preference file with invalid JSON. `/job-quest:schedule` reports it as unreadable and leaves it byte for byte as it was; a new session (with no schedule installed) shows the "status unknown" note, not "missing".
+6. Type `/job-quest:schedule trainer 9-21`. Then `~/.job-quest/bin/install-trainer-schedule.sh --exists` exits 0 and `~/.job-quest/data/trainer/config.json` has `startHour` 9 and `endHour` 21, with its other keys unchanged.
+7. Type `/job-quest:schedule podcast 08:30`. Then `~/.job-quest/bin/install-podcast-schedule.sh --exists` exits 0. Remove it with `/job-quest:schedule podcast off`: `--exists` exits 1.
+
 ## Codex Flow
 
 1. Invoke Job Quest from Codex.
