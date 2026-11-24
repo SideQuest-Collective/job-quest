@@ -180,16 +180,13 @@ test('expand, retry, and delete guard their preconditions', async () => {
   });
 });
 
-test('saving a role through role-actions auto-builds exactly one workbook', async () => {
+test('saving or applying a role through role-actions builds no workbook', async () => {
   await withServer(tmp(), async (base) => {
     const body = { saved: ['Beta|Senior SWE'], skipped: [], applied: [] };
     await call(base, '/api/role-actions', 'POST', body);
-    await call(base, '/api/role-actions', 'POST', body);
     await call(base, '/api/role-actions', 'POST', { ...body, applied: ['Beta|Senior SWE'] });
-    const list = await (await call(base, '/api/workbooks')).json();
-    assert.equal(list.length, 1);
-    assert.deepEqual([list[0].roleKeys, list[0].trigger], [['Beta|Senior SWE'], 'auto-saved']);
-    assert.deepEqual((await (await call(base, '/api/workbooks/backfill')).json()).candidates, []);
+    assert.deepEqual(await (await call(base, '/api/workbooks')).json(), []);
+    assert.deepEqual((await (await call(base, '/api/workbooks/backfill')).json()).candidates, [], 'no accepted resume yet');
   });
 });
 
@@ -212,14 +209,15 @@ test('idle retry starts generating without a stale queued overwrite and blocks d
   });
 });
 
-test('auto-save and backfill persist deferred status from the enqueue result', async () => {
+test('saving builds no workbook, and backfill persists deferred status from the enqueue result', async () => {
   const dir = tmp();
+  const accepted = path.join(dir, 'resume', 'tailored', 'backfill');
+  fs.mkdirSync(accepted, { recursive: true });
+  fs.writeFileSync(path.join(accepted, 'meta.json'), JSON.stringify({ id: 'backfill', roleKeys: ['Backfill|Eng'], accepted: true }));
   await withServer(dir, async (base) => {
-    await call(base, '/api/settings', 'PUT', { workbooks: { autoDailyCap: 0 } });
-    await call(base, '/api/role-actions', 'POST', { saved: ['Deferred|Eng'], applied: [], skipped: [] });
-    assert.equal(store.findByRoleKey(dir, 'Deferred|Eng').status, 'deferred');
-    await call(base, '/api/settings', 'PUT', { workbooks: { autoBuild: false } });
-    await call(base, '/api/role-actions', 'POST', { saved: ['Deferred|Eng', 'Backfill|Eng'], applied: [], skipped: [] });
+    await call(base, '/api/settings', 'PUT', { workbooks: { autoDailyCap: 0, autoBuild: false } });
+    await call(base, '/api/role-actions', 'POST', { saved: ['Saved|Eng', 'Backfill|Eng'], applied: [], skipped: [] });
+    assert.equal(store.findByRoleKey(dir, 'Saved|Eng'), null, 'saving alone builds nothing');
     assert.deepEqual((await (await call(base, '/api/workbooks/backfill')).json()).candidates, ['Backfill|Eng']);
     const response = await call(base, '/api/workbooks/backfill', 'POST');
     assert.equal(response.status, 200);

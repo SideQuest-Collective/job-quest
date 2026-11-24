@@ -195,6 +195,7 @@ test('queue-only unresolved outreach remains visible without inventing a due rep
 test('native reports dedupe canonical URLs and local draft refresh preserves unsaved edits', () => {
   const source = fs.readFileSync(process.env.OPPORTUNITIES_UI_SOURCE || path.join(__dirname, '../public/opportunities.jsx'), 'utf8');
   const context = { window: {}, URL };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../lib/jobs/role-identity.js'), 'utf8'), context);
   vm.runInNewContext(source.slice(0, source.indexOf('window.Opportunities =')), context);
   const roles = context.window.dedupeJobQuestRoles([
     { date: '2026-10-08', roles: [

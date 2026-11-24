@@ -20,6 +20,9 @@ Check, in this order, and fix what you can in place:
 5. Every question makes sense without the chapter open, says exactly what is asked, and (for written questions) says what a complete answer covers.
 6. Multiple-choice options are plausible and similar in length; the answer key explains each wrong option.
 7. Answer keys start with the answer in one sentence.
+8. No term is used before it is defined, and nothing is written as shorthand notes, arrow chains or fragments: rewrite those as plain full sentences.
+9. System design chapters keep every required `##` section, the requirements and entities tables have a plain-meaning column, and every diagram is followed by a list explaining each box.
+10. Algorithm chapters end with related questions a reader has not seen, in the same style, with short answers.
 
 ## Hard limits
 

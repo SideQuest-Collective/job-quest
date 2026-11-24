@@ -1,0 +1,32 @@
+/* Graphite & coral: shared by the dashboard and standalone workbooks. */
+:root {
+  color-scheme:dark;
+  --jq-canvas:#242527; --jq-rail:#1a1b1d; --jq-panel:#303133;
+  --jq-surface:#393a3d; --jq-surface-hover:#454649;
+  --jq-text:#f7f5f1; --jq-secondary:#d1ceca; --jq-muted:#b9b9b7;
+  --jq-border:#555557; --jq-border-hover:#85817e;
+  --jq-accent:#f3a18b; --jq-accent-hover:#ffc0ab; --jq-accent-ink:#351e18; --jq-accent-soft:#4b3834;
+  --jq-focus:#ffc0ab; --jq-selected-border:#bd8474;
+  --jq-positive:#96d9b9; --jq-positive-soft:#2b4137;
+  --jq-warning:#e8ca88; --jq-warning-soft:#453e2e;
+  --jq-negative:#f4a1aa; --jq-negative-soft:#4d333b;
+  --jq-cyan:#a8d8e6; --jq-cyan-soft:#2e4148;
+  --jq-violet:#d2bde8; --jq-violet-soft:#403748;
+  --jq-blue:#b3c9ec; --jq-blue-soft:#343f50;
+  --jq-font:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+:root[data-theme="light"] {
+  color-scheme:light;
+  --jq-canvas:#f7f6f4; --jq-rail:#eeece9; --jq-panel:#ffffff;
+  --jq-surface:#f0ece8; --jq-surface-hover:#e7e0da;
+  --jq-text:#292827; --jq-secondary:#514d49; --jq-muted:#666360;
+  --jq-border:#ccc4be; --jq-border-hover:#8c7e75;
+  --jq-accent:#994330; --jq-accent-hover:#7d3424; --jq-accent-ink:#ffffff; --jq-accent-soft:#f6e1da;
+  --jq-focus:#994330; --jq-selected-border:#b97360;
+  --jq-positive:#246448; --jq-positive-soft:#deeee4;
+  --jq-warning:#795614; --jq-warning-soft:#f4ead1;
+  --jq-negative:#a12d43; --jq-negative-soft:#f8e0e5;
+  --jq-cyan:#216277; --jq-cyan-soft:#dfeef2;
+  --jq-violet:#6c468c; --jq-violet-soft:#eee4f6;
+  --jq-blue:#345e98; --jq-blue-soft:#e2eaf6;
+}

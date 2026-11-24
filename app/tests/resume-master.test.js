@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   emptyMaster, formatDate, formatRange, parseDisplayDate, validateMaster, assignIds,
-  masterBulletIndex, allMasterText, renderMarkdown, readMaster, writeMaster,
+  masterBulletIndex, eligibleMaster, allMasterText, renderMarkdown, readMaster, writeMaster,
 } = require('../lib/resume/master');
 const { loadMaster, tmpDir } = require('./helpers/resume-fixtures');
 
@@ -115,6 +115,21 @@ test('validation reports bad dates, duplicate ids, empty text and dangling varia
   assert.ok(errors.some((e) => /variantOf .*proj\.pantry\.99/.test(e)), errors.join('\n'));
 });
 
+test('tailor must be a boolean, and eligibleMaster drops tailor: false bullets and emptied projects', () => {
+  const m = loadMaster();
+  m.experience[0].roles[0].bullets[4].tailor = false;
+  m.experience[0].roles[1].bullets[0].tailor = true;
+  m.projects[0].bullets[0].tailor = false;
+  assert.deepEqual(validateMaster(m), { ok: true, errors: [] });
+  const e = eligibleMaster(m);
+  assert.deepEqual(e.experience[0].roles[0].bullets.map((b) => b.id), ['exp.sr.1', 'exp.sr.2', 'exp.sr.3', 'exp.sr.4']);
+  assert.equal(e.experience[0].roles[1].bullets.length, 4);
+  assert.deepEqual(e.projects.map((p) => p.id), ['proj.relay']);
+  assert.equal(m.experience[0].roles[0].bullets.length, 5, 'the master itself is not changed');
+  m.experience[0].roles[2].bullets[0].tailor = 'no';
+  assert.ok(validateMaster(m).errors.includes('experience[0].roles[2].bullets[0].tailor: must be true or false'));
+});
+
 test('assignIds keeps existing ids, numbers new bullets, and never reuses a deleted id', () => {
   const prev = loadMaster();
   const next = JSON.parse(JSON.stringify(prev));
@@ -142,7 +157,7 @@ test('bullet index and all-master text', () => {
   const m = loadMaster();
   const idx = masterBulletIndex(m);
   assert.equal(idx.size, 16);
-  assert.deepEqual({ ...idx.get('exp.ii.2'), text: undefined }, { id: 'exp.ii.2', text: undefined, kind: 'exp', employerId: 'globex', roleId: 'ii', label: 'Software Engineer II at Globex Corp' });
+  assert.deepEqual({ ...idx.get('exp.ii.2'), text: undefined }, { id: 'exp.ii.2', text: undefined, kind: 'exp', employerId: 'globex', roleId: 'ii', label: 'Software Engineer II at Globex Corp', excluded: false });
   assert.equal(idx.get('proj.relay.2').kind, 'proj');
   const text = allMasterText(m);
   assert.match(text, /Feb 2022 – Present/);

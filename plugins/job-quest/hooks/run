@@ -1,0 +1,89 @@
+#!/bin/sh
+# Job Quest SessionStart hook (startup only). Report only: it checks whether the daily
+# intel schedule is installed and, when it is not, or when it cannot tell, adds one line
+# of context pointing at /job-quest:schedule. It never installs, repairs or writes
+# anything, and it always exits 0.
+# It runs from the plugin cache, so it reaches Job Quest only through $HOME/.job-quest.
+
+cat >/dev/null 2>&1 || true
+
+JQ_HOME="${HOME:-}/.job-quest"
+PREF_FILE="$JQ_HOME/data/intel-schedule-preference.json"
+SETUP_FILE="$JQ_HOME/data/local-setup.json"
+SCHEDULE_SCRIPT="$JQ_HOME/bin/install-schedule.sh"
+
+MISSING_NOTE="Job Quest: daily intel schedule missing — run /job-quest:schedule to restore it."
+UNKNOWN_NOTE="Job Quest: daily intel schedule status unknown (the check could not run) — run /job-quest:schedule to check."
+
+# The notes hold no quotes or backslashes, so they drop into JSON as they are.
+emit() {
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$1"
+  exit 0
+}
+
+# Prints one word: "silent" when the user turned scheduled intel off or an external review
+# owns it, "unreadable" when a preference file exists but is not a JSON object, else "ok".
+preference_state() {
+  if command -v node >/dev/null 2>&1; then
+    node -e '
+const fs = require("fs");
+let unreadable = false;
+function read(file) {
+  if (!fs.existsSync(file)) return null;
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  } catch (error) { /* fall through */ }
+  unreadable = true;
+  return null;
+}
+const pref = read(process.argv[1]);
+const setup = read(process.argv[2]);
+if ((pref && pref.frequency === "off") || (setup && setup.schedule === "external")) console.log("silent");
+else console.log(unreadable ? "unreadable" : "ok");
+' "$PREF_FILE" "$SETUP_FILE" 2>/dev/null && return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -I -c '
+import json, os, sys
+unreadable = False
+def read(path):
+    global unreadable
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            value = json.load(fh)
+        if isinstance(value, dict):
+            return value
+    except Exception:
+        pass
+    unreadable = True
+    return None
+pref = read(sys.argv[1])
+setup = read(sys.argv[2])
+if (pref and pref.get("frequency") == "off") or (setup and setup.get("schedule") == "external"):
+    print("silent")
+else:
+    print("unreadable" if unreadable else "ok")
+' "$PREF_FILE" "$SETUP_FILE" 2>/dev/null && return 0
+  fi
+  # No parser available: a file that exists cannot be read here.
+  if [ -e "$PREF_FILE" ] || [ -e "$SETUP_FILE" ]; then echo unreadable; else echo ok; fi
+}
+
+STATE="$(preference_state)"
+[ "$STATE" = silent ] && exit 0
+
+[ -x "$SCHEDULE_SCRIPT" ] || emit "$UNKNOWN_NOTE"
+
+"$SCHEDULE_SCRIPT" --exists </dev/null >/dev/null 2>&1
+STATUS=$?
+case "$STATUS" in
+  0) exit 0 ;;
+  1)
+    [ "$STATE" = unreadable ] && emit "$UNKNOWN_NOTE"
+    emit "$MISSING_NOTE" ;;
+  *) emit "$UNKNOWN_NOTE" ;;
+esac
+exit 0

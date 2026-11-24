@@ -124,6 +124,7 @@ function validateMaster(m) {
       if (typeof b.variantOf !== 'string') err(`${bp}.variantOf`, 'must be a string');
       else variants.push({ p: `${bp}.variantOf`, id: b.variantOf });
     }
+    if (b.tailor !== undefined && typeof b.tailor !== 'boolean') err(`${bp}.tailor`, 'must be true or false');
   });
   const roleIds = new Set();
   list(m.experience, 'experience').forEach((e, i) => {
@@ -182,6 +183,16 @@ function validateMaster(m) {
     str(section.title, `${p}.title`);
     str(section.body, `${p}.body`);
   });
+  if (m.projectsGroup !== undefined && m.projectsGroup !== null) {
+    const g = m.projectsGroup;
+    if (typeof g !== 'object' || Array.isArray(g)) err('projectsGroup', 'must be an object or null');
+    else {
+      for (const k of ['name', 'role', 'url', 'intro']) if (g[k] !== undefined) str(g[k], `projectsGroup.${k}`);
+      if (typeof g.name !== 'string' || !g.name.trim()) err('projectsGroup.name', 'must be non-empty text');
+      if (g.start !== undefined) ym(g.start, 'projectsGroup.start', false);
+      if (g.end !== undefined) ym(g.end, 'projectsGroup.end', true);
+    }
+  }
   for (const v of variants) if (!ids.has(v.id)) err(v.p, `variantOf points at unknown bullet ${v.id}`);
   return { ok: errors.length === 0, errors };
 }
@@ -191,14 +202,25 @@ function masterBulletIndex(master) {
   for (const e of master.experience || []) {
     for (const r of e.roles || []) {
       for (const b of r.bullets || []) {
-        idx.set(b.id, { id: b.id, text: b.text, kind: 'exp', employerId: e.id, roleId: r.id, label: `${r.title} at ${e.employer}` });
+        idx.set(b.id, { id: b.id, text: b.text, kind: 'exp', employerId: e.id, roleId: r.id, label: `${r.title} at ${e.employer}`, excluded: b.tailor === false });
       }
     }
   }
   for (const p of master.projects || []) {
-    for (const b of p.bullets || []) idx.set(b.id, { id: b.id, text: b.text, kind: 'proj', projectId: p.id, label: p.name });
+    for (const b of p.bullets || []) idx.set(b.id, { id: b.id, text: b.text, kind: 'proj', projectId: p.id, label: p.name, excluded: b.tailor === false });
   }
   return idx;
+}
+
+// The master as the tailor may use it: bullets marked `tailor: false` are left out,
+// and so is a project with no bullets left.
+function eligibleMaster(master) {
+  const keep = (bullets) => (bullets || []).filter((b) => b && b.tailor !== false);
+  return {
+    ...master,
+    experience: (master.experience || []).map((e) => ({ ...e, roles: (e.roles || []).map((r) => ({ ...r, bullets: keep(r.bullets) })) })),
+    projects: (master.projects || []).map((p) => ({ ...p, bullets: keep(p.bullets) })).filter((p) => p.bullets.length),
+  };
 }
 
 function allMasterText(master) {
@@ -210,6 +232,8 @@ function allMasterText(master) {
       for (const b of r.bullets || []) parts.push(b.text);
     }
   }
+  const group = master.projectsGroup;
+  if (group && typeof group === 'object') parts.push(group.name, group.role, group.url, group.intro, group.start ? formatRange(group.start, group.end) : '');
   for (const p of master.projects || []) {
     parts.push(p.name, (p.tech || []).join(', '));
     for (const b of p.bullets || []) parts.push(b.text);
@@ -241,6 +265,11 @@ function renderMarkdown(master) {
   }
   if ((m.projects || []).length) {
     out.push('', '## Projects');
+    const group = m.projectsGroup;
+    if (group && group.name) {
+      out.push('', `**${[group.name, group.role].filter(Boolean).join(', ')}**${group.start ? ` (${formatRange(group.start, group.end)})` : ''}${group.url ? ` · ${group.url}` : ''}`);
+      if (group.intro) out.push('', group.intro);
+    }
     for (const p of m.projects) {
       out.push('', `### ${p.name}${(p.tech || []).length ? ` (${p.tech.join(', ')})` : ''}`, '');
       for (const b of p.bullets || []) if (!b.variantOf) out.push(`- ${b.text}`);
@@ -296,5 +325,5 @@ function writeMaster(dataDir, next) {
 
 module.exports = {
   emptyMaster, formatDate, formatRange, parseDisplayDate, validateMaster, assignIds,
-  masterBulletIndex, allMasterText, renderMarkdown, readMaster, writeMaster,
+  masterBulletIndex, eligibleMaster, allMasterText, renderMarkdown, readMaster, writeMaster,
 };

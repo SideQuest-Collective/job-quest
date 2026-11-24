@@ -10,14 +10,14 @@ const swapText = (a, b) => (L) => L.map((l) => (l.text === a ? { ...l, text: b }
 
 test('P: the synthetic rendered master passes all six checks', () => {
   const r = checkParseability(syntheticExtract(), { master });
-  assert.equal(r.P, 30, JSON.stringify(r.checks));
+  assert.equal(r.P, 18, JSON.stringify(r.checks));
   assert.deepEqual(r.checks.map((c) => c.id), ['one-page', 'min-words', 'heading-order', 'fonts-embedded', 'ascii-only', 'contact']);
 });
 
 test('P1 exactly one page', () => {
   const r = checkParseability(syntheticExtract(master, { pages: 2 }), { master });
   assert.deepEqual(failed(r), ['one-page']);
-  assert.equal(r.P, 25);
+  assert.equal(r.P, 15);
 });
 
 test('P2 at least 300 words', () => {
@@ -50,15 +50,14 @@ test('P6 email, phone, LinkedIn, and the master location are in the body', () =>
   assert.equal(checkParseability(noPhone, { master }).checks.find((c) => c.id === 'contact').detail, 'missing phone, location');
 });
 
-test('S: four standard headings and the target title (or its last two words)', () => {
-  const kw = { title: 'Senior Software Engineer', required: [], preferred: [] };
-  assert.equal(checkStructure(syntheticExtract(), { keywords: kw }).S, 15);
+test('S: four standard headings, and the job title earns nothing', () => {
+  const r0 = checkStructure(syntheticExtract());
+  assert.equal(r0.S, 12);
+  assert.deepEqual(r0.checks.map((c) => c.id), ['heading-summary', 'heading-experience', 'heading-skills', 'heading-education']);
   const noSummary = syntheticExtract(master, { lines: (L) => L.map((l) => (l.text === 'Summary' ? { ...l, text: 'Profile' } : l)) });
-  const r = checkStructure(noSummary, { keywords: kw });
-  assert.equal(r.S, 12);
+  const r = checkStructure(noSummary);
+  assert.equal(r.S, 9);
   assert.deepEqual(failed(r), ['heading-summary']);
-  assert.equal(checkStructure(syntheticExtract(), { keywords: { title: 'Staff Data Engineer' } }).S, 12);
-  assert.equal(checkStructure(syntheticExtract(), { keywords: { title: 'Principal Software Engineer' } }).S, 15);
 });
 
 test('H: the synthetic master passes all three history checks', () => {

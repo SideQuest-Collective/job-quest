@@ -3,34 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Workbook</title>
+<title>Workbook · Job Quest</title>
+<link rel="stylesheet" href="/theme-tokens.css">
+<link rel="icon" type="image/svg+xml" href="/brand/job-quest-icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png">
+<script src="/theme.js"></script>
 <style>
-:root{
-  --bg:#f7f6f2; --panel:#ffffff; --panel2:#f0eee8; --ink:#1d1c1a; --ink2:#55524c; --ink3:#8a867e;
-  --line:#e2dfd7; --accent:#2c5fd4; --accent-ink:#ffffff; --accent-soft:#e6edfb;
-  --co0:#7a3fd0; --co0-soft:#f0e8fb; --co1:#0f6e62; --co1-soft:#e1f2ef; --both:#8a5a12; --both-soft:#f7eedd;
-  --good:#1f7a3a; --good-soft:#e2f3e6; --warn:#9a6300; --warn-soft:#fbf0d9; --bad:#b3261e; --bad-soft:#fbe3e1;
-  --code-bg:#f2f1ec; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04);
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
-  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#141413; --panel:#1d1c1b; --panel2:#262523; --ink:#ecebe7; --ink2:#b5b2aa; --ink3:#86837c;
-    --line:#34322f; --accent:#7ea2ff; --accent-ink:#0d0d0c; --accent-soft:#1f2940;
-    --co0:#b98cff; --co0-soft:#2d2140; --co1:#4fc4b2; --co1-soft:#153530; --both:#e0b064; --both-soft:#3a2d15;
-    --good:#6fd18a; --good-soft:#173322; --warn:#f0c060; --warn-soft:#3a2f14; --bad:#ff8a80; --bad-soft:#3f1d1b;
-    --code-bg:#232220; --shadow:none;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#141413; --panel:#1d1c1b; --panel2:#262523; --ink:#ecebe7; --ink2:#b5b2aa; --ink3:#86837c;
-  --line:#34322f; --accent:#7ea2ff; --accent-ink:#0d0d0c; --accent-soft:#1f2940;
-  --co0:#b98cff; --co0-soft:#2d2140; --co1:#4fc4b2; --co1-soft:#153530; --both:#e0b064; --both-soft:#3a2d15;
-  --good:#6fd18a; --good-soft:#173322; --warn:#f0c060; --warn-soft:#3a2f14; --bad:#ff8a80; --bad-soft:#3f1d1b;
-  --code-bg:#232220; --shadow:none;
-}
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
@@ -87,6 +66,11 @@ h4,h5{font-size:14px;margin:16px 0 4px;color:var(--ink2)}
 .prose code{overflow-wrap:anywhere;font:13px var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:5px}
 .prose pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;font:13px/1.5 var(--mono)}
 .prose pre.code code{background:none;padding:0;font:inherit}
+.prose figure.diagram{margin:14px 0 18px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-x:auto}
+.prose figure.diagram svg{width:100%;min-width:520px;height:auto;display:block}
+.prose figure.diagram figcaption{text-align:center;font-size:13px;color:#555;font-style:italic;margin-top:6px}
+.prose .diagram-legend{margin:0 0 6px;color:#222}
+.prose pre.diagram-error{border:1px solid #c33;color:#900;padding:8px;border-radius:8px;white-space:pre-wrap}
 .prose blockquote{margin:12px 0;padding:10px 14px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0}
 .prose blockquote p{margin:4px 0}
 .prose .tbl{overflow-x:auto;margin:10px 0}
@@ -175,26 +159,50 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .card{box-shadow:none}
 }
 </style>
+<link rel="stylesheet" href="/workbook-theme.css">
 </head>
 <body>
-<header class="top">
-  <a class="back-jq" id="backJobQuest" href="/#workbooks">← Job Quest</a>
+<header class="top" id="workbookHeader">
+  <a class="back-jq" id="backJobQuest" href="/#workbooks"><img src="/brand/job-quest-mark.svg" width="34" height="25" alt="" style="vertical-align:middle;margin-right:6px">Job Quest</a>
   <button class="iconbtn" id="menuBtn" aria-label="Menu">☰</button>
   <div class="brand" id="brand">Workbook<small id="brandSub"></small></div>
   <div class="grow"></div>
   <input id="search" type="search" aria-label="Search workbook" placeholder="Search notes and questions  ( / )" autocomplete="off">
-  <button class="iconbtn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  <button class="iconbtn" id="themeBtn" title="Switch to light theme" aria-label="Switch to light theme">◐</button>
 </header>
 <div class="layout">
   <nav class="side" id="side"></nav>
   <main id="main"><div class="card" style="max-width:60ch"><h2 style="margin-top:0">Loading workbook…</h2><p>If this stays, open the page in a web browser with JavaScript turned on. Offline copies work with no internet.</p></div></main>
 </div>
 
+
+
+<!--WB-DIAGRAM-->
 <!--WB-DATA-->
 
 <script>
 (async function(){
 'use strict';
+/* ---------- shared appearance and header layout ---------- */
+  const header=document.getElementById('workbookHeader');
+  function measureHeader(){document.documentElement.style.setProperty('--wb-header-height',header.getBoundingClientRect().height+'px');}
+  measureHeader();
+  if(window.ResizeObserver)new window.ResizeObserver(measureHeader).observe(header);
+  else window.addEventListener('resize',measureHeader);
+  const button=document.getElementById('themeBtn');
+  function updateThemeButton(){
+    const theme=window.JobQuestTheme.get();
+    const label='Switch to '+(theme==='dark'?'light':'dark')+' theme';
+    button.setAttribute('aria-label',label);
+    button.title=label;
+    button.textContent=theme==='dark'?'☀':'◐';
+  }
+  if(window.JobQuestTheme){
+    button.addEventListener('click',function(){window.JobQuestTheme.toggle();});
+    window.JobQuestTheme.subscribe(updateThemeButton);
+    updateThemeButton();
+  }else button.hidden=true;
+
 /* ---------- tiny markdown ---------- */
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function inline(s){
@@ -229,7 +237,8 @@ function md(src){
   const L=src.replace(/\r/g,'').split('\n');const out=[];let i=0;
   while(i<L.length){
     const l=L[i];
-    if(/^\s*```/.test(l)){const b=[];i++;while(i<L.length&&!/^\s*```/.test(L[i])){b.push(L[i]);i++;}i++;
+    if(/^\s*```/.test(l)){const isDiagram=/^\s*```diagram\s*$/.test(l);const b=[];i++;while(i<L.length&&!/^\s*```/.test(L[i])){b.push(L[i]);i++;}i++;
+      if(isDiagram&&window.WBDiagram){out.push(window.WBDiagram.renderDiagram(b.join('\n')));continue;}
       out.push('<pre class="code"><code>'+esc(b.join('\n'))+'</code></pre>');continue;}
     if(/^\s*$/.test(l)){i++;continue;}
     const h=l.match(/^(#{2,5})\s+(.*)$/);if(h){out.push('<h'+h[1].length+'>'+inline(h[2])+'</h'+h[1].length+'>');i++;continue;}
@@ -277,10 +286,9 @@ COMPANIES.forEach(function(c){CO[c]=(META.companyNames&&META.companyNames[c])||c
 const HAS_BOTH=CHAPTERS.concat(QUESTIONS).some(function(x){return x.company==='both';});
 document.getElementById('brandSub').textContent=COMPANIES.map(function(c){return CO[c];}).join(' · ');
 /* ---------- state: progress lives on the server ---------- */
-const THEME_KEY='workbook.theme';
 const PENDING_KEY='workbook.'+(OFFLINE?(META.id||'offline')+'.offline':WB_ID+'.pending');
 const QTYPE={};QUESTIONS.forEach(function(q){QTYPE[q.id]=q.type||'open';});
-let S={read:{},ans:{},flag:{},draft:{},theme:null,last:null,legacyDone:false};
+let S={read:{},ans:{},flag:{},draft:{},last:null,legacyDone:false};
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}}
 const TO_SERVER={correct:'got',got:'got',partial:'partial',wrong:'missed',miss:'missed'};
@@ -479,11 +487,6 @@ else{
   backJobQuest.href=returnUrl;
   backJobQuest.onclick=async function(e){e.preventDefault();clearTimeout(saveTimer);await flush();if(canGoBack&&typeof history!=='undefined'&&history.length===enteredHistoryLength&&history.length>1)history.back();else location.href=returnUrl;};
 }
-S.theme=lsGet(THEME_KEY);
-if(S.theme)document.documentElement.setAttribute('data-theme',S.theme);
-document.getElementById('themeBtn').onclick=function(){
-  const cur=document.documentElement.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
-  S.theme=cur==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',S.theme);lsSet(THEME_KEY,S.theme);};
 /* ---------- helpers ---------- */
 const $main=document.getElementById('main'),$side=document.getElementById('side');
 function chip(c){const i=COMPANIES.indexOf(c);return '<span class="chip '+(c==='both'?'both':i>=0?'co'+(i%3):'')+'">'+esc(CO[c]||c)+'</span>';}
@@ -745,7 +748,7 @@ function viewProgress(){
     const pc=function(x){return (100*x/t.n).toFixed(1)+'%';};
     return '<tr><td>'+chip(t.co)+'</td><td><a href="#practice/'+esc(t.co==='both'?'all':t.co)+'" data-topic="'+esc(t.topic)+'">'+esc(t.topic)+'</a></td><td><div class="bar"><i class="g" style="width:'+pc(t.g)+'"></i><i class="w" style="width:'+pc(t.p)+'"></i><i class="b" style="width:'+pc(t.b)+'"></i></div></td><td class="n">'+(t.g+t.p+t.b)+'/'+t.n+'</td></tr>';}).join('')+'</tbody></table></div>';
   h+='<h2>Your progress</h2><p class="muted small">'+(OFFLINE?'This is an offline copy: progress saves in this browser only.':'Progress is saved to your Job Quest dashboard, so it survives clearing this browser.')+'</p>';
-  if(!OFFLINE)h+='<div class="row"><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/export">Download offline copy</a><label class="btn">Import a progress file<input type="file" id="imp" accept="application/json" class="hidden"></label></div>';
+  if(!OFFLINE)h+='<div class="row"><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/pdf">Download study guide (PDF)</a><a class="btn" href="/api/workbooks/'+encodeURIComponent(WB_ID)+'/export">Interactive copy (HTML)</a><label class="btn">Import a progress file<input type="file" id="imp" accept="application/json" class="hidden"></label></div>';
   $main.innerHTML=h;
   $main.querySelectorAll('[data-topic]').forEach(function(a){a.onclick=function(){P.topic=a.dataset.topic;P.st='';};});
   if(lsGet(CONFLICT_BACKUP_KEY)){const restore=document.createElement('button');restore.className='btn';restore.textContent='Restore previous browser draft';restore.onclick=restoreBrowserDraft;if($main.appendChild)$main.appendChild(restore);}

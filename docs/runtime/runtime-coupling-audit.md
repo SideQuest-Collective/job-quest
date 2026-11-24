@@ -4,6 +4,8 @@
 
 This audit inventories the current Claude-coupled surfaces that later compatibility phases must revisit. Every finding in this document maps back to a committed repo file so follow-on changes can stay source-linked and reviewable, and the scope now covers every repo-visible Claude-coupled documentation surface, including the app-local README.
 
+> Note (T-0028): the skill has since moved from `skill/SKILL.md` to `plugins/job-quest/skills/job-quest/SKILL.md`, packaged as the Claude Code plugin `job-quest@job-quest-local`. References to `skill/SKILL.md` below are kept as the original audit record.
+
 ## Runtime Coupling Inventory
 
 | Layer | File | Claude-specific assumption | Why it blocks Codex | Target follow-on phase |

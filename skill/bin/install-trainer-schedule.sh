@@ -9,7 +9,7 @@
 #
 # Pass --uninstall to remove the schedule.
 # Pass --show to print the current schedule.
-# Pass --exists to exit 0 if a schedule is installed.
+# Pass --exists to exit 0 if a schedule is installed, 1 if not, 2 if it could not tell.
 
 set -euo pipefail
 
@@ -26,7 +26,14 @@ fi
 # shellcheck disable=SC1090
 source "$REPO_ROOT/lib/runtime-shell.sh"
 JOB_QUEST_REPO_ROOT="$REPO_ROOT"
-job_quest_load_runtime --require-registration
+if [ "${1:-}" = "--exists" ]; then
+  # --exists: a runtime that fails to load means "could not tell" (exit 2), not "not installed".
+  unset JOB_QUEST_BIN_DIR JOB_QUEST_DATA_DIR
+  job_quest_load_runtime --require-registration >/dev/null 2>&1 || exit 2
+  { [ -n "${JOB_QUEST_BIN_DIR:-}" ] && [ -n "${JOB_QUEST_DATA_DIR:-}" ]; } || exit 2
+else
+  job_quest_load_runtime --require-registration
+fi
 
 RUNNER="$JOB_QUEST_BIN_DIR/run-interview-trainer.sh"
 LOG_DIR="$JOB_QUEST_DATA_DIR/logs"
@@ -43,6 +50,51 @@ REPLIES_PLIST_PATH="$HOME/Library/LaunchAgents/${REPLIES_LABEL}.plist"
 REPLIES_INTERVAL=60
 
 is_macos() { [[ "$OSTYPE" == darwin* ]]; }
+
+# The crontab is listed once per run, and any rewrite is built from that one listing,
+# only when the listing succeeded. read_crontab keeps its output, error text and status.
+CRONTAB_TEXT=""
+CRONTAB_ERR=""
+CRONTAB_STATUS=0
+read_crontab() {
+  local err_file
+  CRONTAB_TEXT=""
+  CRONTAB_STATUS=0
+  if ! err_file="$(mktemp "${TMPDIR:-/tmp}/job-quest-crontab.XXXXXX")"; then
+    CRONTAB_ERR="could not create a temporary file"
+    CRONTAB_STATUS=1
+    return 0
+  fi
+  CRONTAB_TEXT="$(crontab -l 2>"$err_file")" || CRONTAB_STATUS=$?
+  CRONTAB_ERR="$(cat "$err_file" 2>/dev/null || true)"
+  rm -f "$err_file"
+}
+
+# ok: the listing succeeded. none: the user has no crontab. error: anything else.
+crontab_state() {
+  if [ "$CRONTAB_STATUS" -eq 0 ]; then
+    echo ok
+  elif [[ "$CRONTAB_ERR" == *"no crontab for"* ]]; then
+    echo none
+  else
+    echo error
+  fi
+}
+
+# True when the captured listing holds the trainer or the reply poller entry.
+crontab_has_markers() {
+  [ -n "$CRONTAB_TEXT" ] && printf '%s\n' "$CRONTAB_TEXT" | grep -qF -e "$MARKER" -e "$REPLIES_MARKER"
+}
+
+# The captured listing without the trainer and reply poller lines.
+crontab_without_markers() {
+  [ -n "$CRONTAB_TEXT" ] || return 0
+  printf '%s\n' "$CRONTAB_TEXT" | grep -vF -e "$MARKER" -e "$REPLIES_MARKER" || true
+}
+
+crontab_read_error() {
+  echo "Error: could not read the crontab (${CRONTAB_ERR:-crontab -l exited $CRONTAB_STATUS}); it was left unchanged." >&2
+}
 
 current_range_from_launchd() {
   [ -f "$PLIST_PATH" ] || return 1
@@ -256,7 +308,18 @@ show_schedule() {
 
 case "${1:-}" in
   --show) show_schedule; exit 0 ;;
-  --exists) current_range >/dev/null 2>&1; exit $? ;;
+  --exists)
+    if is_macos && current_range_from_launchd >/dev/null 2>&1; then
+      exit 0
+    fi
+    # One captured listing: a failed read (other than "no crontab for") is "could not tell",
+    # and output printed by a failed read never counts as installed.
+    read_crontab
+    case "$(crontab_state)" in
+      ok) printf '%s\n' "$CRONTAB_TEXT" | grep -qF "$MARKER" && exit 0; exit 1 ;;
+      none) exit 1 ;;
+      *) exit 2 ;;
+    esac ;;
   --current-range) current_range; exit $? ;;
   --uninstall)
     removed=0
@@ -264,10 +327,25 @@ case "${1:-}" in
       uninstall_launchd && removed=1
       uninstall_replies_launchd && removed=1
     fi
-    if crontab -l 2>/dev/null | grep -qe "$MARKER" -e "$REPLIES_MARKER"; then
-      crontab -l 2>/dev/null | grep -v "$MARKER" | grep -v "$REPLIES_MARKER" | crontab - 2>/dev/null \
-        && { echo "Removed interview-trainer entries from crontab."; removed=1; }
-    fi
+    read_crontab
+    case "$(crontab_state)" in
+      ok)
+        if crontab_has_markers; then
+          KEPT="$(crontab_without_markers)"
+          if [ -n "$KEPT" ]; then
+            printf '%s\n' "$KEPT" | crontab - 2>/dev/null \
+              && { echo "Removed interview-trainer entries from crontab."; removed=1; }
+          else
+            printf '' | crontab - 2>/dev/null \
+              && { echo "Removed interview-trainer entries from crontab."; removed=1; }
+          fi
+        fi ;;
+      none) ;;
+      *)
+        crontab_read_error
+        echo "Could not check the crontab for interview-trainer entries." >&2
+        exit 1 ;;
+    esac
     [ $removed -eq 0 ] && echo "No interview-trainer schedule to remove."
     exit 0
     ;;
@@ -293,7 +371,15 @@ if is_macos; then
 else
   NEW_ENTRY="0 $RANGE * * * $RUNNER $MARKER"
   REPLIES_ENTRY="*/2 * * * * $JOB_QUEST_BIN_DIR/run-trainer-replies.sh $REPLIES_MARKER"
-  EXISTING=$(crontab -l 2>/dev/null | grep -v "$MARKER" | grep -v "$REPLIES_MARKER" || true)
+  read_crontab
+  case "$(crontab_state)" in
+    ok) EXISTING="$(crontab_without_markers)" ;;
+    none) EXISTING="" ;;
+    *)
+      crontab_read_error
+      echo "The interview-trainer schedule was not installed." >&2
+      exit 1 ;;
+  esac
   if [ -n "$EXISTING" ]; then
     printf '%s\n%s\n%s\n' "$EXISTING" "$NEW_ENTRY" "$REPLIES_ENTRY" | crontab -
   else

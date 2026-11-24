@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const {getPaths, ensureNativeStore, withStoreLock} = require('../outreach/store');
+const {conversationReviewState} = require('../outreach/conversation-review');
 
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 const revision = value => sha(JSON.stringify(value));
@@ -192,6 +194,7 @@ function briefCard(item, q) {
     summary: text(item.summary), fit: text(item.fit), concern: text(item.concern),
     nextAction: text(item.nextAction), availability: text(item.availability),
     checkedAt: text(item.checkedAt) || null,
+    ...conversationReviewState(item, q),
     sourceLinks: sourceLinks(item, q),
     schedulingUrl: validUrl(q?.schedulingUrl) || validUrl(item.schedulingUrl),
     relatedRoleUrl: validUrl(q?.relatedRoleUrl) || validUrl(item.relatedRoleUrl),
@@ -204,7 +207,7 @@ function briefCard(item, q) {
     verifiedAt: text(q?.verifiedAt) || null,
     userReportedReplyStatus: text(q?.userReportedReplyStatus) || null,
     userReportedReplyStatusAt: text(q?.userReportedReplyStatusAt) || null,
-    lastInboundAt: text(q?.lastInboundAt || q?.lastInboundDate) || null,
+    lastInboundAt: [item.lastInboundAt,item.lastInboundDate,q?.lastInboundAt,q?.lastInboundDate].filter(value=>typeof value==='string' && Number.isFinite(Date.parse(value))).sort((a,b)=>Date.parse(b)-Date.parse(a))[0] || null,
     revision: q ? revision(q) : null,
     editable: Boolean(q),
     ...outreachMetadata(item, q),
@@ -219,6 +222,7 @@ function queueOnlyCard(q) {
     company: text(q.company), location: '', summary: text(q.reason), fit: '', concern: '',
     nextAction: 'Review the original conversation before acting.', availability: '',
     checkedAt: text(q.lastReviewedAt || q.verifiedAt || q.sourceCheckAttemptedAt) || null,
+    ...conversationReviewState({}, q),
     sourceLinks: sourceLinks(null, q), schedulingUrl: validUrl(q.schedulingUrl),
     relatedRoleUrl: validUrl(q.relatedRoleUrl),
     draftReply: text(q.draftReply), status: text(q.status) || null,
@@ -364,6 +368,9 @@ function editQueueItem(item, input, now) {
 }
 
 function registerOpportunityRoutes(app, { dataDir, briefPath, queuePath }) {
+  const paths = getPaths(dataDir, {briefPath,queuePath});
+  if (paths.native) ensureNativeStore(dataDir);
+  briefPath = paths.briefPath; queuePath = paths.queuePath;
   const accountsPath = path.join(dataDir, 'opportunity-accounts.json');
 
   app.get('/api/opportunities', (_req, res) => {
@@ -372,11 +379,14 @@ function registerOpportunityRoutes(app, { dataDir, briefPath, queuePath }) {
 
   app.patch('/api/opportunities/:id', (req, res) => {
     if (!queuePath) return res.status(503).json({ error: 'Reply queue is not configured.' });
+    try {return withStoreLock(dataDir, () => {
     const input = req.body;
     if (!isObject(input) || typeof input.revision !== 'string') return res.status(400).json({ error: 'A record revision is required.' });
     const read = readJson(queuePath);
-    if (read.state !== 'ready' || !isObject(read.value)) return res.status(503).json({ error: 'Reply queue is unavailable.' });
+    if (read.state !== 'ready' || !isObject(read.value) || !Array.isArray(read.value.items) || !Array.isArray(read.value.holds)) return res.status(503).json({ error: 'Reply queue is unavailable.' });
     const queue = read.value;
+    const records = [...queue.items, ...queue.holds];
+    if (records.some(item => !isObject(item) || typeof item.id !== 'string' || !item.id) || new Set(records.map(item => item.id)).size !== records.length) return res.status(503).json({ error: 'Reply queue has ambiguous records. Existing data was preserved.' });
     const found = findQueueRecord(queue, req.params.id);
     if (!found) return res.status(404).json({ error: 'Queue item was not found.' });
     if (revision(found.item) !== input.revision) return res.status(409).json({ error: 'This item changed. Refresh before editing.' });
@@ -398,6 +408,7 @@ function registerOpportunityRoutes(app, { dataDir, briefPath, queuePath }) {
     } catch (error) {
       res.status(500).json({ error: 'Could not save the reply queue.' });
     }
+    });} catch (error) {return res.status(error.status || 500).json({error:error.status ? error.message : 'Could not save the reply queue.'});}
   });
 
   app.put('/api/opportunities/accounts', (req, res) => {

@@ -16,12 +16,21 @@ Job Quest is a local job-search command center with a web dashboard, scheduled d
 curl -sL https://raw.githubusercontent.com/SideQuest-Collective/job-quest/main/install.sh | bash
 ```
 
-The installer creates a shared home at `~/.job-quest/`, installs the repo under `~/.job-quest/app/`, writes runtime config to `~/.job-quest/config/runtime.json`, and registers `job-quest` in:
+The installer creates a shared home at `~/.job-quest/`, installs the repo under `~/.job-quest/app/`, writes runtime config to `~/.job-quest/config/runtime.json`, and registers `job-quest` for each runtime:
 
-- `~/.claude/skills/job-quest/SKILL.md`
-- `~/.codex/skills/job-quest/SKILL.md`
+- **Claude Code**: the plugin `job-quest@job-quest-local`, installed from the `job-quest-local` marketplace at `~/.job-quest/app`. It shows up in `claude plugin list`, and the skill runs as `/job-quest:job-quest`. Re-running the installer (or `update.sh`) refreshes it. The plugin also adds `/job-quest:schedule`, which shows and changes the daily intel, trainer and podcast schedules, and a start-of-session check (SessionStart, new sessions only) that adds a one-line note when the daily intel schedule is missing or its status is unknown. The check only reports; it never installs a schedule. The schedules themselves stay launchd/cron jobs outside the plugin.
+- **Codex**: `~/.codex/skills/job-quest/SKILL.md`
+
+A copy at `~/.claude/skills/job-quest/SKILL.md` is written only as a fallback, when the `claude` CLI is missing or the plugin cannot be installed; the installer says why. To register the plugin by hand later:
+
+```bash
+claude plugin marketplace add ~/.job-quest/app
+claude plugin install job-quest@job-quest-local
+```
 
 The active runtime defaults to the CLI that ran the installer and can switch later without reinstall.
+
+Maintainers: the skill lives at `plugins/job-quest/skills/job-quest/SKILL.md`. When it changes, bump the version in `plugins/job-quest/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` together.
 
 ## Shared Layout
 
@@ -106,6 +115,16 @@ Install a weekday schedule:
 
 On macOS this uses `launchd` by default. On Linux it uses `crontab`.
 
+`--exists` works the same way on all three schedule scripts: exit 0 means installed, 1 not installed, and 2 that the script could not tell (for example the runtime failed to load). It never changes anything:
+
+```bash
+~/.job-quest/bin/install-schedule.sh --exists
+~/.job-quest/bin/install-trainer-schedule.sh --exists
+~/.job-quest/bin/install-podcast-schedule.sh --exists
+```
+
+On Linux the scripts change the crontab only from a listing they read successfully; if `crontab -l` fails for any reason other than "no crontab for", they leave it unchanged and report the error. In Claude Code, `/job-quest:schedule` wraps all three scripts.
+
 ## Requirements
 
 - Node.js 18+
@@ -127,6 +146,8 @@ bash ~/.job-quest/bin/uninstall.sh --keep-data
 bash ~/.job-quest/bin/reinstall.sh
 bash ~/.job-quest/bin/reinstall.sh --keep-data
 ```
+
+Uninstall also removes the Claude Code plugin `job-quest@job-quest-local` and the `job-quest-local` marketplace when the `claude` CLI is available.
 
 ## Runtime Docs
 

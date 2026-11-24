@@ -58,7 +58,7 @@ test('install and skill docs know about workbooks', () => {
   const install = fs.readFileSync(path.join(root, 'install.sh'), 'utf-8');
   assert.match(install, /resume-files logs workbooks/);
   assert.match(install, /import-workbook\.sh" "\$BIN_DIR\/import-workbook\.sh"/);
-  const skill = fs.readFileSync(path.join(root, 'skill', 'SKILL.md'), 'utf-8');
+  const skill = fs.readFileSync(path.join(root, 'plugins', 'job-quest', 'skills', 'job-quest', 'SKILL.md'), 'utf-8');
   assert.match(skill, /^## Workbooks$/m);
   assert.match(skill, /^### import-workbook\.sh$/m);
   assert.doesNotMatch(skill, /generate a tailored prep plan/);

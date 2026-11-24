@@ -56,31 +56,17 @@ test('a failed record does not block a new request, which gets a suffixed id', a
   await s.queue.drain();
 });
 
-test('autoTailor respects the off switch and skips roles that already have a resume', async () => {
+test('tailoring is on demand only: no automatic entry point, and requests are never capped or deferred', async () => {
   const s = svc();
-  writeSettings(s.dataDir, { resume: { autoTailor: false } });
-  assert.deepEqual(s.service.autoTailor(key('Acme'), 'auto-saved'), { skipped: 'auto-tailor is off' });
-  assert.deepEqual(s.service.listMeta(), []);
-  writeSettings(s.dataDir, { resume: { autoTailor: true } });
-  s.service.requestTailor(key('Bolt'));
-  assert.deepEqual(s.service.autoTailor(key('Bolt'), 'auto-applied'), { skipped: 'already tailored or queued' });
-  assert.equal(s.service.autoTailor(key('Acme'), 'auto-saved').meta.trigger, 'auto-saved');
+  assert.equal(s.service.autoTailor, undefined, 'the service exposes no automatic tailoring hook');
+  // A legacy settings file that still asks for auto-tailoring with a zero cap changes nothing.
+  writeSettings(s.dataDir, { resume: { autoTailor: true, autoDailyCap: 0 } });
+  const results = ['Acme', 'Bolt', 'Cora'].map((c) => s.service.requestTailor(key(c)));
+  assert.deepEqual(results.map((r) => r.queue), ['queued', 'queued', 'queued']);
+  assert.ok(results.every((r) => r.meta.trigger === 'manual' && r.meta.deferred === false));
+  assert.ok(s.queue.list().every((j) => !j.cap), 'manual jobs carry no daily cap');
   await s.queue.drain();
-});
-
-test('auto runs over the daily cap are deferred and promoted the next day; manual ignores the cap', async () => {
-  const s = svc();
-  writeSettings(s.dataDir, { resume: { autoDailyCap: 2 } });
-  const results = ['Acme', 'Bolt', 'Cora'].map((c) => s.service.autoTailor(key(c), 'auto-saved'));
-  assert.deepEqual(results.map((r) => r.queue), ['queued', 'queued', 'deferred']);
-  assert.equal(results[2].meta.deferred, true);
-  await s.queue.drain();
-  assert.deepEqual(s.ran, ['acme-senior-software-engineer', 'bolt-senior-software-engineer']);
-  s.setClock('2026-10-06T08:00:00');
-  await s.queue.tick();
   assert.deepEqual(s.ran, ['acme-senior-software-engineer', 'bolt-senior-software-engineer', 'cora-senior-software-engineer']);
-  assert.equal(s.service.requestTailor(key('Dyno')).queue, 'queued');
-  await s.queue.drain();
 });
 
 test('accept marks the record and appends "Resume tailored (score)" to the role timeline once', async () => {
@@ -246,7 +232,7 @@ for (const retry of ['crashed', 'unparseable', 'throws', 'too few']) {
   });
 }
 
-test('library joins tracker stage, best-round categories, used-to-apply, and summary counts', async () => {
+test('library joins tracker stage, best-round categories, accept/reject decision, and summary counts', async () => {
   const s = svc();
   fs.writeFileSync(path.join(s.dataDir, 'role-tracker.json'), JSON.stringify({ [key('Acme')]: { stage: 'applied', notes: '', checklist: [], timeline: [] } }));
   const a = s.service.requestTailor(key('Acme')).meta;
@@ -262,26 +248,44 @@ test('library joins tracker stage, best-round categories, used-to-apply, and sum
   const byId = Object.fromEntries(lib.records.map((r) => [r.id, r]));
   assert.equal(byId[a.id].stage, 'applied');
   assert.deepEqual(byId[a.id].categories, { K: 25, P: 30, S: 15, H: 15, C: 7 });
-  assert.equal(byId[a.id].used, true, 'accepted counts as used');
-  assert.equal(byId[b.id].used, false);
+  assert.equal(byId[a.id].decision, 'accepted');
+  assert.equal(byId[b.id].decision, null);
   assert.equal(byId[b.id].stage, null);
-  assert.deepEqual({ total: lib.summary.total, atTarget: lib.summary.atTarget, belowTarget: lib.summary.belowTarget, used: lib.summary.used, avgScore: lib.summary.avgScore },
-    { total: 2, atTarget: 1, belowTarget: 1, used: 1, avgScore: 86 });
+  assert.deepEqual({ total: lib.summary.total, atTarget: lib.summary.atTarget, belowTarget: lib.summary.belowTarget, accepted: lib.summary.accepted, rejected: lib.summary.rejected, undecided: lib.summary.undecided, avgScore: lib.summary.avgScore },
+    { total: 2, atTarget: 1, belowTarget: 1, accepted: 1, rejected: 0, undecided: 1, avgScore: 86 });
 
-  s.service.setUsed(a.id, false);
-  s.service.setUsed(b.id, true);
+  const beforeDecision = s.service.listMeta().find((m) => m.id === b.id).updatedAt;
+  const rejected = s.service.reject(b.id);
+  assert.equal(rejected.updatedAt, beforeDecision, 'a decision does not move the row in the Recently updated sort');
+  assert.deepEqual([rejected.rejected, rejected.accepted], [true, false]);
   lib = s.service.library();
-  assert.deepEqual(lib.records.filter((r) => r.used).map((r) => r.id), [b.id], 'manual override wins over accept');
-  s.service.setUsed(a.id, null);
-  assert.equal(s.service.library().records.find((r) => r.id === a.id).used, true, 'null returns to automatic');
-  assert.throws(() => s.service.setUsed(a.id, 'yes'), (err) => err.status === 400);
+  assert.deepEqual([lib.summary.accepted, lib.summary.rejected, lib.summary.undecided], [1, 1, 0]);
+  const flipped = s.service.reject(a.id);
+  assert.deepEqual([flipped.accepted, flipped.acceptedAt, flipped.rejected], [false, null, true], 'reject reverses an accept');
+  const back = s.service.accept(a.id);
+  assert.deepEqual([back.accepted, back.rejected, back.rejectedAt], [true, false, null], 'accept reverses a reject');
 });
 
-test('library reports queue position, and runNow starts a deferred run outside the cap', async () => {
+// Records deferred by the retired daily auto-tailor cap can still exist on disk.
+function seedLegacyDeferred(s, company) {
+  const id = `${company.toLowerCase()}-senior-software-engineer`;
+  const dir = path.join(s.dataDir, 'resume', 'tailored', id);
+  fs.mkdirSync(dir, { recursive: true });
+  const t = '2026-10-05T08:00:00.000Z';
+  const meta = {
+    id, roleKeys: [key(company)], company, role: 'Senior Software Engineer', jdUrl: '', status: 'queued',
+    bestRound: null, bestScore: null, accepted: false, acceptedAt: null, trigger: 'auto-saved',
+    createdAt: t, updatedAt: t, error: null, deferred: true, gaps: null, rounds: [], runs: [],
+  };
+  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
+  assert.equal(s.queue.enqueue({ kind: 'resume', key: `resume:${id}`, payload: { id, mode: 'full' } }, { auto: true, capName: 'resume', cap: 0 }).status, 'deferred');
+  return meta;
+}
+
+test('library reports queue position, and runNow starts a legacy deferred run', async () => {
   const s = svc();
-  writeSettings(s.dataDir, { resume: { autoDailyCap: 1 } });
-  const a = s.service.autoTailor(key('Acme'), 'auto-saved').meta;
-  const b = s.service.autoTailor(key('Bolt'), 'auto-saved').meta;
+  const a = s.service.requestTailor(key('Acme')).meta;
+  const b = seedLegacyDeferred(s, 'Bolt');
   s.queue.enqueue({ kind: 'workbook', key: 'wb:x', payload: {} });
   const lib = s.service.library();
   const rb = lib.records.find((r) => r.id === b.id);

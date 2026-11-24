@@ -15,7 +15,7 @@ test('installer copies executable dashboard controls and their shared helper int
   fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'app'));
   fs.mkdirSync(stubs);
-  for (const dir of ['skill', 'lib']) fs.cpSync(path.join(ROOT, dir), path.join(repo, dir), { recursive: true });
+  for (const dir of ['skill', 'lib', 'plugins', '.claude-plugin']) fs.cpSync(path.join(ROOT, dir), path.join(repo, dir), { recursive: true });
   for (const [name, body] of Object.entries({
     git: '[ "$*" = pull ]', npm: 'exit 0', uname: 'echo Linux',
     node: '[ "$1" != -v ] || echo v22.0.0; exit 0',

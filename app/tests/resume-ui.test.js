@@ -37,8 +37,8 @@ test('failed tailored list GET exposes an error without an empty state or losing
   assert.ok(source, 'tailored record hook exists');
   const states = [];
   let cursor = 0, response;
-  const hook = new Function('useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', `${source[0]}\nreturn useTailoredRecord;`)(
-    (initial) => {
+  const hook = new Function('usePageVisible', 'useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', `${source[0]}\nreturn useTailoredRecord;`)(
+    () => true, (initial) => {
       const index = cursor++;
       if (!(index in states)) states[index] = initial;
       return [states[index], (value) => { states[index] = value; }];
@@ -246,8 +246,8 @@ test('tailored records poll active work and refresh other subscribers after muta
     const effects = [], timers = [], cleared = [], updates = [];
     const window = new EventTarget();
     let requests = 0;
-    const hook = new Function('useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', 'setInterval', 'clearInterval', 'window', `${source[0]}\nreturn useTailoredRecord;`)(
-      (initial) => [initial === null ? [{ id: 'r1', roleKeys: ['Initech|Engineer'], status }] : initial, (v) => updates.push(v)],
+    const hook = new Function('usePageVisible', 'useState', 'useCallback', 'useEffect', 'resumeApi', 'RM_ACTIVE', 'setInterval', 'clearInterval', 'window', `${source[0]}\nreturn useTailoredRecord;`)(
+      () => true, (initial) => [initial === null ? [{ id: 'r1', roleKeys: ['Initech|Engineer'], status }] : initial, (v) => updates.push(v)],
       (fn) => fn, (fn) => effects.push(fn),
       { async get(url) { assert.equal(url, '/api/resume/tailored'); requests++; return []; } }, ['queued', 'running'],
       (fn, ms) => { assert.equal(ms, 3000); timers.push(fn); return 42; }, (id) => cleared.push(id), window,
@@ -278,7 +278,8 @@ test('Resume page opens on the Library tab with Master and LaTeX editor tabs', (
   assert.ok(html.includes("{tab === 'master' && <ResumeMaster active={active && tab === 'master'} />}"), 'Master tab hosts the overview/import page');
   const lib = html.slice(html.indexOf('function ResumeLibrary('), html.indexOf('function Resume({'));
   assert.ok(lib.includes("resumeApi.get('/api/resume/library')"));
-  assert.ok(lib.includes("`/api/resume/tailored/${r.id}/used`"));
+  assert.ok(lib.includes("`/api/resume/tailored/${r.id}/${verdict}`"), 'rows accept or reject');
+  assert.ok(!lib.includes('Used to apply'));
   assert.ok(lib.includes("`/api/resume/tailored/${r.id}/run-now`"));
   assert.ok(lib.includes('<TailoredResumeCard roleKey={r.roleKeys[0]} recordId={r.id} />'), 'details reuse the full tailored card');
   assert.ok(lib.includes("onOpenRole({ company: key.slice(0, i), role: key.slice(i + 1) })"), 'Open in Intel uses the app-level role launch');

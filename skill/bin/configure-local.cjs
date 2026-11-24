@@ -5,9 +5,10 @@ const args=process.argv.slice(2);const data=path.resolve(process.env.DATA_DIR ||
 const file=path.join(data,'local-setup.json');
 try {
  let config={};try{config=JSON.parse(fs.readFileSync(file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw Error('Existing setup is unreadable; preserved without changes.');}
- if(!args.length || args.includes('--help')){console.log('Usage: configure-local.cjs [--career-brief /absolute/brief.json] [--reply-queue /absolute/queue.json] [--interview-home /absolute/interview-home] [--external-schedule] [--private-origin https://device.tailnet.ts.net --tailscale-user your-login] [--local-only]\nAll options are optional. Local-only is the default. Restart Job Quest after changing setup.');process.exit(0);}
+ if(!args.length || args.includes('--help')){console.log('Usage: configure-local.cjs [--career-brief /absolute/brief.json] [--reply-queue /absolute/queue.json] [--interview-home /absolute/interview-home] [--external-schedule] [--native-outreach] [--private-origin https://device.tailnet.ts.net --tailscale-user your-login] [--local-only]\nAll options are optional. Local-only is the default. Restart Job Quest after changing setup.');process.exit(0);}
  for(let i=0;i<args.length;i++){
   const flag=args[i];
+  if(flag==='--native-outreach'){delete config.careerBrief;delete config.replyQueue;continue;}
   if(flag==='--local-only'){delete config.privateOrigin;delete config.tailscaleUser;continue;}
   if(flag==='--external-schedule'){config.schedule='external';continue;}
   if(!['--career-brief','--reply-queue','--interview-home','--private-origin','--tailscale-user'].includes(flag))throw Error('Unknown option: '+flag);

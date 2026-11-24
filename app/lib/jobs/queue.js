@@ -7,7 +7,10 @@ const { writeFileAtomic } = require('../interview/atomic');
 
 const ACTIVE = new Set(['queued', 'running', 'deferred']);
 
-function createQueue({ dataDir, handlers, now = () => new Date() }) {
+// `priority` lists job kinds to run first (earlier entries win); kinds not listed
+// run after them. Jobs of the same rank keep their arrival order. Short resume
+// tailoring runs should not wait behind hour-long workbook builds.
+function createQueue({ dataDir, handlers, now = () => new Date(), priority = [] }) {
   const dir = path.join(dataDir, 'jobs');
   const file = path.join(dir, 'queue.json');
   let state = { jobs: [], counts: {} };
@@ -67,9 +70,23 @@ function createQueue({ dataDir, handlers, now = () => new Date() }) {
     save();
   }
 
+  function rank(job) {
+    const i = priority.indexOf(job.kind);
+    return i === -1 ? priority.length : i;
+  }
+
+  function nextQueued() {
+    let best = null;
+    for (const j of state.jobs) {
+      if (j.status !== 'queued') continue;
+      if (!best || rank(j) < rank(best)) best = j;
+    }
+    return best;
+  }
+
   async function runAll() {
     for (;;) {
-      const next = state.jobs.find((j) => j.status === 'queued');
+      const next = nextQueued();
       if (!next) return;
       next.status = 'running';
       next.startedAt = now().toISOString();

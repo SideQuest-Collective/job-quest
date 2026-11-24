@@ -17,7 +17,7 @@ test('install.sh is valid bash and provisions the resume data directories', () =
 });
 
 test('SKILL.md documents resume tailoring', () => {
-  const skill = fs.readFileSync(path.join(root, 'skill', 'SKILL.md'), 'utf-8');
+  const skill = fs.readFileSync(path.join(root, 'plugins', 'job-quest', 'skills', 'job-quest', 'SKILL.md'), 'utf-8');
   assert.ok(skill.indexOf('## Resume Tailoring') > 0);
   assert.ok(skill.indexOf('## Resume Tailoring') < skill.indexOf('## Schedule Management'));
   assert.ok(skill.includes('import-resume.js --content'));
@@ -39,7 +39,7 @@ for (const scenario of ['no upload', 'valid upload', 'upload without macros', 'e
     fs.mkdirSync(path.join(app, '.git'), { recursive: true });
     fs.mkdirSync(path.join(app, 'app'));
     fs.mkdirSync(bin);
-    for (const dir of ['skill', 'lib']) {
+    for (const dir of ['skill', 'lib', 'plugins', '.claude-plugin']) {
       fs.cpSync(path.join(root, dir), path.join(app, dir), { recursive: true });
     }
     // Exercise the full installer without network, dependency lifecycle scripts,

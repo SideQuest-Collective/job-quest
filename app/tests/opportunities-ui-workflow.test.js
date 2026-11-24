@@ -116,3 +116,236 @@ test('outreach links to a supported native role by listing or exact company and 
   assert.equal(context.window.matchJobQuestOutreachRole({ company: 'Example', title: 'Senior Backend Engineer' }, [backend, { ...backend, url: 'https://jobs.example.com/44' }]), null, 'ambiguous exact matches stay unresolved');
   assert.equal(context.window.matchJobQuestOutreachRole({ relatedRoleUrl: 'javascript:alert(1)' }, roles), null);
 });
+
+
+test('setup request waits for the visible loaded Outreach form, then opens and focuses it once per request', () => {
+  const effect = source.match(/  useEffect\(\(\) => \{\n    if \(!active \|\| !data \|\| !configureRequest[\s\S]*?\n  \}, \[active, data, configureRequest\]\);/)[0];
+  const run = new Function('window', 'active', 'data', 'configureRequest', 'configuredRequest', 'setAccountsOpen', 'accountPanel', 'accountInput', 'useEffect', effect);
+  const calls = [], panel = { open: false }, input = {
+    scrollIntoView(options) { calls.push(['scroll', options.block]); },
+    focus(options) { calls.push(['focus', options.preventScroll]); },
+  };
+  const applied = { current: 0 }, panelRef = { current: panel }, inputRef = { current: input };
+  const invoke = (active, data, request) => run(context.window, active, data, request, applied,
+    open => calls.push(['open', open]), panelRef, inputRef, callback => callback());
+  invoke(true, null, 1);
+  invoke(false, {}, 1);
+  assert.equal(applied.current, 0);
+  assert.deepEqual(calls, []);
+  invoke(true, {}, 1);
+  assert.equal(panel.open, true);
+  assert.deepEqual(calls, [['open', true], ['scroll', 'center'], ['focus', true]]);
+  invoke(true, { refreshed: true }, 1);
+  assert.equal(calls.length, 3, 'refresh must not steal focus from account editing');
+  invoke(true, {}, 2);
+  assert.equal(calls.length, 6, 'returning through Setup should reopen the form');
+});
+
+test('mailbox groups combine legacy notification aliases, prefer Gmail and preserve original saved records', () => {
+  const accounts = [
+    {id:'notification',kind:'linkedin_email',label:' You@Example.test ',sourceName:'legacy'},
+    {id:'li',kind:'linkedin',label:'You@Example.test'},
+    {id:'gmail',kind:'gmail',label:'you@example.test',sourceName:'gmail'},
+    {id:'other',kind:'gmail',label:'other@example.test'},
+    {id:'legacy-only',kind:'linkedin_email',label:'legacy@example.test'},
+  ];
+  const original = JSON.stringify(accounts);
+  const groups = plain(context.window.jobQuestAccountGroups(accounts));
+  assert.equal(groups.length,4);
+  assert.deepEqual(groups[0], {...accounts[2],accountIds:['notification','gmail']});
+  assert.deepEqual(groups[1], {...accounts[1],accountIds:['li']});
+  assert.deepEqual(groups[3].accountIds,['legacy-only']);
+  assert.equal(JSON.stringify(accounts),original,'grouping does not rewrite legacy data or source mappings');
+  assert.doesNotMatch(source, /<option value="linkedin_email">/);
+  assert.match(source, /Recruiter emails, including LinkedIn notifications received here/);
+  assert.match(source, /data.accounts.filter\(a=>!account.accountIds.includes\(a.id\)\)/);
+});
+
+test('adding Gmail refuses an already saved notification mailbox regardless of case', () => {
+  const handler=source.match(/  const addAccount = event => \{[\s\S]*?\n  \};/)[0];
+  const errors=[], saves=[];
+  const add=new Function('accountLabel','data','accountKind','setError','saveAccounts',`${handler}\nreturn addAccount;`)(
+    ' YOU@example.test ',{accounts:[{id:'old',kind:'linkedin_email',label:'you@EXAMPLE.test'}]},'gmail',value=>errors.push(value),value=>saves.push(value));
+  add({preventDefault(){}});
+  assert.deepEqual(saves,[]);
+  assert.deepEqual(errors,['This account is already selected.']);
+});
+
+test('access checks send only selected ids and the saved revision to the background API', async () => {
+  const calls = [];
+  const check = { id: 'check-1', status: 'running', accountIds: ['gmail'] };
+  const fetcher = async (url, request) => { calls.push({url, request}); return {ok:true,json:async()=>({check})}; };
+  assert.equal(await context.window.requestJobQuestAccessCheck(fetcher, ['gmail'], 'revision-1'), check);
+  assert.equal(calls[0].url, '/api/opportunities/access-check');
+  assert.equal(calls[0].request.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].request.body), {accountIds:['gmail'],revision:'revision-1'});
+  await assert.rejects(context.window.requestJobQuestAccessCheck(async()=>({ok:false,json:async()=>({error:'Refresh accounts first.'})}), ['gmail'], 'old'), /Refresh accounts first/);
+  await assert.rejects(context.window.requestJobQuestAccessCheck(async()=>({ok:true,json:async()=>({})}), ['gmail'], 'old'), /returned no status/);
+  assert.doesNotMatch(source, /copyAccessRequest|jobQuestOutreachAccessRequest|paste.*agent chat|Copy request/);
+  assert.match(source, /does not save outreach or send anything/);
+});
+
+test('latest results distinguish active verification, blockers, failed and interrupted checks from saved history', () => {
+  const result = context.window.jobQuestAccessResult;
+  assert.equal(result(null, 'gmail'), null);
+  assert.equal(result({accountIds:['other'],status:'running'}, 'gmail'), null);
+  const check = {accountIds:['gmail'],status:'running'};
+  assert.equal(result(check, 'gmail').label, 'Checking…');
+  for (const status of ['sign_in_required','connection_unavailable','identity_mismatch','unverified']) {
+    const current = result({...check,status:'completed',results:[{accountId:'gmail',status,detail:'Actual evidence'}]}, 'gmail');
+    assert.notEqual(current.label, 'Access verified');
+    assert.equal(current.detail, 'Actual evidence');
+    assert.match(current.action, /again/);
+  }
+  const verified = result({...check,status:'completed',results:[{accountId:'gmail',status:'verified',detail:'Identity confirmed'}]}, 'gmail');
+  assert.equal(verified.label, 'Access verified');
+  assert.equal(verified.action, undefined);
+  for (const status of ['failed','interrupted']) {
+    const current = result({...check,status,error:'Agent unavailable',results:[{accountId:'gmail',status:'verified'}]}, 'gmail');
+    assert.notEqual(current.label, 'Access verified');
+    assert.equal(current.detail, 'Agent unavailable');
+  }
+  assert.notEqual(result({...check,status:'completed',results:[]}, 'gmail').label, 'Access verified');
+  assert.match(source, /<dt>Saved access history<\/dt>/);
+});
+
+test('the actual check handler prevents duplicate starts, uses the current revision and retains start errors', async () => {
+  const handler = source.match(/  const checkAccess = async \(accounts = data.accounts\) => \{[\s\S]*?\n  \};/)[0];
+  const run = (locked, request) => {
+    const calls = [], checks = [], errors = [], starting = [], accessSequence = {current:0};
+    const invoke = new Function('window','fetch','data','accountsLocked','accessSequence','setAccessStarting','setAccessError','setAccessCheck','load','refreshAccessCheck', `${handler}\nreturn checkAccess;`)(
+      {requestJobQuestAccessCheck:request},()=>{}, {accounts:[{id:'gmail'},{id:'linkedin'}],accountsRevision:'fresh'},locked,accessSequence,
+      value=>starting.push(value), value=>errors.push(value), value=>checks.push(value),async()=>calls.push('load'),async()=>{calls.push('refresh');errors.push('');});
+    return {invoke,calls,checks,errors,starting,accessSequence};
+  };
+  let requests = 0;
+  const expectedIds = [];
+  const request = async (_fetch, ids, revision) => {requests++;assert.deepEqual(ids,expectedIds.shift());assert.equal(revision,'fresh');return{id:'1',status:'running'};};
+  const locked = run(true,request);
+  await locked.invoke([{id:'gmail'}]);
+  assert.equal(requests,0);
+  const ready = run(false,request);
+  expectedIds.push(['gmail']);
+  await ready.invoke([{id:'gmail'}]);
+  assert.equal(requests,1);
+  assert.deepEqual(ready.starting,[true,false]);
+  assert.equal(ready.checks[0].status,'running');
+  assert.deepEqual(ready.calls,[],'a running check does not claim account history has been saved');
+  expectedIds.push(['gmail','old-notifications']);
+  await ready.invoke([{id:'gmail',accountIds:['gmail','old-notifications']}]);
+  expectedIds.push(['gmail','linkedin']);
+  await ready.invoke();
+  const failed=run(false,async()=>{throw Error('Agent unavailable');});
+  await failed.invoke();
+  assert.deepEqual(failed.calls,['refresh']);
+  assert.equal(failed.errors.at(-1),'Agent unavailable');
+});
+
+test('access polling runs every three seconds only while active and running, and stops on navigation', () => {
+  const effect = source.match(/  useEffect\(\(\) => \{\n    if \(!active \|\| !configureOnly \|\| !accessRunning\)[\s\S]*?\n  \}, \[active, configureOnly, accessRunning\]\);/)[0];
+  const run = new Function('active','configureOnly','accessRunning','refreshAccessCheck','setInterval','clearInterval','useEffect',effect);
+  for (const state of [[false,true,true],[true,false,true],[true,true,false]]) {
+    run(...state,()=>assert.fail('must not refresh'),()=>assert.fail('must not poll'),()=>{},callback=>callback());
+  }
+  let callback, cleanup, current, clears=0;
+  run(true,true,true, predicate=>{current=predicate();}, (fn,delay)=>{callback=fn;assert.equal(delay,3000);return 17;}, id=>{assert.equal(id,17);clears++;}, effect=>{cleanup=effect();});
+  callback();assert.equal(current,true);
+  cleanup();assert.equal(clears,1);
+  callback();assert.equal(current,false,'in-flight responses are ignored after navigation');
+});
+
+test('access status reload ignores stale responses and refreshes saved accounts after completion', async () => {
+  const handler = source.match(/  const refreshAccessCheck = async \(isCurrent = \(\) => true\) => \{[\s\S]*?\n  \};/)[0];
+  const calls=[], checks=[], errors=[], loading=[], sequence={current:0}, finished={current:''};
+  const completed={id:'check',status:'completed',saved:true};
+  const reload=new Function('fetch','accessSequence','setAccessCheck','setAccessError','accessFinished','load','setAccessLoading',`${handler}\nreturn refreshAccessCheck;`)(
+    async()=>({ok:true,json:async()=>({check:completed})}),sequence,value=>checks.push(value),value=>errors.push(value),finished,async options=>calls.push(options),value=>loading.push(value));
+  await reload(()=>false);
+  assert.equal(checks.length,0);
+  await reload();await reload();
+  assert.equal(checks.length,2);
+  assert.equal(calls.length,1,'each finished result refreshes account history once');
+  assert.deepEqual(calls[0],{clearError:false});
+  assert.deepEqual(loading,[false,false]);
+});
+
+test('setup offers distinct LinkedIn browser surfaces and a Gmail account chooser', () => {
+  const linkedin = plain(context.window.jobQuestAccountSetupLinks('linkedin'));
+  assert.deepEqual(linkedin.map(link => new URL(link.url).pathname), ['/login', '/messaging/', '/jobs/']);
+  for (const link of linkedin) assert.equal(new URL(link.url).origin, 'https://www.linkedin.com');
+  const gmail = context.window.jobQuestAccountSetupLinks('gmail');
+  assert.equal(new URL(gmail[0].url).hostname, 'accounts.google.com');
+  assert.equal(new URL(gmail[0].url).searchParams.get('continue'), 'https://mail.google.com/mail/');
+  assert.deepEqual(plain(context.window.jobQuestAccountSetupLinks('linkedin_email')), plain(gmail));
+});
+
+test('external review ownership never presents native Intel as its inbox collector', () => {
+  const summary = context.window.jobQuestCollectionSummary({outreachOwner:'external',schedule:{installed:true},schedulePreference:{frequency:'daily',time:'09:00'}});
+  assert.match(summary, /separate career review/);
+  assert.match(summary, /native Intel does not refresh these accounts/);
+  assert.doesNotMatch(summary, /09:00/);
+});
+
+test('collection summary distinguishes off, unreadable, saved timing and unknown timing', () => {
+  const summary = context.window.jobQuestCollectionSummary;
+  assert.match(summary({outreachOwner:'native',schedule:{installed:false}}), /runs are off/);
+  assert.match(summary({outreachOwner:'native',schedule:{installed:false,error:'failed'}}), /could not be checked/);
+  assert.match(summary({outreachOwner:'native',schedule:{installed:true,cron:'30 8 * * 1-5'},schedulePreference:{frequency:'weekdays',time:'08:30',cron:'30 8 * * 1-5'},timeZone:'America/New_York'}), /on weekdays at 08:30 \(America\/New_York\)/);
+  assert.match(summary({outreachOwner:'native',schedule:{installed:true}}), /see its timing/);
+});
+
+test('account review labels preserve partial and unavailable coverage instead of claiming connected', () => {
+  const label = context.window.jobQuestAccountReviewStatus;
+  assert.equal(label(null), 'No review recorded');
+  assert.equal(label({status:'partial'}), 'Partial review');
+  assert.equal(label({status:'blocked'}), 'Could not review');
+  assert.equal(label({status:'ready'}), 'Reviewed');
+  assert.equal(label({status:'unexpected'}), 'See review details');
+});
+
+test('stale schedule preferences do not override the installed cron', () => {
+  const summary=context.window.jobQuestCollectionSummary({outreachOwner:'native',schedule:{installed:true,cron:'0 9 * * *'},schedulePreference:{frequency:'daily',time:'07:00',cron:'0 7 * * *'}});
+  assert.doesNotMatch(summary,/07:00/);
+  assert.match(summary,/see its timing/);
+});
+
+
+test('conversation review labels require fresh supported evidence and explain verification blockers', () => {
+  const now=Date.parse('2026-10-19T12:00:00Z');
+  const checkedAt='2026-10-19T11:00:00Z';
+  const review={checkedAt,outcome:'needs_reply',summary:'Conversation checked; reply needed.',evidence:[{channel:'email',kind:'conversation',result:'read',checkedAt}]};
+  const base={id:'reply',conversationReview:review,conversationReviewFresh:true,draftReply:'My saved reply',nextReminderAt:'2026-10-06'};
+  const current=context.window.jobQuestConversationReview;
+  assert.equal(current(base,now).outcome,'needs_reply');
+  assert.equal(current(base,now).reason,review.summary);
+  for (const [outcome,kind] of [['awaiting_reply','reply'],['booked','booking'],['closed','closure']]) {
+    const conversationReview={...review,outcome,evidence:[{channel:'email',kind,result:'found',checkedAt}]};
+    assert.equal(current({...base,conversationReview},now).outcome,outcome);
+    const later=now+2*86400000;
+    assert.equal(current({...base,conversationReview,conversationReviewFresh:false},later).outcome,outcome,'positive historical state does not expire into outreach');
+    assert.equal(current({...base,conversationReview,lastInboundAt:'2026-10-19T11:30:00Z'},later).outcome,'unverified','new inbound invalidates the old positive state');
+  }
+  const cases=[
+    [{...base,conversationReview:null},/Not yet checked/],
+    [{...base,conversationReview:null,lastInboundAt:'2026-10-19T11:30:00Z',sentAt:'2026-10-19T11:00:00Z'},/Not yet checked/],
+    [{...base,conversationReview:{...review,checkedAt:'2026-10-18T11:00:00Z'}},/no longer current/],
+    [{...base,lastInboundAt:'2026-10-19T11:30:00Z'},/New activity/],
+    [{...base,sentAt:'2026-10-19T11:30:00Z'},/New activity/],
+    [{...base,conversationReview:{...review,evidence:[]}},/Not yet checked/],
+    [{...base,conversationReviewFresh:false},/does not verify/],
+    [{...base,conversationReview:{...review,outcome:'unverified',summary:'LinkedIn sign-in needed.'},conversationReviewFresh:false},/LinkedIn sign-in needed/],
+  ];
+  const before=JSON.stringify(base);
+  for (const [item,reason] of cases) {
+    const result=current(item,now);
+    assert.equal(result.label,'Verification needed');
+    assert.equal(result.outcome,'unverified');
+    assert.match(result.reason,reason);
+  }
+  assert.equal(JSON.stringify(base),before,'verification display preserves drafts and reminder state');
+  assert.match(source,/Draft preserved while conversation verification is pending/);
+  assert.match(source,/Pending items stay here for an upcoming review/);
+  assert.equal(source.split('Intel verifies up to three conversations per run.').length-1,1,'one compact shared verification note');
+  assert.doesNotMatch(source,/Open Intel setup|Await verification in an upcoming Intel run/);
+  assert.doesNotMatch(source,/check the latest conversation before acting|follow up when it’s due/);
+});

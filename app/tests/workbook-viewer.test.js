@@ -31,9 +31,9 @@ test('company labels and filters come from the content', () => {
   for (const needle of ['const COMPANIES=[]', 'META.companyNames', "COMPANIES.map(function(c){return '<option value=\"'"]) assert.ok(html.includes(needle), needle);
 });
 
-test('no external resources are loaded', () => {
-  assert.doesNotMatch(html, /<script[^>]+src=/i);
-  assert.doesNotMatch(html, /<link[^>]+stylesheet/i);
+test('served viewer loads only bundled local theme and brand resources', () => {
+  const resources = [...html.matchAll(/<(?:script|link|img)\b[^>]*(?:src|href)=["']([^"']+)/gi)].map(match => match[1]);
+  assert.deepEqual(resources, ['/theme-tokens.css', '/brand/job-quest-icon.svg', '/brand/favicon-32.png', '/brand/apple-touch-icon.png', '/theme.js', '/workbook-theme.css', '/brand/job-quest-mark.svg']);
 });
 
 const vm = require('node:vm');
@@ -64,8 +64,13 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
   };
   customizeData(data);
   function element() {
-    return { innerHTML: '', textContent: '', firstChild: {}, style: {},
-      classList: { toggle() {}, remove() {} }, addEventListener() {},
+    return { innerHTML: '', textContent: '', firstChild: {}, style: { setProperty(name, value) { this[name] = value; } },
+      attributes: {}, listeners: {},
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+      getAttribute(name) { return this.attributes[name] ?? null; },
+      getBoundingClientRect() { return { height: 94, top: 0, left: 0, right: 390, bottom: 94, width: 390 }; },
+      classList: { toggle() {}, remove() {}, add() {} },
+      addEventListener(name, handler) { this.listeners[name] = handler; },
       querySelectorAll() { return []; }, querySelector() { return null; } };
   }
   const document = {
@@ -75,13 +80,25 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
       return elements.get(id);
     },
     addEventListener() {}, createElement: element,
-    body: { appendChild() {} }, documentElement: { setAttribute() {} },
+    body: { appendChild() {} }, documentElement: element(),
+  };
+  const themeListeners = new Set();
+  let currentTheme = storage.get('jobquest.theme') || storage.get('workbook.theme') || 'dark';
+  const theme = {
+    get: () => currentTheme,
+    toggle() {
+      currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      storage.set('jobquest.theme', currentTheme);
+      document.documentElement.setAttribute('data-theme', currentTheme);
+      for (const listener of themeListeners) listener(currentTheme);
+    },
+    subscribe(listener) { themeListeners.add(listener); return () => themeListeners.delete(listener); },
   };
   let failPut = false;
   let timerId = 0;
   const context = vm.createContext({
     document,
-    window: { WB_OFFLINE: offline, scrollTo() {}, addEventListener(name, handler) { events[name] = handler; } },
+    window: { JobQuestTheme: theme, WB_OFFLINE: offline, scrollTo() {}, addEventListener(name, handler) { events[name] = handler; } },
     location: { pathname: '/workbooks/sample', hash: '' },
     localStorage: { getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
@@ -103,7 +120,7 @@ async function loadViewer({ progress = {}, offline = false, stored = {}, content
     'route(); return { S, save, flush, importLegacy, wireQ, QUESTIONS, qHTML, viewHome, viewGuide, viewRead, viewPractice, viewProgress, viewSearch, resolveConflict, conflictMarkup, restoreBrowserDraft }; })();',
   );
   const api = await vm.runInContext(script, context);
-  return { api, elements, storage, events, timers, puts, requests,
+  return { api, document, elements, storage, events, timers, puts, requests,
     failPut(value) { failPut = value; },
     async saveNow() {
       assert.equal(timers.size, 1);
@@ -310,4 +327,30 @@ test('question deep link opens its exact question and unavailable IDs remain hon
  const load = new Function('vm','clone','html','assert',`return (${helper});`)(vm,clone,html,assert);
  const viewer=await load();assert.match(viewer.elements.get('qwrap').innerHTML,/Pick one/);assert.doesNotMatch(viewer.elements.get('qwrap').innerHTML,/Design a queue/);
  const missing=helper.replace("'#question/q2'","'#question/no-such-id'");const second=await new Function('vm','clone','html','assert',`return (${missing});`)(vm,clone,html,assert)();assert.match(second.elements.get('main').innerHTML,/Question unavailable/);
+});
+
+
+test('shared theme switching remains available when workbook data fails to load', async () => {
+  const viewer = await loadViewer({ contentStatus: 404 });
+  const button = viewer.elements.get('themeBtn');
+  assert.equal(button.getAttribute('aria-label'), 'Switch to light theme');
+  button.listeners.click();
+  assert.equal(viewer.storage.get('jobquest.theme'), 'light');
+  assert.equal(button.getAttribute('aria-label'), 'Switch to dark theme');
+  assert.equal(button.title, 'Switch to dark theme');
+  assert.equal(viewer.elements.get('main').innerHTML.includes('Could not load this workbook'), true);
+  assert.equal(viewer.puts.length, 0);
+});
+
+test('workbook uses the shared theme and measured header height without replacing progress', async () => {
+  const viewer = await loadViewer({ stored: { 'jobquest.theme': 'light' } });
+  const button = viewer.elements.get('themeBtn');
+  assert.equal(button.getAttribute('aria-label'), 'Switch to dark theme');
+  viewer.api.S.draft.q1 = 'Keep my answer';
+  button.listeners.click();
+  assert.equal(viewer.storage.get('jobquest.theme'), 'dark');
+  assert.equal(button.getAttribute('aria-label'), 'Switch to light theme');
+  assert.equal(viewer.api.S.draft.q1, 'Keep my answer');
+  viewer.events.resize();
+  assert.equal(viewer.document.documentElement.style['--wb-header-height'], '94px');
 });

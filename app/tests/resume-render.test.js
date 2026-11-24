@@ -180,3 +180,16 @@ test('tailored content and project selection render while optional sections are 
   assert.ok(tex.indexOf('\\section{Certifications}') > tex.indexOf('\\section{Education}'));
   assert.match(tex, /Cloud \\& Systems/);
 });
+
+test('a projects group renders an umbrella row, its intro, and each project as a sub-entry', () => {
+  const master = loadMaster();
+  const plain = renderTex(template(), buildDocument(master, identityTailored(master)));
+  master.projectsGroup = { name: 'Acme Labs', role: 'Founder', url: 'github.com/acme-labs', start: '2025-11', end: null, intro: 'Builds 3 side projects.' };
+  const tex = renderTex(template(), buildDocument(master, identityTailored(master)));
+  const body = tex.slice(tex.indexOf('\\section{Projects}'), tex.indexOf('\\section{Skills}'));
+  assert.match(body, /\\textbf\{Acme Labs, Founder\} \\textit\{\\small -- \\href\{https:\/\/github\.com\/acme-labs\}\{github\.com\/acme-labs\}\} & \\small Nov 2025 -- Present/);
+  assert.match(body, /\{\\small Builds 3 side projects\.\\par\}/);
+  for (const p of master.projects) assert.ok(body.includes(`\\textbf{${latexEscape(p.name)}}`), p.name);
+  assert.ok(!body.includes('Ongoing'), 'grouped projects carry the umbrella dates instead');
+  assert.ok(plain.includes('Ongoing'), 'without a group the layout is unchanged');
+});

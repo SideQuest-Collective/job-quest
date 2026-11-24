@@ -233,6 +233,7 @@ function sessionsHarness(response) {
   const states = [], effects = [], timers = new Map();
   let seq = 0, requests = 0;
   const hook = helper('useInterviewSessions', {
+    usePageVisible: () => true,
     useState: initial => { const i = states.length; states.push(initial); return [initial, value => { states[i] = typeof value === 'function' ? value(states[i]) : value; }]; },
     useRef: initial => ({ current: initial }), useCallback: fn => fn,
     useEffect: fn => effects.push(fn),
@@ -241,7 +242,8 @@ function sessionsHarness(response) {
     clearInterval: id => timers.delete(id),
   });
   const model = hook('/api/interview/sessions');
-  const cleanup = effects[0]();
+  const cleanups = effects.map(effect => effect());
+  const cleanup = () => cleanups.forEach(stop => stop?.());
   return { states, timers, model, cleanup, requests: () => requests };
 }
 
@@ -293,7 +295,7 @@ test('unlinked list keeps pending/failed links visible and preserves the tailore
   assert.match(unlinked, /interviewIsActive\(s\)/);
   assert.match(html, /<TailoredResumeCard key=\{selectedKey\} roleKey=\{selectedKey\}/);
   const workbooks = html.slice(html.indexOf('function Workbooks('));
-  assert.match(workbooks, /<\/button>\s*<\/div>\s*<UnlinkedSessions \/>/);
+  assert.match(workbooks, /<\/button>\s*<\/div><\/header>\s*<UnlinkedSessions \/>/);
 });
 
 test('unlinked sessions collapse behind a remembered toggle and rows can be hidden and restored', () => {

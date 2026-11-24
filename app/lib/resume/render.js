@@ -91,6 +91,7 @@ function buildDocument(master, tailored) {
     experience,
     projects,
     skills: Array.isArray(t.skills) ? t.skills : [],
+    projectsGroup: master.projectsGroup && master.projectsGroup.name ? master.projectsGroup : null,
     education: master.education || [],
     certifications: master.certifications || [],
     additionalSections: master.additionalSections || [],
@@ -120,7 +121,7 @@ function header(doc) {
   for (const l of c.links || []) parts.push(link(l));
   const lines = ['\\begin{center}', `  {\\Huge\\bfseries ${latexEscape(c.name || '')}} \\\\[2pt]`];
   if (doc.headline) lines.push(`  \\normalsize ${latexEscape(doc.headline)} \\\\[2pt]`);
-  lines.push('  \\small', `  ${parts.join(' \\hspace{1pt} $|$ \\hspace{1pt} ')}`, '\\end{center}', '');
+  lines.push('  \\footnotesize', `  ${parts.join(' \\hspace{1pt} $|$ \\hspace{1pt} ')}`, '\\end{center}', '');
   return lines.join('\n');
 }
 
@@ -135,14 +136,31 @@ function experience(doc) {
     s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${latexEscape(e.employer)}}${e.location ? `, ${latexEscape(e.location)}` : ''} & \\small ${range(e.start, e.end)} \\\\\n    \\end{tabular*}\\vspace{-4pt}\n`;
     for (const r of e.roles) {
       const team = r.team ? ` \\textit{\\small -- ${latexEscape(r.team)}}` : '';
-      s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${latexEscape(r.title)}}${team} & \\small ${range(r.start, r.end)} \\\\\n    \\end{tabular*}\\vspace{-8pt}\n${items(r.bullets)}`;
+      s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${latexEscape(r.title)}}${team} & \\small ${range(r.start, r.end)} \\\\\n    \\end{tabular*}\\vspace{-5pt}\n${items(r.bullets)}`;
     }
+  }
+  return `${s}\n\\cventryend\n`;
+}
+
+// Projects under one umbrella (for example a studio the applicant founded): a header row
+// like an employer, a one-line intro, then each project as a sub-entry like a role.
+function groupedProjects(doc) {
+  const g = doc.projectsGroup;
+  const title = [g.name, g.role].filter(Boolean).map(latexEscape).join(', ');
+  const dates = g.start ? range(g.start, g.end) : '';
+  let s = '\\section{Projects}\n\\cventrystart\n';
+  s += `\n  \\vspace{0pt}\\item[]\n    \\begin{tabular*}{\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{${title}}${g.url ? ` \\textit{\\small -- ${link(g.url)}}` : ''} & \\small ${dates} \\\\\n    \\end{tabular*}\\vspace{-4pt}\n`;
+  if (g.intro) s += `\n  \\item[] {\\small ${latexEscape(g.intro)}\\par}\\vspace{-2pt}\n`;
+  for (const p of doc.projects) {
+    const tech = (p.tech || []).length ? ` \\textit{\\small -- ${latexEscape(p.tech.join(', '))}}` : '';
+    s += `\n  \\vspace{0pt}\\item[]\n    \\textbf{${latexEscape(p.name)}}${tech}\\par\\vspace{-5pt}\n${items(p.bullets)}`;
   }
   return `${s}\n\\cventryend\n`;
 }
 
 function projects(doc) {
   if (!doc.projects.length) return '';
+  if (doc.projectsGroup) return groupedProjects(doc);
   let s = '\\section{Projects}\n\\cventrystart\n';
   for (const p of doc.projects) {
     s += `  \\cventry\n    {${latexEscape(p.name)}}{${latexEscape((p.tech || []).join(', '))}}{}{Ongoing}\n    {${items(p.bullets).trimEnd()}}\n`;
@@ -153,7 +171,7 @@ function projects(doc) {
 function skills(doc) {
   const rows = doc.skills.filter((g) => g && (g.items || []).length)
     .map((g) => `    \\cvskill{${latexEscape(g.group)}}{${latexEscape(g.items.join(', '))}}\n`).join('');
-  return `\\section{Skills}\n\\begin{itemize}[leftmargin=0.0in,label={}]\n  \\small{\\item{\n${rows}  }}\n\\end{itemize}\n`;
+  return `\\section{Skills}\n\\begin{itemize}[leftmargin=0.0in,label={}]\n  \\small{\\item{\n${rows}  \\par}}\n\\end{itemize}\n`;
 }
 
 function education(doc) {
@@ -161,7 +179,7 @@ function education(doc) {
   const rows = doc.education
     .map((e) => `    \\textbf{${latexEscape(e.school)}} \\hfill ${[e.start, e.end].filter(Boolean).map(formatDate).join(' -- ')} \\\\\n    ${latexEscape(e.degree)}`)
     .join(' \\\\[2pt]\n');
-  return `\\section{Education}\n\\begin{itemize}[leftmargin=0.0in,label={}]\n  \\small{\\item{\n${rows}\n  }}\n\\end{itemize}\n`;
+  return `\\section{Education}\n\\begin{itemize}[leftmargin=0.0in,label={}]\n  \\small{\\item{\n${rows}\n  \\par}}\n\\end{itemize}\n`;
 }
 
 function certifications(doc) {
